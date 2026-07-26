@@ -1,98 +1,114 @@
-import * as Device from 'expo-device';
-import { Platform, StyleSheet } from 'react-native';
+import { Link } from 'expo-router';
+import { useCallback, useEffect, useState } from 'react';
+import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { AnimatedIcon } from '@/components/animated-icon';
-import { HintRow } from '@/components/hint-row';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { WebBadge } from '@/components/web-badge';
-import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
+import { ModuleList } from '@/components/module-list';
+import { DAEMON_BASE_URL } from '@/lib/config';
+import { DaemonClient } from '@/lib/daemon/client';
+import type { Composition } from '@/lib/daemon/types';
+import { useTheme } from '@/theme';
 
-function getDevMenuHint() {
-  if (Platform.OS === 'web') {
-    return <ThemedText type="small">use browser devtools</ThemedText>;
-  }
-  if (Device.isDevice) {
+export default function Explorer() {
+  const theme = useTheme();
+  const [composition, setComposition] = useState<Composition | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      setError(null);
+      setComposition(await new DaemonClient().getComposition());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const refresh = useCallback(async () => {
+    // The engine is fresh on every request but the app only fetches on mount,
+    // so this is what makes "go check the board" work without navigating away.
+    setRefreshing(true);
+    await load();
+    setRefreshing(false);
+  }, [load]);
+
+  if (error) {
     return (
-      <ThemedText type="small">
-        shake device or press <ThemedText type="code">m</ThemedText> in terminal
-      </ThemedText>
+      <SafeAreaView style={{ flex: 1, padding: theme.space.lg }}>
+        <Text style={{ ...theme.type.heading, color: theme.color.txPrimary }}>
+          Can&apos;t reach the engine
+        </Text>
+        {/* Named specifically, because the app is usually where a tailnet or a
+            bind problem first becomes visible, and "something went wrong" would
+            send you looking in the wrong place. */}
+        <Text
+          style={{
+            ...theme.type.caption,
+            color: theme.color.txTertiary,
+            paddingTop: theme.space.xs,
+          }}>
+          {DAEMON_BASE_URL}
+        </Text>
+        <Text
+          style={{
+            ...theme.type.caption,
+            color: theme.color.txTertiary,
+            paddingTop: theme.space.sm,
+          }}>
+          {error}
+        </Text>
+        <Pressable
+          onPress={load}
+          style={{
+            marginTop: theme.space.lg,
+            alignSelf: 'flex-start',
+            paddingVertical: theme.space.sm,
+            paddingHorizontal: theme.space.lg,
+            borderRadius: theme.radius.md,
+            backgroundColor: theme.color.bgAccent,
+          }}>
+          <Text style={{ ...theme.type.label, color: theme.color.txAccent }}>Try again</Text>
+        </Pressable>
+      </SafeAreaView>
     );
   }
-  const shortcut = Platform.OS === 'android' ? 'cmd+m (or ctrl+m)' : 'cmd+d';
-  return (
-    <ThemedText type="small">
-      press <ThemedText type="code">{shortcut}</ThemedText>
-    </ThemedText>
-  );
-}
 
-export default function HomeScreen() {
-  return (
-    <ThemedView style={styles.container}>
-      <SafeAreaView style={styles.safeArea}>
-        <ThemedView style={styles.heroSection}>
-          <AnimatedIcon />
-          <ThemedText type="title" style={styles.title}>
-            Welcome to&nbsp;Expo
-          </ThemedText>
-        </ThemedView>
-
-        <ThemedText type="code" style={styles.code}>
-          get started
-        </ThemedText>
-
-        <ThemedView type="backgroundElement" style={styles.stepContainer}>
-          <HintRow
-            title="Try editing"
-            hint={<ThemedText type="code">src/app/index.tsx</ThemedText>}
-          />
-          <HintRow title="Dev tools" hint={getDevMenuHint()} />
-          <HintRow
-            title="Fresh start"
-            hint={<ThemedText type="code">npm run reset-project</ThemedText>}
-          />
-        </ThemedView>
-
-        {Platform.OS === 'web' && <WebBadge />}
+  if (!composition) {
+    return (
+      <SafeAreaView style={{ flex: 1, justifyContent: 'center' }}>
+        <ActivityIndicator />
       </SafeAreaView>
-    </ThemedView>
+    );
+  }
+
+  return (
+    <SafeAreaView style={{ flex: 1 }} edges={['top']}>
+      <View style={{ flex: 1 }}>
+        <ModuleList composition={composition} refreshing={refreshing} onRefresh={refresh} />
+        {/* Capture is an action rather than a tab: snippets are fed in
+            throughout the day, so it should be at hand from wherever you are,
+            not somewhere you navigate to. */}
+        <Link href="/capture" asChild>
+          <Pressable
+            style={{
+              position: 'absolute',
+              right: theme.space.lg,
+              bottom: theme.space.xl,
+              paddingVertical: theme.space.md,
+              paddingHorizontal: theme.space.xl,
+              borderRadius: theme.radius.full,
+              backgroundColor: theme.color.bgAccent,
+              borderWidth: theme.border.thin,
+              borderColor: theme.color.bdAccent,
+            }}>
+            <Text style={{ ...theme.type.label, color: theme.color.txAccent }}>Capture</Text>
+          </Pressable>
+        </Link>
+      </View>
+    </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: 'center',
-    flexDirection: 'row',
-  },
-  safeArea: {
-    flex: 1,
-    paddingHorizontal: Spacing.four,
-    alignItems: 'center',
-    gap: Spacing.three,
-    paddingBottom: BottomTabInset + Spacing.three,
-    maxWidth: MaxContentWidth,
-  },
-  heroSection: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    flex: 1,
-    paddingHorizontal: Spacing.four,
-    gap: Spacing.four,
-  },
-  title: {
-    textAlign: 'center',
-  },
-  code: {
-    textTransform: 'uppercase',
-  },
-  stepContainer: {
-    gap: Spacing.three,
-    alignSelf: 'stretch',
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.four,
-    borderRadius: Spacing.four,
-  },
-});
