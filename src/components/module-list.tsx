@@ -1,5 +1,5 @@
 import { Link } from 'expo-router';
-import { RefreshControl, SectionList, Text, View } from 'react-native';
+import { Pressable, RefreshControl, SectionList, Text, View } from 'react-native';
 
 import { useTheme } from '@/theme';
 import type { Composition, Module } from '@/lib/daemon/types';
@@ -82,13 +82,14 @@ export function ModuleList({
         </Text>
       )}
       renderItem={({ item }) => (
-        <Link href={`/browse/${item.path}` as never} asChild>
-          <View
-            style={{
+        <Link href={`/browse/${item.path}`} asChild>
+          <Pressable
+            style={({ pressed }) => ({
+              opacity: pressed ? 0.6 : 1,
               paddingVertical: theme.space.sm,
               borderBottomWidth: theme.border.hairline,
               borderBottomColor: theme.color.bdPrimary,
-            }}>
+            })}>
             <Text style={{ ...theme.type.heading, color: theme.color.txPrimary }}>{item.name}</Text>
             {item.note ? (
               <Text
@@ -101,7 +102,7 @@ export function ModuleList({
                 {item.note}
               </Text>
             ) : null}
-          </View>
+          </Pressable>
         </Link>
       )}
     />
