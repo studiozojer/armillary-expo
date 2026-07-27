@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { INBOX_BASE_URL } from '@/lib/config';
+import { useHost } from '@/lib/host-context';
 import { uploadToInbox } from '@/lib/upload';
 import { useTheme } from '@/theme';
 
@@ -16,6 +16,7 @@ type Status =
 
 export default function Capture() {
   const theme = useTheme();
+  const { host } = useHost();
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
 
   async function pickAndUpload() {
@@ -30,6 +31,7 @@ export default function Capture() {
         filename: asset.name,
         recordedAt: new Date(),
         token: process.env.EXPO_PUBLIC_INBOX_TOKEN ?? '',
+        inboxUrl: host.inboxUrl,
       });
       setStatus({ kind: 'sent', name: asset.name });
     } catch (e) {
@@ -39,7 +41,7 @@ export default function Capture() {
 
   const message =
     status.kind === 'idle'
-      ? INBOX_BASE_URL
+      ? host.inboxUrl
       : status.kind === 'sending'
         ? `sending ${status.name}…`
         : status.kind === 'sent'

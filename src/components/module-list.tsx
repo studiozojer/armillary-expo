@@ -19,10 +19,12 @@ function sections(composition: Composition): Section[] {
 
 export function ModuleList({
   composition,
+  hostLabel,
   refreshing = false,
   onRefresh,
 }: {
   composition: Composition;
+  hostLabel: string;
   refreshing?: boolean;
   onRefresh?: () => void;
 }) {
@@ -41,14 +43,21 @@ export function ModuleList({
         paddingBottom: theme.space.xxxl,
       }}
       ListHeaderComponent={
-        <Text
-          style={{
-            ...theme.type.title,
-            color: theme.color.txPrimary,
-            paddingTop: theme.space.lg,
-          }}>
-          Loaded modules
-        </Text>
+        <View style={{ paddingTop: theme.space.lg }}>
+          <Text style={{ ...theme.type.title, color: theme.color.txPrimary }}>Loaded modules</Text>
+          {/* Which armillary you are looking at, always visible. Two machines
+              can both be serving a workspace, and only the host tells them apart. */}
+          <Link href="/settings" asChild>
+            <Text
+              style={{
+                ...theme.type.caption,
+                color: theme.color.txAccent,
+                paddingTop: theme.space.xxs,
+              }}>
+              {hostLabel} ›
+            </Text>
+          </Link>
+        </View>
       }
       ListEmptyComponent={
         <Text

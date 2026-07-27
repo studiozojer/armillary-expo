@@ -5,6 +5,8 @@ export type UploadArgs = {
   filename: string;
   recordedAt: Date;
   token: string;
+  /** Defaults to the build-time inbox; the host switcher overrides it. */
+  inboxUrl?: string;
   fetcher?: typeof fetch;
   readBlob?: (uri: string) => Promise<Blob>;
 };
@@ -26,6 +28,7 @@ export async function uploadToInbox({
   filename,
   recordedAt,
   token,
+  inboxUrl = INBOX_BASE_URL,
   fetcher = fetch,
   readBlob = defaultReadBlob,
 }: UploadArgs): Promise<void> {
@@ -40,7 +43,7 @@ export async function uploadToInbox({
   }
 
   const body = await readBlob(uri);
-  const response = await fetcher(`${INBOX_BASE_URL}/inbox`, {
+  const response = await fetcher(`${inboxUrl}/inbox`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${token}`,

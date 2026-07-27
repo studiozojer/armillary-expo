@@ -6,6 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { MarkdownView } from '@/components/markdown-view';
 import { TreeList } from '@/components/tree-list';
 import { DaemonClient } from '@/lib/daemon/client';
+import { useHost } from '@/lib/host-context';
 import { DaemonError, type FileResponse, type TreeResponse } from '@/lib/daemon/types';
 import { markedThemeFor, useTheme } from '@/theme';
 
@@ -47,6 +48,7 @@ function detailFor(status?: number): string | null {
 
 export default function Browse() {
   const theme = useTheme();
+  const { host } = useHost();
   const params = useLocalSearchParams<{ path?: string | string[] }>();
   const path = Array.isArray(params.path) ? params.path.join('/') : (params.path ?? '');
 
@@ -54,7 +56,7 @@ export default function Browse() {
   const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
-    const client = new DaemonClient();
+    const client = new DaemonClient(host.daemonUrl);
     try {
       // Ask for a directory first; the engine already distinguishes a directory
       // from a file, so falling back on rejection is cheaper than adding a stat
@@ -69,7 +71,7 @@ export default function Browse() {
     } catch (e) {
       setScreen({ kind: 'error', status: e instanceof DaemonError ? e.status : undefined });
     }
-  }, [path]);
+  }, [path, host]);
 
   useEffect(() => {
     setScreen({ kind: 'loading' });

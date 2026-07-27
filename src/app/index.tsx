@@ -4,13 +4,14 @@ import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ModuleList } from '@/components/module-list';
-import { DAEMON_BASE_URL } from '@/lib/config';
+import { useHost } from '@/lib/host-context';
 import { DaemonClient } from '@/lib/daemon/client';
 import type { Composition } from '@/lib/daemon/types';
 import { useTheme } from '@/theme';
 
 export default function Explorer() {
   const theme = useTheme();
+  const { host, generation, ready } = useHost();
   const [composition, setComposition] = useState<Composition | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -18,15 +19,17 @@ export default function Explorer() {
   const load = useCallback(async () => {
     try {
       setError(null);
-      setComposition(await new DaemonClient().getComposition());
+      setComposition(await new DaemonClient(host.daemonUrl).getComposition());
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
-  }, []);
+  }, [host]);
 
   useEffect(() => {
+    if (!ready) return;
+    setComposition(null);
     void load();
-  }, [load]);
+  }, [load, ready, generation]);
 
   const refresh = useCallback(async () => {
     // The engine is fresh on every request but the app only fetches on mount,
@@ -51,7 +54,7 @@ export default function Explorer() {
             color: theme.color.txTertiary,
             paddingTop: theme.space.xs,
           }}>
-          {DAEMON_BASE_URL}
+          {host.daemonUrl}
         </Text>
         <Text
           style={{
@@ -61,18 +64,35 @@ export default function Explorer() {
           }}>
           {error}
         </Text>
-        <Pressable
-          onPress={load}
-          style={{
-            marginTop: theme.space.lg,
-            alignSelf: 'flex-start',
-            paddingVertical: theme.space.sm,
-            paddingHorizontal: theme.space.lg,
-            borderRadius: theme.radius.md,
-            backgroundColor: theme.color.bgAccent,
-          }}>
-          <Text style={{ ...theme.type.label, color: theme.color.txAccent }}>Try again</Text>
-        </Pressable>
+        <View style={{ flexDirection: 'row', gap: theme.space.sm, marginTop: theme.space.lg }}>
+          <Pressable
+            onPress={load}
+            style={{
+              paddingVertical: theme.space.sm,
+              paddingHorizontal: theme.space.lg,
+              borderRadius: theme.radius.md,
+              backgroundColor: theme.color.bgAccent,
+            }}>
+            <Text style={{ ...theme.type.label, color: theme.color.txAccent }}>Try again</Text>
+          </Pressable>
+          {/* The switcher belongs here above all: an unreachable host is exactly
+              when you want to try another one, and needing a rebuild to do that
+              is what made the first failure take as long as it did. */}
+          <Link href="/settings" asChild>
+            <Pressable
+              style={{
+                paddingVertical: theme.space.sm,
+                paddingHorizontal: theme.space.lg,
+                borderRadius: theme.radius.md,
+                borderWidth: theme.border.thin,
+                borderColor: theme.color.bdPrimary,
+              }}>
+              <Text style={{ ...theme.type.label, color: theme.color.txSecondary }}>
+                Change host
+              </Text>
+            </Pressable>
+          </Link>
+        </View>
       </SafeAreaView>
     );
   }
@@ -88,7 +108,12 @@ export default function Explorer() {
   return (
     <SafeAreaView style={{ flex: 1 }} edges={['top']}>
       <View style={{ flex: 1 }}>
-        <ModuleList composition={composition} refreshing={refreshing} onRefresh={refresh} />
+        <ModuleList
+          composition={composition}
+          hostLabel={host.label}
+          refreshing={refreshing}
+          onRefresh={refresh}
+        />
         {/* Capture is an action rather than a tab: snippets are fed in
             throughout the day, so it should be at hand from wherever you are,
             not somewhere you navigate to. */}
