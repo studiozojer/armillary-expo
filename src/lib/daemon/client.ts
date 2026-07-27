@@ -22,8 +22,8 @@ export class DaemonClient {
     this.fetcher = fetcher;
   }
 
-  private async get<T>(path: string): Promise<T> {
-    const response = await this.fetcher(`${this.baseUrl}${path}`);
+  private async get<T>(path: string, signal?: AbortSignal): Promise<T> {
+    const response = await this.fetcher(`${this.baseUrl}${path}`, { signal });
     if (!response.ok) {
       // The status is what the UI branches on — a 415 on a .png should read as
       // "can't open this file type", not as a generic failure.
@@ -32,19 +32,19 @@ export class DaemonClient {
     return (await response.json()) as T;
   }
 
-  getHealth(): Promise<HealthResponse> {
-    return this.get<HealthResponse>('/health');
+  getHealth(signal?: AbortSignal): Promise<HealthResponse> {
+    return this.get<HealthResponse>('/health', signal);
   }
 
-  getComposition(): Promise<Composition> {
-    return this.get<Composition>('/composition');
+  getComposition(signal?: AbortSignal): Promise<Composition> {
+    return this.get<Composition>('/composition', signal);
   }
 
-  getTree(path: string): Promise<TreeResponse> {
-    return this.get<TreeResponse>(`/tree?path=${encodeURIComponent(path)}`);
+  getTree(path: string, signal?: AbortSignal): Promise<TreeResponse> {
+    return this.get<TreeResponse>(`/tree?path=${encodeURIComponent(path)}`, signal);
   }
 
-  getFile(path: string): Promise<FileResponse> {
-    return this.get<FileResponse>(`/file?path=${encodeURIComponent(path)}`);
+  getFile(path: string, signal?: AbortSignal): Promise<FileResponse> {
+    return this.get<FileResponse>(`/file?path=${encodeURIComponent(path)}`, signal);
   }
 }

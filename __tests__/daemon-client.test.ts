@@ -18,7 +18,9 @@ describe('DaemonClient', () => {
   it('encodes the path so spaces and slashes survive the query string', async () => {
     const fetcher = mockFetch(200, { path: 'a b/c', entries: [] });
     await clientWith(fetcher).getTree('a b/c');
-    expect(fetcher).toHaveBeenCalledWith('http://host:7778/tree?path=a%20b%2Fc');
+    expect(fetcher).toHaveBeenCalledWith('http://host:7778/tree?path=a%20b%2Fc', {
+      signal: undefined,
+    });
   });
 
   it('throws DaemonError carrying the status, so the UI can name the refusal', async () => {
@@ -36,6 +38,13 @@ describe('DaemonClient', () => {
     await expect(clientWith(mockFetch(404, 'not found')).getFile('nope.md')).rejects.toMatchObject({
       status: 404,
     });
+  });
+
+  it('threads an AbortSignal through so a superseded request is cancelled', async () => {
+    const fetcher = mockFetch(200, { path: '', entries: [] });
+    const controller = new AbortController();
+    await clientWith(fetcher).getTree('x', controller.signal);
+    expect(fetcher).toHaveBeenCalledWith(expect.any(String), { signal: controller.signal });
   });
 
   it('returns the parsed composition', async () => {

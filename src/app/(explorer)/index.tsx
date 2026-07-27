@@ -1,46 +1,34 @@
 import { Link } from 'expo-router';
 import { Stack } from 'expo-router/stack';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback } from 'react';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ModuleList } from '@/components/module-list';
-import { useHost } from '@/lib/host-context';
 import { DaemonClient } from '@/lib/daemon/client';
 import type { Composition } from '@/lib/daemon/types';
+import { useHost } from '@/lib/host-context';
+import { useLoader } from '@/lib/use-loader';
 import { useTheme } from '@/theme';
 
 export default function Explorer() {
   const theme = useTheme();
   const { host, generation, ready } = useHost();
-  const [composition, setComposition] = useState<Composition | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
 
-  const load = useCallback(async () => {
-    try {
-      setError(null);
-      setComposition(await new DaemonClient(host.daemonUrl).getComposition());
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  }, [host]);
+  const load = useCallback(
+    (signal: AbortSignal) => new DaemonClient(host.daemonUrl).getComposition(signal),
+    [host.daemonUrl],
+  );
 
-  useEffect(() => {
-    if (!ready) return;
-    setComposition(null);
-    void load();
-  }, [load, ready, generation]);
+  // `ready` gates the first fetch until the stored host has hydrated, so a cold
+  // launch does not fire at the default host and then race its own correction.
+  const { state, refreshing, refresh, retry } = useLoader<Composition>(
+    `${host.id}:${generation}`,
+    load,
+    ready,
+  );
 
-  const refresh = useCallback(async () => {
-    // The engine is fresh on every request but the app only fetches on mount,
-    // so this is what makes "go check the board" work without navigating away.
-    setRefreshing(true);
-    await load();
-    setRefreshing(false);
-  }, [load]);
-
-  if (error) {
+  if (state.status === 'error') {
     return (
       <SafeAreaView style={{ flex: 1, padding: theme.space.lg }}>
         <Text style={{ ...theme.type.heading, color: theme.color.txPrimary }}>
@@ -63,11 +51,12 @@ export default function Explorer() {
             color: theme.color.txTertiary,
             paddingTop: theme.space.sm,
           }}>
-          {error}
+          {state.error instanceof Error ? state.error.message : String(state.error)}
         </Text>
+
         <View style={{ flexDirection: 'row', gap: theme.space.sm, marginTop: theme.space.lg }}>
           <Pressable
-            onPress={load}
+            onPress={retry}
             style={{
               paddingVertical: theme.space.sm,
               paddingHorizontal: theme.space.lg,
@@ -77,8 +66,7 @@ export default function Explorer() {
             <Text style={{ ...theme.type.label, color: theme.color.txAccent }}>Try again</Text>
           </Pressable>
           {/* The switcher belongs here above all: an unreachable host is exactly
-              when you want to try another one, and needing a rebuild to do that
-              is what made the first failure take as long as it did. */}
+              when you want to try another one. */}
           <Link href="/settings" asChild>
             <Pressable
               style={{
@@ -98,7 +86,7 @@ export default function Explorer() {
     );
   }
 
-  if (!composition) {
+  if (state.status === 'loading') {
     return (
       <SafeAreaView style={{ flex: 1, justifyContent: 'center' }}>
         <ActivityIndicator />
@@ -111,9 +99,7 @@ export default function Explorer() {
       <Stack.Screen
         options={{
           // In the header, not floating: an absolutely-positioned button in a
-          // screen that owns no chrome ends up underneath the native tab bar,
-          // and guessing the tab bar's height to dodge it is a magic number
-          // waiting to be wrong on another device.
+          // screen that owns no chrome ends up underneath the native tab bar.
           headerRight: () => (
             <Link href="/capture" asChild>
               <Pressable hitSlop={8}>
@@ -124,7 +110,7 @@ export default function Explorer() {
         }}
       />
       <ModuleList
-        composition={composition}
+        composition={state.data}
         hostLabel={host.label}
         refreshing={refreshing}
         onRefresh={refresh}
