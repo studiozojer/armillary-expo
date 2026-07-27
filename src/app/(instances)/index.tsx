@@ -18,7 +18,7 @@ export default function Instances() {
   }, []);
 
   return (
-    <SafeAreaView style={{ flex: 1 }} edges={['top']}>
+    <SafeAreaView style={{ flex: 1 }} edges={[]}>
       {/* The banner is the point. A stub that looks live is a lie the screen
           tells every time it is opened, and this one will sit here for at least
           a sprint. */}

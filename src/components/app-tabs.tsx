@@ -1,40 +1,28 @@
 import { NativeTabs } from 'expo-router/unstable-native-tabs';
-import { useColorScheme } from 'react-native';
-
-import { themeFor } from '@/theme';
 
 /**
- * Two tabs, not three.
+ * Two tabs, each a route group with its own Stack.
  *
- * Explorer (files) and Instances (sessions) are the app's two real halves.
- * Capture is an action reached from Explorer rather than a destination: snippets
- * are fed in throughout the day, so it belongs at hand rather than somewhere you
- * navigate to. The scaffold also ships only two tab icons, and inventing a third
- * was not worth doing before the visual pass.
+ * The trigger names must be the group directories — a trigger is not a
+ * navigator, it selects one. Screens pushed from a tab live inside that tab's
+ * group, which is what makes `Link` work at all.
+ *
+ * Capture is not a tab: it is a modal reached from Explorer, because snippets
+ * are fed in throughout the day and belong at hand rather than as a destination.
+ * SF Symbols instead of bundled PNGs — they adapt to weight, tint and platform
+ * without shipping three raster sizes each.
  */
 export default function AppTabs() {
-  const scheme = useColorScheme();
-  const theme = themeFor(scheme === 'dark' ? 'dark' : 'light');
-
   return (
-    <NativeTabs
-      backgroundColor={theme.color.bgSecondary}
-      indicatorColor={theme.color.bgAccent}
-      labelStyle={{ selected: { color: theme.color.txPrimary } }}>
-      <NativeTabs.Trigger name="index">
+    <NativeTabs>
+      <NativeTabs.Trigger name="(explorer)">
+        <NativeTabs.Trigger.Icon sf="folder" md="folder" />
         <NativeTabs.Trigger.Label>Explorer</NativeTabs.Trigger.Label>
-        <NativeTabs.Trigger.Icon
-          src={require('@/assets/images/tabIcons/explore.png')}
-          renderingMode="template"
-        />
       </NativeTabs.Trigger>
 
-      <NativeTabs.Trigger name="instances">
+      <NativeTabs.Trigger name="(instances)">
+        <NativeTabs.Trigger.Icon sf="square.stack.3d.up" md="layers" />
         <NativeTabs.Trigger.Label>Instances</NativeTabs.Trigger.Label>
-        <NativeTabs.Trigger.Icon
-          src={require('@/assets/images/tabIcons/home.png')}
-          renderingMode="template"
-        />
       </NativeTabs.Trigger>
     </NativeTabs>
   );

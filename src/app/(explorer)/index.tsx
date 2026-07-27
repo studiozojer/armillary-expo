@@ -1,4 +1,5 @@
 import { Link } from 'expo-router';
+import { Stack } from 'expo-router/stack';
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -106,34 +107,28 @@ export default function Explorer() {
   }
 
   return (
-    <SafeAreaView style={{ flex: 1 }} edges={['top']}>
-      <View style={{ flex: 1 }}>
-        <ModuleList
-          composition={composition}
-          hostLabel={host.label}
-          refreshing={refreshing}
-          onRefresh={refresh}
-        />
-        {/* Capture is an action rather than a tab: snippets are fed in
-            throughout the day, so it should be at hand from wherever you are,
-            not somewhere you navigate to. */}
-        <Link href="/capture" asChild>
-          <Pressable
-            style={{
-              position: 'absolute',
-              right: theme.space.lg,
-              bottom: theme.space.xl,
-              paddingVertical: theme.space.md,
-              paddingHorizontal: theme.space.xl,
-              borderRadius: theme.radius.full,
-              backgroundColor: theme.color.bgAccent,
-              borderWidth: theme.border.thin,
-              borderColor: theme.color.bdAccent,
-            }}>
-            <Text style={{ ...theme.type.label, color: theme.color.txAccent }}>Capture</Text>
-          </Pressable>
-        </Link>
-      </View>
+    <SafeAreaView style={{ flex: 1 }} edges={[]}>
+      <Stack.Screen
+        options={{
+          // In the header, not floating: an absolutely-positioned button in a
+          // screen that owns no chrome ends up underneath the native tab bar,
+          // and guessing the tab bar's height to dodge it is a magic number
+          // waiting to be wrong on another device.
+          headerRight: () => (
+            <Link href="/capture" asChild>
+              <Pressable hitSlop={8}>
+                <Text style={{ ...theme.type.label, color: theme.color.txAccent }}>Capture</Text>
+              </Pressable>
+            </Link>
+          ),
+        }}
+      />
+      <ModuleList
+        composition={composition}
+        hostLabel={host.label}
+        refreshing={refreshing}
+        onRefresh={refresh}
+      />
     </SafeAreaView>
   );
 }
