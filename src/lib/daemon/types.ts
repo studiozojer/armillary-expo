@@ -32,7 +32,14 @@ export type Composition = {
 };
 
 export type TreeEntry = { name: string; dir: boolean };
-export type TreeResponse = { path: string; entries: TreeEntry[] };
+export type TreeResponse = {
+  path: string;
+  entries: TreeEntry[];
+  /** Entries the directory actually holds, before the engine's cap. */
+  total: number;
+  /** `entries` is a prefix of `total` — the UI must say so rather than imply completeness. */
+  truncated: boolean;
+};
 export type FileResponse = { path: string; sha256: string; bytes: number; text: string };
 export type HealthResponse = { ok: boolean; root: string; version: string };
 

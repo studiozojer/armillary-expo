@@ -114,6 +114,8 @@ export default function Browse() {
         <TreeList
           base={path}
           entries={state.data.tree.entries}
+          total={state.data.tree.total}
+          truncated={state.data.tree.truncated}
           refreshing={refreshing}
           onRefresh={refresh}
         />

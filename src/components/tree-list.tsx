@@ -7,11 +7,15 @@ import type { TreeEntry } from '@/lib/daemon/types';
 export function TreeList({
   base,
   entries,
+  total,
+  truncated = false,
   refreshing = false,
   onRefresh,
 }: {
   base: string;
   entries: TreeEntry[];
+  total?: number;
+  truncated?: boolean;
   refreshing?: boolean;
   onRefresh?: () => void;
 }) {
@@ -28,6 +32,20 @@ export function TreeList({
         paddingHorizontal: theme.space.lg,
         paddingBottom: theme.space.xxxl,
       }}
+      ListFooterComponent={
+        truncated ? (
+          // Said out loud. A list silently cut to its first 500 entries looks
+          // exactly like a complete one.
+          <Text
+            style={{
+              ...theme.type.caption,
+              color: theme.color.txTertiary,
+              paddingTop: theme.space.md,
+            }}>
+            Showing {entries.length} of {total} — this directory is too large to list in full.
+          </Text>
+        ) : null
+      }
       ListEmptyComponent={
         <Text
           style={{
