@@ -35,4 +35,38 @@ describe('theme tokens', () => {
     expect(theme.radius.md).toBeGreaterThan(0);
     expect(theme.type.body.fontSize).toBeGreaterThan(0);
   });
+
+  it('keys multi-segment roles without collision', () => {
+    // `key()` used to destructure only the first two segments, so bg/solid/base
+    // and bg/solid/card both keyed to `bgSolid` and the last one silently won.
+    // Nothing caught it because no multi-segment role was in the list until now.
+    expect(lightColors).toHaveProperty('bgSolidBase');
+    expect(lightColors).toHaveProperty('bgSolidCard');
+    expect(lightColors).toHaveProperty('bgSolidButton');
+    expect(lightColors).not.toHaveProperty('bgSolid');
+
+    expect(lightColors.bgSolidBase).not.toBe(lightColors.bgSolidCard);
+    expect(darkColors.bgSolidBase).not.toBe(darkColors.bgSolidCard);
+  });
+
+  it('carries opaque surfaces, not just elevation overlays', () => {
+    // The finding this whole pass rests on: the app was reading bg/primary,
+    // an 8%-alpha wash, as though it were a page background. A surface role
+    // must be fully opaque or it composites over whatever happens to be behind.
+    for (const role of ['bgSolidBase', 'bgSolidCard', 'bgSolidCardHover'] as const) {
+      expect(lightColors[role]).toMatch(/ff$/);
+      expect(darkColors[role]).toMatch(/ff$/);
+    }
+  });
+
+  it('gives every interaction state a value distinct from its resting surface', () => {
+    // A hover token equal to its base is indistinguishable from a missing one.
+    for (const scheme of [lightColors, darkColors]) {
+      expect(scheme.bgSolidCardHover).not.toBe(scheme.bgSolidCard);
+      expect(scheme.bgSolidCardPressed).not.toBe(scheme.bgSolidCard);
+      expect(scheme.bgSolidCardPressed).not.toBe(scheme.bgSolidCardHover);
+      expect(scheme.bgSolidButtonHover).not.toBe(scheme.bgSolidButton);
+      expect(scheme.bgSolidButtonPressed).not.toBe(scheme.bgSolidButton);
+    }
+  });
 });

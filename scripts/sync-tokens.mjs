@@ -22,11 +22,24 @@ const OUT = join(HERE, '..', 'src', 'theme', 'tokens.gen.ts');
 // semantics and emitting all of them would make the generated file a catalog
 // nobody reads. Add a role here when a screen needs it.
 const ROLES = [
-  'tx/primary', 'tx/secondary', 'tx/tertiary', 'tx/accent', 'tx/error',
+  'tx/primary', 'tx/secondary', 'tx/tertiary', 'tx/body', 'tx/accent', 'tx/error',
   'tx/warning', 'tx/success', 'tx/disabled',
+
+  // Opaque surfaces. These, not the bg/* overlays, are what a page and a card
+  // are painted with — the overlays are elevation washes meant to sit on top.
+  'bg/solid/base', 'bg/solid/card', 'bg/solid/card-secondary',
+  'bg/solid/card-hover', 'bg/solid/card-pressed',
+  'bg/solid/button', 'bg/solid/button-hover', 'bg/solid/button-pressed',
+  'bg/solid/button-disabled',
+
+  // Overlays, used as overlays: generic interactive feedback on non-card surfaces.
   'bg/primary', 'bg/secondary', 'bg/accent', 'bg/warning', 'bg/error',
+  'bg/hover', 'bg/pressed',
+
   'bd/base', 'bd/primary', 'bd/secondary', 'bd/card', 'bd/accent',
-  'ic/primary', 'ic/secondary', 'ic/accent',
+  'bd/hover', 'bd/pressed',
+
+  'ic/primary', 'ic/secondary', 'ic/tertiary', 'ic/accent',
 ];
 
 function die(message) {
@@ -81,10 +94,17 @@ function resolve(role, mode) {
   return withAlpha(primitive[mode], alpha * (primitive.alpha ?? 1));
 }
 
-/** `tx/primary` -> `txPrimary`, so the TS surface is a flat, typo-checkable object. */
+/**
+ * `tx/primary` -> `txPrimary`, `bg/solid/card-hover` -> `bgSolidCardHover`.
+ *
+ * Every segment after the prefix participates. The earlier version destructured
+ * only the first two, so `bg/solid/base` and `bg/solid/card` both keyed to
+ * `bgSolid` and silently overwrote each other — invisible while the role list
+ * happened to contain no multi-segment names.
+ */
 function key(role) {
-  const [prefix, name] = role.split('/');
-  return prefix + name.replace(/(^|-)(\w)/g, (_, __, c) => c.toUpperCase());
+  const [prefix, ...rest] = role.split('/');
+  return prefix + rest.join('-').replace(/(^|-)(\w)/g, (_, __, c) => c.toUpperCase());
 }
 
 const light = {};
