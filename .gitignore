@@ -30,6 +30,9 @@ yarn-error.*
 .DS_Store
 *.pem
 
+# skills
+.superpowers/brainstorm
+
 # local env files
 .env*.local
 
