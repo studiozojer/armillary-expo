@@ -1,8 +1,50 @@
 import { fireEvent, render, screen } from '@testing-library/react-native';
-import { StyleSheet } from 'react-native';
+import { Platform, StyleSheet } from 'react-native';
 
-import { ListRow } from '../src/components/ui';
+import { ICONS, ListRow } from '../src/components/ui';
 import { themeFor } from '../src/theme';
+
+// Shaped the way @testing-library/react-native's own internal
+// buildResponderGrantEvent() builds one — see the note on the pressed-surface
+// test below for why this, rather than fireEvent(row, 'pressIn'), is what
+// actually drives Pressable's internal state transition.
+function responderGrantEvent() {
+  return {
+    currentTarget: { measure: () => {} },
+    target: {},
+    preventDefault: () => {},
+    isDefaultPrevented: () => false,
+    stopPropagation: () => {},
+    isPropagationStopped: () => false,
+    persist: () => {},
+    isPersistent: () => false,
+    timeStamp: 0,
+    nativeEvent: {
+      changedTouches: [],
+      identifier: 0,
+      locationX: 0,
+      locationY: 0,
+      pageX: 0,
+      pageY: 0,
+      target: 0,
+      timestamp: Date.now(),
+      touches: [],
+    },
+  };
+}
+
+// toJSON()'s tree is the only stable way to reach the host SymbolView node's
+// props — same approach ui-icon.test.tsx uses to inspect accessibility props.
+type JsonNode = { type: string; props: Record<string, unknown>; children: JsonNode[] | null };
+
+function findAllByType(node: JsonNode | null, type: string, out: JsonNode[] = []): JsonNode[] {
+  if (!node) return out;
+  if (node.type === type) out.push(node);
+  for (const child of node.children ?? []) {
+    findAllByType(child, type, out);
+  }
+  return out;
+}
 
 describe('<ListRow>', () => {
   it('renders a label and an optional note', async () => {
@@ -61,33 +103,62 @@ describe('<ListRow>', () => {
     const resting = StyleSheet.flatten(row.props.style) as Record<string, unknown>;
     expect(resting.backgroundColor).toBe(theme.color.bgSolidCard);
 
-    const responderGrantEvent = {
-      currentTarget: { measure: () => {} },
-      target: {},
-      preventDefault: () => {},
-      isDefaultPrevented: () => false,
-      stopPropagation: () => {},
-      isPropagationStopped: () => false,
-      persist: () => {},
-      isPersistent: () => false,
-      timeStamp: 0,
-      nativeEvent: {
-        changedTouches: [],
-        identifier: 0,
-        locationX: 0,
-        locationY: 0,
-        pageX: 0,
-        pageY: 0,
-        target: 0,
-        timestamp: Date.now(),
-        touches: [],
-      },
-    };
-    await fireEvent(row, 'responderGrant', responderGrantEvent);
+    await fireEvent(row, 'responderGrant', responderGrantEvent());
     const pressed = StyleSheet.flatten(screen.getByTestId('row').props.style) as Record<string, unknown>;
 
     expect(pressed.backgroundColor).toBe(theme.color.bgSolidCardPressed);
     expect(pressed.backgroundColor).not.toBe(resting.backgroundColor);
     expect(pressed.opacity).toBeUndefined();
+  });
+
+  it('does not paint a pressed surface when it has nothing to press', async () => {
+    // Pressable wires full responder handlers onto every row regardless of
+    // `onPress` — that's how `pressed` itself gets tracked — so a row with no
+    // `onPress` still receives a real onResponderGrant. Without gating the
+    // style on `onPress`, tapping a non-interactive row would visibly depress
+    // it: a button-shaped affordance contradicting the accessibility tree,
+    // which correctly carries no button role here (see the test above).
+    const theme = themeFor('light');
+    await render(<ListRow testID="row" icon="folder" label="kepler" />);
+    const row = screen.getByTestId('row');
+
+    const resting = StyleSheet.flatten(row.props.style) as Record<string, unknown>;
+    expect(resting.backgroundColor).toBe(theme.color.bgSolidCard);
+
+    await fireEvent(row, 'responderGrant', responderGrantEvent());
+    const afterGrant = StyleSheet.flatten(screen.getByTestId('row').props.style) as Record<
+      string,
+      unknown
+    >;
+
+    expect(afterGrant.backgroundColor).toBe(theme.color.bgSolidCard);
+    expect(afterGrant.backgroundColor).not.toBe(theme.color.bgSolidCardPressed);
+  });
+
+  it('renders the icon for its kind, not a fixed one', async () => {
+    // A straight passthrough of `icon` to `Icon` is correct by inspection today,
+    // but nothing else here pins it down: a future edit that hardcodes or
+    // swaps the kind (always rendering folder, say) would ship green without
+    // this. Task 10 rebuilds three call sites on ListRow and depends on it
+    // rendering the right glyph per kind, so assert both directions — that
+    // `file` renders the file symbol and does NOT render the folder one —
+    // rather than only the positive case, which stops guarding the moment
+    // both kinds render the same glyph.
+    await render(<ListRow icon="file" label="README.md" />);
+    const symbols = findAllByType(screen.toJSON() as JsonNode | null, 'ViewManagerAdapter_SymbolModule');
+
+    // SymbolView resolves its per-platform `name` object down to the single
+    // string for the current Platform.OS before it ever reaches the host node
+    // (verified: this environment's host prop was the plain string "doc", not
+    // the {ios, web, android} object Icon builds) — so compare against that
+    // same per-platform resolution rather than assuming a shape.
+    const platformName = (spec: { ios: string; web: string }) =>
+      Platform.OS === 'ios' ? spec.ios : spec.web;
+
+    // The leading icon is the first SymbolView in the tree; the chevron is the
+    // (fixed, always-present) second one.
+    const leadingIcon = symbols[0];
+    expect(leadingIcon?.props.name).toBe(platformName(ICONS.file));
+    expect(leadingIcon?.props.name).not.toBe(platformName(ICONS.folder));
   });
 });

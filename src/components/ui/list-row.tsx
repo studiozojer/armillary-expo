@@ -41,7 +41,17 @@ export function ListRow({
       accessibilityRole={onPress ? 'button' : undefined}
       accessibilityLabel={note ? `${label}. ${note}` : label}
       style={({ pressed }) => ({
-        backgroundColor: pressed ? theme.color.bgSolidCardPressed : theme.color.bgSolidCard,
+        // Gated on `onPress`, not on `disabled`: a row with no `onPress` isn't
+        // disabled, it's non-interactive, and `disabled` would set
+        // accessibilityState.disabled, announcing "dimmed" and implying the
+        // row could become enabled. Pressable still wires full responder
+        // handlers onto every row regardless of `onPress` (that's how the
+        // press state itself gets tracked), so without this guard a
+        // non-pressable row visibly depresses on tap — a button-shaped visual
+        // affordance contradicting the accessibility tree, which correctly
+        // carries no button role here.
+        backgroundColor:
+          pressed && onPress ? theme.color.bgSolidCardPressed : theme.color.bgSolidCard,
       })}>
       {/* Box carries the padding because Inline deliberately has none — the kit
           has one padding API and it lives on Box. */}
