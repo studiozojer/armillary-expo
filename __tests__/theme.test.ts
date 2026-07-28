@@ -79,4 +79,25 @@ describe('theme tokens', () => {
     expect(Object.keys(lightColors)).toHaveLength(ROLE_COUNT);
     expect(Object.keys(darkColors)).toHaveLength(ROLE_COUNT);
   });
+
+  it('gives every text variant a studio family, never a system fallback', () => {
+    // The failure this guards is silent: an unnamed family renders in system
+    // and looks like a deliberately plain choice.
+    const { type } = themeFor('light');
+    const studio = /^(ABCWhyte|PPFraktionMono)/;
+
+    for (const [name, style] of Object.entries(type)) {
+      expect(style.fontFamily).toMatch(studio);
+      expect(style.fontSize).toBeGreaterThan(0);
+      expect(style.lineHeight).toBeGreaterThanOrEqual(style.fontSize);
+      expect(name).not.toBe('');
+    }
+  });
+
+  it('splits the two registers by family', () => {
+    // Reading surfaces lead with Whyte, instrument surfaces with Fraktion.
+    const { type } = themeFor('dark');
+    expect(type.body.fontFamily).toMatch(/^ABCWhyte/);
+    expect(type.monoLabel.fontFamily).toMatch(/^PPFraktionMono/);
+  });
 });

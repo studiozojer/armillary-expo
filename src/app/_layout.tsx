@@ -8,6 +8,7 @@ import AppTabs from '@/components/app-tabs';
 import { HostProvider } from '@/lib/host-context';
 import { fontMap } from '@/theme/fonts.gen';
 import { splashReady } from '@/theme/splash';
+import { ThemeModeProvider } from '@/theme/theme-context';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -42,9 +43,11 @@ export default function TabLayout() {
 
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <HostProvider>
-        <AppTabs />
-      </HostProvider>
+      <ThemeModeProvider>
+        <HostProvider>
+          <AppTabs />
+        </HostProvider>
+      </ThemeModeProvider>
     </ThemeProvider>
   );
 }

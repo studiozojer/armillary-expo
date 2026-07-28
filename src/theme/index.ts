@@ -1,5 +1,7 @@
 import { useColorScheme } from 'react-native';
 
+import { families } from './fonts.gen';
+import { useThemeMode } from './theme-context';
 import { DAOUI_SOURCE_COMMIT, ROLE_COUNT, darkColors, lightColors, type ColorRole } from './tokens.gen';
 
 export { DAOUI_SOURCE_COMMIT, ROLE_COUNT, type ColorRole };
@@ -7,11 +9,11 @@ export { DAOUI_SOURCE_COMMIT, ROLE_COUNT, type ColorRole };
 /**
  * Layout scales.
  *
- * These are NOT from daoUI: its `tokens.json` publishes colour primitives and
- * semantics only, with no layout layer. zhouyi's `src/theme/tokens.ts` claims
- * layout values "verbatim from KairosDesign/DesignTokens.swift" — a package
- * daoUI superseded on 2026-07-09 — so copying it would inherit a stale source.
- * Defined here instead, and declared as this app's own, which is at least true.
+ * Not from daoUI: it publishes colour primitives and semantics only, with no
+ * layout layer — `DesignTokens.swift` holds spacing, radius and border in Swift
+ * where no non-Swift consumer can read them. Declared here and named as this
+ * app's own, which is at least true. Extracting a neutral layout layer is a
+ * daoUI change, tracked in the daoUI design session.
  */
 export const space = {
   none: 0,
@@ -40,14 +42,27 @@ export const border = {
   medium: 1.5,
 } as const;
 
+/**
+ * The type ramp.
+ *
+ * daoUI's Font+Kairos.swift publishes three families across an xs-xl ramp
+ * (12/16/20/24/32). The variants below bind a size to a family, so the two
+ * registers are carried by the variant rather than chosen at each call site:
+ * reading surfaces lead with Whyte, instrument surfaces with Fraktion.
+ */
 export const type = {
-  title: { fontSize: 22, fontWeight: '600' },
-  heading: { fontSize: 17, fontWeight: '600' },
-  body: { fontSize: 16, fontWeight: '400' },
-  label: { fontSize: 14, fontWeight: '500' },
-  caption: { fontSize: 13, fontWeight: '400' },
-  mono: { fontSize: 13, fontFamily: 'Menlo' },
+  display: { fontSize: 32, lineHeight: 38, fontFamily: families.whyteInk.display },
+  title: { fontSize: 24, lineHeight: 30, fontFamily: families.whyte.display },
+  heading: { fontSize: 20, lineHeight: 26, fontFamily: families.whyte.book },
+  body: { fontSize: 16, lineHeight: 24, fontFamily: families.whyte.book },
+  label: { fontSize: 14, lineHeight: 20, fontFamily: families.whyte.book },
+  caption: { fontSize: 12, lineHeight: 16, fontFamily: families.whyte.book },
+  mono: { fontSize: 13, lineHeight: 20, fontFamily: families.fraktion.book },
+  // Section headers in the instrument register: NEW INSTANCE, INSTANCES.
+  monoLabel: { fontSize: 12, lineHeight: 16, fontFamily: families.fraktion.book, letterSpacing: 1.2 },
 } as const;
+
+export type TextVariant = keyof typeof type;
 
 export type Theme = {
   scheme: 'light' | 'dark';
@@ -72,11 +87,17 @@ export function themeFor(scheme: 'light' | 'dark'): Theme {
 /**
  * The app's single styling entry point. Every component reads colours from
  * here; a literal hex anywhere else is a bug, because it cannot follow daoUI
- * when daoUI moves.
+ * when daoUI moves — and __tests__/no-hex-literals.test.ts enforces it.
+ *
+ * Reads the app-owned mode when a provider is present so the override applies,
+ * and falls back to the raw system scheme otherwise (a test, or a component
+ * rendered outside the tree). Both hooks run unconditionally, per the rules of
+ * hooks.
  */
 export function useTheme(): Theme {
-  const scheme = useColorScheme();
-  return themeFor(scheme === 'dark' ? 'dark' : 'light');
+  const themed = useThemeMode();
+  const system = useColorScheme();
+  return themeFor(themed?.scheme ?? (system === 'dark' ? 'dark' : 'light'));
 }
 
 /** react-native-marked's theme shape, fed from the same tokens. */
