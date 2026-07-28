@@ -1,7 +1,7 @@
-import { SafeAreaView } from 'react-native-safe-area-context';
-
 import { MarkdownView } from '@/components/markdown-view';
+import { Screen } from '@/components/ui';
 import { SAMPLE_MARKDOWN } from '@/lib/fixtures/sample-markdown';
+import { markedStylesFor, markedThemeFor, useTheme } from '@/theme';
 
 /**
  * The D9 gate, reachable at /spike-markdown.
@@ -11,11 +11,20 @@ import { SAMPLE_MARKDOWN } from '@/lib/fixtures/sample-markdown';
  * device independently of whether the network half works. Jest does not
  * exercise the New Architecture, so this screen is the only thing that
  * actually resolves D9.
+ *
+ * Themed like the real reading surface, not left bare: a gate that renders in
+ * the system font judges something the app does not ship.
  */
 export default function SpikeMarkdown() {
+  const theme = useTheme();
+
   return (
-    <SafeAreaView style={{ flex: 1 }} edges={['top']}>
-      <MarkdownView source={SAMPLE_MARKDOWN} />
-    </SafeAreaView>
+    <Screen edges={['top']}>
+      <MarkdownView
+        source={SAMPLE_MARKDOWN}
+        theme={markedThemeFor(theme)}
+        styles={markedStylesFor(theme)}
+      />
+    </Screen>
   );
 }

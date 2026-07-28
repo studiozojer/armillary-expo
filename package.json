@@ -40,6 +40,7 @@
     "jest": "^29.7.0",
     "jest-expo": "^57.0.2",
     "react-test-renderer": "^19.2.3",
+    "sf-symbols-typescript": "^2.2.0",
     "typescript": "~6.0.3"
   },
   "scripts": {
@@ -50,7 +51,8 @@
     "web": "expo start --web",
     "lint": "expo lint",
     "test": "jest",
-    "sync-tokens": "node scripts/sync-tokens.mjs"
+    "sync-tokens": "node scripts/sync-tokens.mjs",
+    "sync-fonts": "node scripts/sync-fonts.mjs"
   },
   "private": true
 }

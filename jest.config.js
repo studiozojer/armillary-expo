@@ -27,11 +27,21 @@ const extraTransformedPackages = [
 
 module.exports = {
   preset: 'jest-expo',
+  // AsyncStorage's native module is not auto-mocked by jest-expo, and two
+  // branches reached for it independently: a `jest.mock` in a setup file (the
+  // vendor's own documented answer) and a `moduleNameMapper` entry pointing at
+  // the same mock. They cannot both be here. The mapper rewrites the bare
+  // specifier to the mock's path *before* jest looks up registered mocks, so
+  // the `jest.mock` factory's own `require` of that path resolves back onto
+  // itself — `RangeError: Maximum call stack size exceeded`, in 14 suites at
+  // once. The setup file is what survives, because it is what the vendor's own
+  // error message tells you to write.
+  //
+  // Some form of it is not optional: without it every test that renders a
+  // component fails, because `useTheme` reaches `theme-context`, which imports
+  // AsyncStorage.
+  setupFiles: ['<rootDir>/jest.setup.js'],
   modulePathIgnorePatterns: ['<rootDir>/.worktrees/'],
-  moduleNameMapper: {
-    '^@react-native-async-storage/async-storage$':
-      '@react-native-async-storage/async-storage/jest/async-storage-mock',
-  },
   transformIgnorePatterns: [
     presetAllowlist.replace(/\)\)$/, `|${extraTransformedPackages.join('|')}))`),
     ...presetRestPatterns,

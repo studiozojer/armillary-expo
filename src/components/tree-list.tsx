@@ -1,9 +1,11 @@
-import { Link } from 'expo-router';
+import { useRouter } from 'expo-router';
 import type { ReactNode } from 'react';
-import { FlatList, Pressable, RefreshControl, Text, View } from 'react-native';
+import { FlatList, RefreshControl } from 'react-native';
 
 import { useTheme } from '@/theme';
 import type { TreeEntry } from '@/lib/daemon/types';
+
+import { Box, ListRow, ROW_ICON_LANE, Rule, Text } from './ui';
 
 export function TreeList({
   base,
@@ -37,16 +39,21 @@ export function TreeList({
   returned?: number;
   refreshing?: boolean;
   onRefresh?: () => void;
+  /** The row's second line — `ListRow`'s `note`, keyed on the bare name. */
   subtitleFor?: (name: string) => string | undefined;
   /**
    * Given the full path (`base` joined with the entry name), not the bare
    * name — the voicenote inbox keys its state map on the full path so that
    * two identically-named files in different subdirectories cannot collide.
+   *
+   * What it returns takes the row's trailing slot, replacing that row's
+   * chevron (see `ListRow`); a row it has nothing to say about keeps one.
    */
   trailingFor?: (path: string) => string | undefined;
   header?: ReactNode;
 }) {
   const theme = useTheme();
+  const router = useRouter();
   // What the engine sent minus what is on screen: entirely a local filter's
   // doing, since `returned` already reflects the engine's own count.
   const hiddenByFilter = returned - entries.length;
@@ -76,14 +83,16 @@ export function TreeList({
       refreshControl={
         onRefresh ? <RefreshControl refreshing={refreshing} onRefresh={onRefresh} /> : undefined
       }
+      // No horizontal padding on the container any more: rows are full-bleed so
+      // a pressed row paints edge to edge instead of leaving an unpainted
+      // margin either side. Each row carries its own inset, and the three
+      // non-row slots below carry theirs.
       contentContainerStyle={{
-        paddingHorizontal: theme.space.lg,
         paddingBottom: theme.space.xxxl,
       }}
-      // `ListHeaderComponent` is typed narrower than ReactNode (no bare string/
-      // number/null); every caller passes a JSX element or omits the prop, so
-      // the cast just bridges our looser public prop type to that.
-      ListHeaderComponent={header as React.ComponentType | React.JSX.Element | undefined}
+      // The header is the caller's own content, so it gets the inset the
+      // container used to give everything.
+      ListHeaderComponent={header ? <Box px="lg">{header}</Box> : undefined}
       ListFooterComponent={
         footerText ? (
           // Said out loud. A list silently cut to its first 500 entries looks
@@ -91,67 +100,43 @@ export function TreeList({
           // than it is — with nothing saying why — is the same defect one
           // level down from the point of this screen: it must not lie about
           // what the filesystem holds.
-          <Text
-            style={{
-              ...theme.type.caption,
-              color: theme.color.txTertiary,
-              paddingTop: theme.space.md,
-            }}>
-            {footerText}
-          </Text>
+          <Box px="lg" style={{ paddingTop: theme.space.md }}>
+            <Text variant="caption" color="txTertiary">
+              {footerText}
+            </Text>
+          </Box>
         ) : null
       }
       ListEmptyComponent={
-        <Text
-          style={{
-            ...theme.type.body,
-            color: theme.color.txTertiary,
-            paddingTop: theme.space.lg,
-          }}>
-          Empty.
-        </Text>
+        <Box px="lg" style={{ paddingTop: theme.space.lg }}>
+          <Text color="txTertiary">Empty.</Text>
+        </Box>
       }
-      renderItem={({ item }) => {
+      renderItem={({ item, index }) => {
         const full = base ? `${base}/${item.name}` : item.name;
+        const trailing = trailingFor?.(full);
         return (
-          <Link href={`/browse/${full}`} asChild>
-            <Pressable
-              style={({ pressed }) => ({
-                opacity: pressed ? 0.6 : 1,
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: theme.space.sm,
-                paddingVertical: theme.space.sm,
-                borderBottomWidth: theme.border.hairline,
-                borderBottomColor: theme.color.bdPrimary,
-              })}>
-              <Text style={{ ...theme.type.body, color: theme.color.txTertiary, width: 14 }}>
-                {item.dir ? '▸' : '·'}
-              </Text>
-              <View style={{ flex: 1 }}>
-                <Text
-                  style={{
-                    ...theme.type.body,
-                    color: item.dir ? theme.color.txPrimary : theme.color.txSecondary,
-                  }}
-                  numberOfLines={1}>
-                  {item.name}
-                </Text>
-                {subtitleFor?.(item.name) ? (
-                  <Text
-                    style={{ ...theme.type.caption, color: theme.color.txTertiary }}
-                    numberOfLines={1}>
-                    {subtitleFor(item.name)}
+          <>
+            <ListRow
+              icon={item.dir ? 'folder' : 'file'}
+              label={item.name}
+              note={subtitleFor?.(item.name)}
+              trailing={
+                trailing ? (
+                  <Text variant="caption" color="txTertiary">
+                    {trailing}
                   </Text>
-                ) : null}
-              </View>
-              {trailingFor?.(full) ? (
-                <Text style={{ ...theme.type.caption, color: theme.color.txTertiary }}>
-                  {trailingFor(full)}
-                </Text>
-              ) : null}
-            </Pressable>
-          </Link>
+                ) : undefined
+              }
+              // `router.push`, not `Link asChild`: `ListRow` derives its
+              // accessibility role from its own `onPress`, and a `Link` clone
+              // hands navigation down as a press handler on the cloned element
+              // rather than through that prop — leaving every row in this list
+              // announcing no role at all.
+              onPress={() => router.push(`/browse/${full}`)}
+            />
+            {index < entries.length - 1 ? <Rule inset={ROW_ICON_LANE} /> : null}
+          </>
         );
       }}
     />

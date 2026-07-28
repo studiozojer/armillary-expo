@@ -1,10 +1,10 @@
 import { Stack } from 'expo-router/stack';
 import { useCallback, useMemo } from 'react';
-import { ActivityIndicator, FlatList, Pressable, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { ActivityIndicator, FlatList, Pressable, Text } from 'react-native';
 
 import { InstanceCard } from '@/components/instance-card';
 import { SettingsButton } from '@/components/settings-button';
+import { Box, Callout, ROW_ICON_LANE, Rule, Screen } from '@/components/ui';
 import { useHost } from '@/lib/host-context';
 import type { Instance } from '@/lib/session/events';
 import { sessionAPIFor } from '@/lib/session/instance';
@@ -39,7 +39,7 @@ export default function Instances() {
 
   if (state.status === 'error') {
     return (
-      <SafeAreaView style={{ flex: 1, padding: theme.space.lg }}>
+      <Screen p="lg">
         <Stack.Screen options={{ headerLeft: () => <SettingsButton /> }} />
         {/* Named specifically — an unreachable engine is exactly what a
             stubbed-looking banner used to paper over. */}
@@ -74,12 +74,14 @@ export default function Instances() {
           }}>
           <Text style={{ ...theme.type.label, color: theme.color.txAccent }}>Try again</Text>
         </Pressable>
-      </SafeAreaView>
+      </Screen>
     );
   }
 
+  const instances = state.status === 'ok' ? state.data : [];
+
   return (
-    <SafeAreaView style={{ flex: 1 }} edges={[]}>
+    <Screen edges={[]}>
       {/* Settings is reachable from both tabs, because it holds the host
           switcher — and which machine is serving is as load-bearing here as it
           is in Explorer. */}
@@ -90,39 +92,33 @@ export default function Instances() {
           deliberately selected (dev/demo); an unreachable real engine is named
           by the error state above, not faked here. */}
       {MOCK ? (
-        <View
-          style={{
-            margin: theme.space.lg,
-            padding: theme.space.md,
-            borderRadius: theme.radius.md,
-            backgroundColor: theme.color.bgWarning,
-            borderWidth: theme.border.thin,
-            borderColor: theme.color.bdSecondary,
-          }}>
-          <Text style={{ ...theme.type.label, color: theme.color.txWarning }}>Mock session data</Text>
-          <Text
-            style={{
-              ...theme.type.caption,
-              color: theme.color.txSecondary,
-              paddingTop: theme.space.xxs,
-            }}>
+        <Box p="lg">
+          <Callout title="Mock session data">
             EXPO_PUBLIC_SESSION_MOCK=1 — not the live engine.
-          </Text>
-        </View>
+          </Callout>
+        </Box>
       ) : null}
 
       {state.status === 'loading' ? (
         <ActivityIndicator style={{ marginTop: theme.space.xl }} />
       ) : (
         <FlatList
-          data={state.status === 'ok' ? state.data : []}
+          data={instances}
           keyExtractor={(instance) => instance.id}
-          contentContainerStyle={{ paddingHorizontal: theme.space.lg }}
+          // No horizontal padding on the container: rows are full-bleed like
+          // TreeList's (each `ListRow` carries its own inset), so a pressed
+          // row paints edge to edge instead of leaving an unpainted margin.
+          contentContainerStyle={{ paddingBottom: theme.space.xxxl }}
           refreshing={refreshing}
           onRefresh={refresh}
-          renderItem={({ item }) => <InstanceCard instance={item} />}
+          renderItem={({ item, index }) => (
+            <>
+              <InstanceCard instance={item} />
+              {index < instances.length - 1 ? <Rule inset={ROW_ICON_LANE} /> : null}
+            </>
+          )}
         />
       )}
-    </SafeAreaView>
+    </Screen>
   );
 }

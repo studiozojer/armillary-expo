@@ -1,13 +1,33 @@
-import { DarkTheme, DefaultTheme, ThemeProvider } from 'expo-router/react-navigation';
+import { useFonts } from 'expo-font';
+import { ThemeProvider } from 'expo-router/react-navigation';
 import { Stack } from 'expo-router/stack';
 import * as SplashScreen from 'expo-splash-screen';
-import { useColorScheme } from 'react-native';
+import { useEffect, type ReactNode } from 'react';
 
-import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import { HostProvider } from '@/lib/host-context';
 import { PreferencesProvider } from '@/lib/preferences';
+import { navThemeFor, useTheme } from '@/theme';
+import { fontMap } from '@/theme/fonts.gen';
+import { splashReady } from '@/theme/splash';
+import { ThemeModeProvider } from '@/theme/theme-context';
 
 SplashScreen.preventAutoHideAsync();
+
+/**
+ * The navigation chrome, themed from the same tokens as the content.
+ *
+ * A separate component rather than inline in RootLayout because it has to read
+ * `useTheme()`, and that hook only sees the app-owned mode from *inside*
+ * ThemeModeProvider. The provider order used to be the other way round —
+ * ThemeProvider above ThemeModeProvider, reading the raw `useColorScheme()` —
+ * which agrees with the content today only because `Appearance.setColorScheme`
+ * is process-wide. A mode held in context alone would silently desync the
+ * chrome from the screen it frames.
+ */
+function NavigationChrome({ children }: { children: ReactNode }) {
+  const theme = useTheme();
+  return <ThemeProvider value={navThemeFor(theme)}>{children}</ThemeProvider>;
+}
 
 /**
  * The root is a `Stack`, and the tab bar sits inside it.
@@ -22,18 +42,48 @@ SplashScreen.preventAutoHideAsync();
  * own `Stack` and draws one.
  */
 export default function RootLayout() {
-  const colorScheme = useColorScheme();
+  const [fontsLoaded, fontError] = useFonts(fontMap);
+
+  // useFonts never reports loaded=true on failure — it sets fontError and
+  // leaves fontsLoaded false forever. Gating purely on fontsLoaded would turn
+  // a font-load failure into the same indefinite splash hang Task 3 fixed,
+  // reached through a different door. splashReady() treats an error as
+  // "proceed in system fonts" rather than "wait forever" — see its doc comment.
+  const ready = splashReady(fontsLoaded, fontError);
+
+  // preventAutoHideAsync() above holds the splash, so something has to release
+  // it — the animated overlay used to, and when it was removed nothing did.
+  //
+  // Gated on `ready` rather than on mount: releasing it while the early
+  // return below still holds would replace the splash with a blank screen,
+  // trading a hang for a flash of nothing.
+  useEffect(() => {
+    if (!ready) return;
+    if (fontError) console.warn('Studio fonts failed to load; rendering in system fonts.', fontError);
+    void SplashScreen.hideAsync();
+  }, [ready, fontError]);
+
+  // Render nothing until the faces are registered (or have failed to load —
+  // see splashReady). A frame drawn before then renders in system font and
+  // then reflows, which reads as a bug in a screen recording even though it
+  // corrects itself.
+  if (!ready) return null;
+
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <AnimatedSplashOverlay />
-      <HostProvider>
-        <PreferencesProvider>
-          <Stack>
-            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-            <Stack.Screen name="settings" options={{ title: 'Settings', presentation: 'modal' }} />
-          </Stack>
-        </PreferencesProvider>
-      </HostProvider>
-    </ThemeProvider>
+    <ThemeModeProvider>
+      <NavigationChrome>
+        <HostProvider>
+          <PreferencesProvider>
+            <Stack>
+              <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+              <Stack.Screen
+                name="settings"
+                options={{ title: 'Settings', presentation: 'modal' }}
+              />
+            </Stack>
+          </PreferencesProvider>
+        </HostProvider>
+      </NavigationChrome>
+    </ThemeModeProvider>
   );
 }

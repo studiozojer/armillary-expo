@@ -1,10 +1,10 @@
 import { Stack, useLocalSearchParams } from 'expo-router';
 import { useCallback } from 'react';
 import { ActivityIndicator, RefreshControl, ScrollView, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { MarkdownView } from '@/components/markdown-view';
 import { TreeList } from '@/components/tree-list';
+import { Screen } from '@/components/ui';
 import { isAudioPath, VoicenotePage } from '@/components/voicenote-page';
 import { DaemonClient } from '@/lib/daemon/client';
 import {
@@ -18,7 +18,7 @@ import {
 import { useHost } from '@/lib/host-context';
 import { visibleEntries, useShowDotfiles } from '@/lib/preferences';
 import { useLoader } from '@/lib/use-loader';
-import { markedThemeFor, useTheme } from '@/theme';
+import { markedStylesFor, markedThemeFor, useTheme } from '@/theme';
 
 type Node =
   | { kind: 'dir'; tree: TreeResponse; voicenoteStates?: Map<string, VoicenoteState> }
@@ -185,7 +185,7 @@ export default function Browse() {
     : undefined;
 
   return (
-    <SafeAreaView style={{ flex: 1 }} edges={['bottom']}>
+    <Screen edges={['bottom']}>
       <Stack.Screen options={{ title }} />
 
       {state.status === 'loading' ? (
@@ -236,9 +236,13 @@ export default function Browse() {
         <ScrollView
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} />}
           contentContainerStyle={{ flexGrow: 1 }}>
-          <MarkdownView source={state.data.file.text} theme={markedThemeFor(theme)} />
+          <MarkdownView
+            source={state.data.file.text}
+            theme={markedThemeFor(theme)}
+            styles={markedStylesFor(theme)}
+          />
         </ScrollView>
       )}
-    </SafeAreaView>
+    </Screen>
   );
 }

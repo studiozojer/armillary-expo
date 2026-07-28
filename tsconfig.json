@@ -4,14 +4,15 @@
     "strict": true,
     "resolveJsonModule": true,
     "types": [
-      "jest"
+      "jest",
+      "node"
     ],
     "paths": {
-      "@/*": [
-        "./src/*"
-      ],
       "@/assets/*": [
         "./assets/*"
+      ],
+      "@/*": [
+        "./src/*"
       ]
     }
   },
