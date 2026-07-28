@@ -42,6 +42,11 @@ function writeScrollback(stream: string, durable: EventEnvelope[]): void {
   AsyncStorage.setItem(scrollbackKey(stream), JSON.stringify(bounded)).catch(() => {});
 }
 
+/** Fire-and-forget, same swallow-on-failure posture as `writeScrollback`. */
+function clearScrollback(stream: string): void {
+  AsyncStorage.removeItem(scrollbackKey(stream)).catch(() => {});
+}
+
 export type UseSessionResult = {
   rows: SessionRow[];
   status: SubscriptionStatus;
@@ -219,9 +224,23 @@ export function useSession(api: SessionAPI, instanceId: string, enabled = true):
       const stream = attachInfo.instance.stream;
       streamRef.current = stream;
 
-      const cached = await readScrollback(stream);
+      let cached = await readScrollback(stream);
       if (cancelled || epoch.current !== mine) return;
-      if (cached.length > 0) {
+      const cachedMax = cached[cached.length - 1]?.seq ?? 0;
+      // The cache is disposable by design (D7) and the log is the truth
+      // (D1) — so when the two disagree, the log wins outright rather than
+      // being reconciled against. A cached cursor beyond what attach() just
+      // reported as the log's head (mock id reuse across relaunches, a
+      // wiped engine data dir, any log reset) means the cache describes a
+      // log that no longer exists: trusting it would suppress all replay
+      // (nothing before that cursor gets requested) and the tail dedup
+      // would silently drop every live event at or below it — a frozen
+      // ghost conversation. Discard rather than trim: cheap to rebuild from
+      // seq 0, and no partial-trust reconciliation is honest here.
+      if (cachedMax > attachInfo.headSeq) {
+        cached = [];
+        clearScrollback(stream);
+      } else if (cached.length > 0) {
         durableRef.current = cached;
         setDurable(cached);
       }

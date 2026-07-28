@@ -132,7 +132,7 @@ describe('useSession', () => {
     expect(screen.queryByText('cached hello')).toBeNull();
 
     await act(async () => {
-      resolveAttach();
+      resolveAttach({ headSeq: 2 });
     });
     await waitFor(() => expect(screen.getByText(/msg:user:cached hello/)).toBeTruthy());
     expect(current.rows.some((r) => r.kind === 'message' && r.text === 'cached hello')).toBe(true);
@@ -151,10 +151,35 @@ describe('useSession', () => {
     await render(<Harness api={api} instanceId="inst-1" capture={() => {}} />);
 
     await act(async () => {
-      resolveAttach();
+      resolveAttach({ headSeq: 5 });
     });
     await waitFor(() => expect(subscribeCalls.length).toBe(1));
     expect(subscribeCalls[0].fromSeq).toBe(5);
+  });
+
+  it('discards a scrollback cache whose cursor exceeds the attached head (mock id reuse, wiped data dir, log reset)', async () => {
+    await AsyncStorage.setItem(
+      'armillary.scrollback.s1',
+      JSON.stringify([
+        envelope('user_message', { text: 'stale one' }, 40),
+        envelope('user_message', { text: 'stale two' }, 41),
+      ]),
+    );
+
+    const { api, resolveAttach, subscribeCalls } = scriptedApi('s1');
+    let current!: UseSessionResult;
+    await render(<Harness api={api} instanceId="inst-1" capture={(r) => (current = r)} />);
+
+    // headSeq (5) is below the cached cursor (41) — the log has moved
+    // backwards relative to what the cache remembers.
+    await act(async () => {
+      resolveAttach({ headSeq: 5 });
+    });
+    await waitFor(() => expect(subscribeCalls.length).toBe(1));
+
+    expect(current.rows.some((r) => r.kind === 'message')).toBe(false);
+    expect(subscribeCalls[0].fromSeq).toBe(0);
+    expect(await AsyncStorage.getItem('armillary.scrollback.s1')).toBeNull();
   });
 
   it('send inserts a pending row immediately and reconciles once the echo lands durably', async () => {
