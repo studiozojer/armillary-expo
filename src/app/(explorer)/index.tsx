@@ -127,6 +127,7 @@ export default function Explorer() {
         entries={visibleEntries(tree.entries, showDotfiles)}
         total={tree.total}
         truncated={tree.truncated}
+        returned={tree.entries.length}
         subtitleFor={(name) => annotations[name]}
         refreshing={refreshing}
         onRefresh={refresh}

@@ -10,6 +10,7 @@ export function TreeList({
   entries,
   total,
   truncated = false,
+  returned = entries.length,
   refreshing = false,
   onRefresh,
   subtitleFor,
@@ -20,6 +21,14 @@ export function TreeList({
   entries: TreeEntry[];
   total?: number;
   truncated?: boolean;
+  /**
+   * How many entries the engine actually returned, before any client-side
+   * filtering (e.g. the dotfile toggle). Defaults to `entries.length` so
+   * callers that pass the engine's response straight through — the common
+   * case — need not think about it; only a caller that filters `entries`
+   * before handing them to this list needs to pass the pre-filter count.
+   */
+  returned?: number;
   refreshing?: boolean;
   onRefresh?: () => void;
   subtitleFor?: (name: string) => string | undefined;
@@ -28,6 +37,9 @@ export function TreeList({
   header?: ReactNode;
 }) {
   const theme = useTheme();
+  // What the engine sent minus what is on screen: entirely a local filter's
+  // doing, since `returned` already reflects the engine's own count.
+  const hiddenByFilter = returned - entries.length;
 
   return (
     <FlatList
@@ -45,16 +57,25 @@ export function TreeList({
       // the cast just bridges our looser public prop type to that.
       ListHeaderComponent={header as React.ComponentType | React.JSX.Element | undefined}
       ListFooterComponent={
-        truncated ? (
-          // Said out loud. A list silently cut to its first 500 entries looks
-          // exactly like a complete one.
+        truncated || hiddenByFilter > 0 ? (
+          // Said out loud, both halves. A list silently cut to its first 500
+          // entries looks exactly like a complete one, and a directory that
+          // looks shorter than it is — with nothing saying why — is the same
+          // defect one level down from the point of this screen: it must not
+          // lie about what the filesystem holds.
           <Text
             style={{
               ...theme.type.caption,
               color: theme.color.txTertiary,
               paddingTop: theme.space.md,
             }}>
-            Showing {entries.length} of {total} — this directory is too large to list in full.
+            {truncated
+              ? `Showing ${returned} of ${total} — this directory is too large to list in full.`
+              : null}
+            {truncated && hiddenByFilter > 0 ? ' ' : null}
+            {hiddenByFilter > 0
+              ? `${hiddenByFilter} more hidden by the dotfile setting.`
+              : null}
           </Text>
         ) : null
       }

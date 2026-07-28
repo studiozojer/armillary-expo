@@ -118,6 +118,7 @@ export default function Browse() {
           entries={visibleEntries(state.data.tree.entries, showDotfiles)}
           total={state.data.tree.total}
           truncated={state.data.tree.truncated}
+          returned={state.data.tree.entries.length}
           refreshing={refreshing}
           onRefresh={refresh}
         />
