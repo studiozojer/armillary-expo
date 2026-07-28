@@ -1,8 +1,18 @@
 import { useLocalSearchParams } from 'expo-router';
 import { Stack } from 'expo-router/stack';
 import { useCallback, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, FlatList, Pressable, Text, TextInput, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import {
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { MarkdownView } from '@/components/markdown-view';
 import { useHost } from '@/lib/host-context';
@@ -13,6 +23,25 @@ import { useSession } from '@/lib/session/use-session';
 import { markedThemeFor, useTheme } from '@/theme';
 
 type MessageRow = Extract<SessionRow, { kind: 'message' }>;
+
+/**
+ * Approximate — the standard (non-large-title) iOS native-stack header
+ * content height. This screen's `SafeAreaView` opts out of the `top` edge
+ * (see below), so the JS content genuinely starts under the native header
+ * rather than below it; `KeyboardAvoidingView`'s own frame measurement
+ * doesn't know that, and without this offset its "padding" behavior would
+ * overshoot by exactly the header's height when the keyboard shows.
+ *
+ * Not measured via `useHeaderHeight()` (the react-navigation-recommended way
+ * to get this exactly rather than guess it): that hook throws outside a
+ * screen inside a real navigator, and this screen's own test suite
+ * (session-screen.test.tsx) renders it standalone, with no Stack ancestor —
+ * matching every other screen test in this repo's convention of mocking
+ * router pieces rather than mounting a full navigator for one field. Revisit
+ * with a device pass — if the title ever grows (a large title, a wrapped
+ * title), this constant needs to grow with it.
+ */
+const ESTIMATED_HEADER_HEIGHT = 44;
 
 /** One key per row, by kind — the same identity project.ts's own rows carry,
  *  plus the synthetic gap row this screen (not the reducer) injects. */
@@ -66,6 +95,7 @@ function SessionView({
   generation: number;
 }) {
   const theme = useTheme();
+  const insets = useSafeAreaInsets();
   // Same factory, same identity rule as the list screen (Task 5's shared
   // store, now host-aware): whichever instance the list screen created this
   // is, by construction, the same client object. Keyed on `host.id` +
@@ -167,149 +197,181 @@ function SessionView({
         </Text>
       ) : null}
 
-      <FlatList
-        inverted
-        data={displayRows}
-        keyExtractor={rowKey}
-        contentContainerStyle={{ paddingHorizontal: theme.space.lg, paddingVertical: theme.space.md }}
-        renderItem={({ item }) => {
-          switch (item.kind) {
-            case 'message': {
-              if (item.evicted) {
+      {/*
+        Clears the composer from the native bottom tab bar and rises it with
+        the keyboard. Wrapping from here (not just the composer row) so the
+        FlatList — flex: 1 — is what actually shrinks when the keyboard
+        appears, with the composer staying pinned just above it.
+      */}
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top + ESTIMATED_HEADER_HEIGHT : 0}>
+        <FlatList
+          inverted
+          data={displayRows}
+          keyExtractor={rowKey}
+          contentContainerStyle={{ paddingHorizontal: theme.space.lg, paddingVertical: theme.space.md }}
+          renderItem={({ item }) => {
+            switch (item.kind) {
+              case 'message': {
+                if (item.evicted) {
+                  return (
+                    <View style={{ paddingVertical: theme.space.sm }}>
+                      <Text style={{ ...theme.type.body, color: theme.color.txDisabled }}>{item.text}</Text>
+                      <Text
+                        style={{
+                          ...theme.type.caption,
+                          color: theme.color.txDisabled,
+                          paddingTop: theme.space.xxs,
+                        }}>
+                        removed from context
+                      </Text>
+                    </View>
+                  );
+                }
+                if (item.error) {
+                  // The failure-shaped assistant_message the engine's fail_turn
+                  // appends always carries text: "" alongside the error code
+                  // (see events.ts's AssistantMessageData comment) — rendering
+                  // the normal text branch below on an empty string is exactly
+                  // the invisible-row bug this exists to fix, so this checks
+                  // `error` first and never falls through to it. Named verbatim
+                  // (house rule): the machine code, not a paraphrase.
+                  return (
+                    <View style={{ paddingVertical: theme.space.sm }}>
+                      <Text style={{ ...theme.type.caption, color: theme.color.txWarning }}>
+                        {`turn failed: ${item.error}`}
+                      </Text>
+                    </View>
+                  );
+                }
                 return (
-                  <View style={{ paddingVertical: theme.space.sm }}>
-                    <Text style={{ ...theme.type.body, color: theme.color.txDisabled }}>{item.text}</Text>
-                    <Text
-                      style={{
-                        ...theme.type.caption,
-                        color: theme.color.txDisabled,
-                        paddingTop: theme.space.xxs,
-                      }}>
-                      removed from context
-                    </Text>
-                  </View>
+                  <Pressable onLongPress={() => onLongPressMessage(item)} style={{ paddingVertical: theme.space.sm }}>
+                    {item.role === 'operator' ? (
+                      <MarkdownView source={item.text} theme={markedThemeFor(theme)} />
+                    ) : (
+                      <Text style={{ ...theme.type.body, color: theme.color.txPrimary }}>{item.text}</Text>
+                    )}
+                  </Pressable>
                 );
               }
-              if (item.error) {
-                // The failure-shaped assistant_message the engine's fail_turn
-                // appends always carries text: "" alongside the error code
-                // (see events.ts's AssistantMessageData comment) — rendering
-                // the normal text branch below on an empty string is exactly
-                // the invisible-row bug this exists to fix, so this checks
-                // `error` first and never falls through to it. Named verbatim
-                // (house rule): the machine code, not a paraphrase.
+              case 'pending':
                 return (
                   <View style={{ paddingVertical: theme.space.sm }}>
-                    <Text style={{ ...theme.type.caption, color: theme.color.txWarning }}>
-                      {`turn failed: ${item.error}`}
-                    </Text>
-                  </View>
-                );
-              }
-              return (
-                <Pressable onLongPress={() => onLongPressMessage(item)} style={{ paddingVertical: theme.space.sm }}>
-                  {item.role === 'operator' ? (
-                    <MarkdownView source={item.text} theme={markedThemeFor(theme)} />
-                  ) : (
                     <Text style={{ ...theme.type.body, color: theme.color.txPrimary }}>{item.text}</Text>
-                  )}
-                </Pressable>
-              );
+                  </View>
+                );
+              case 'streaming':
+                return (
+                  <View style={{ paddingVertical: theme.space.sm }}>
+                    <Text style={{ ...theme.type.body, color: theme.color.txPrimary }}>{item.text}…</Text>
+                  </View>
+                );
+              case 'system':
+              case 'gap':
+                return (
+                  <Text
+                    style={{
+                      ...theme.type.caption,
+                      color: theme.color.txTertiary,
+                      textAlign: 'center',
+                      paddingVertical: theme.space.sm,
+                    }}>
+                    {item.label}
+                  </Text>
+                );
             }
-            case 'pending':
-              return (
-                <View style={{ paddingVertical: theme.space.sm }}>
-                  <Text style={{ ...theme.type.body, color: theme.color.txPrimary }}>{item.text}</Text>
-                </View>
-              );
-            case 'streaming':
-              return (
-                <View style={{ paddingVertical: theme.space.sm }}>
-                  <Text style={{ ...theme.type.body, color: theme.color.txPrimary }}>{item.text}…</Text>
-                </View>
-              );
-            case 'system':
-            case 'gap':
-              return (
-                <Text
-                  style={{
-                    ...theme.type.caption,
-                    color: theme.color.txTertiary,
-                    textAlign: 'center',
-                    paddingVertical: theme.space.sm,
-                  }}>
-                  {item.label}
-                </Text>
-              );
-          }
-        }}
-      />
-
-      {sendError && status !== 'closed' ? (
-        // Suppressed when status is 'closed': that's an attach failure,
-        // already named by the status caption above — this banner is for a
-        // rejected send() on an otherwise-live session, not a second copy of
-        // the same message.
-        <Text
-          style={{
-            ...theme.type.caption,
-            color: theme.color.txWarning,
-            paddingHorizontal: theme.space.lg,
-            paddingBottom: theme.space.xs,
-          }}>
-          {sendError}
-        </Text>
-      ) : null}
-
-      <View
-        style={{
-          flexDirection: 'row',
-          alignItems: 'center',
-          gap: theme.space.sm,
-          padding: theme.space.md,
-          borderTopWidth: theme.border.hairline,
-          borderTopColor: theme.color.bdPrimary,
-        }}>
-        <TextInput
-          value={draft}
-          onChangeText={setDraft}
-          placeholder="Message"
-          placeholderTextColor={theme.color.txTertiary}
-          style={{
-            flex: 1,
-            ...theme.type.body,
-            color: theme.color.txPrimary,
-            paddingVertical: theme.space.sm,
-            paddingHorizontal: theme.space.md,
-            borderRadius: theme.radius.md,
-            borderWidth: theme.border.thin,
-            borderColor: theme.color.bdBase,
           }}
         />
-        {streaming ? (
-          <Pressable
-            onPress={() => void interrupt()}
+
+        {sendError && status !== 'closed' ? (
+          // Suppressed when status is 'closed': that's an attach failure,
+          // already named by the status caption above — this banner is for a
+          // rejected send() on an otherwise-live session, not a second copy of
+          // the same message.
+          <Text
             style={{
-              paddingVertical: theme.space.sm,
+              ...theme.type.caption,
+              color: theme.color.txWarning,
               paddingHorizontal: theme.space.lg,
-              borderRadius: theme.radius.md,
-              backgroundColor: theme.color.bgError,
+              paddingBottom: theme.space.xs,
             }}>
-            <Text style={{ ...theme.type.label, color: theme.color.txError }}>Stop</Text>
-          </Pressable>
-        ) : (
-          <Pressable
-            onPress={onSend}
+            {sendError}
+          </Text>
+        ) : null}
+
+        <View
+          testID="composer-row"
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: theme.space.sm,
+            paddingTop: theme.space.md,
+            paddingHorizontal: theme.space.md,
+            // The static (keyboard-down) clearance from the native bottom tab
+            // bar. `edges={[]}` on this screen's outer SafeAreaView means no
+            // bottom inset is applied there, so this is the only place that
+            // clearance can live. `insets.bottom` is trusted outright rather
+            // than padded with an extra guessed constant: on a genuine native
+            // tab bar (this app's `NativeTabs`/`Tabs.Host`, a real
+            // UITabBarController) the OS is *supposed* to fold the bar's
+            // footprint into the safe-area inset for any content beneath it —
+            // same mechanism as the home indicator — and there is no
+            // `useBottomTabBarHeight()` equivalent for NativeTabs to
+            // cross-check that against. iOS 26's floating-capsule tab bar is
+            // new enough that whether a *pushed* stack screen like this one
+            // really inherits the tab controller's reduced inset (rather than
+            // just the bare home-indicator value) is something only a device
+            // can confirm — if a device pass shows the composer still
+            // creeping under the capsule, that's the signal this assumption
+            // was wrong, and the fix is an explicit additional pad here, not a
+            // bigger blind guess up front.
+            paddingBottom: theme.space.md + insets.bottom,
+            borderTopWidth: theme.border.hairline,
+            borderTopColor: theme.color.bdPrimary,
+          }}>
+          <TextInput
+            value={draft}
+            onChangeText={setDraft}
+            placeholder="Message"
+            placeholderTextColor={theme.color.txTertiary}
             style={{
+              flex: 1,
+              ...theme.type.body,
+              color: theme.color.txPrimary,
               paddingVertical: theme.space.sm,
-              paddingHorizontal: theme.space.lg,
+              paddingHorizontal: theme.space.md,
               borderRadius: theme.radius.md,
-              backgroundColor: theme.color.bgAccent,
-            }}>
-            <Text style={{ ...theme.type.label, color: theme.color.txAccent }}>Send</Text>
-          </Pressable>
-        )}
-      </View>
+              borderWidth: theme.border.thin,
+              borderColor: theme.color.bdBase,
+            }}
+          />
+          {streaming ? (
+            <Pressable
+              onPress={() => void interrupt()}
+              style={{
+                paddingVertical: theme.space.sm,
+                paddingHorizontal: theme.space.lg,
+                borderRadius: theme.radius.md,
+                backgroundColor: theme.color.bgError,
+              }}>
+              <Text style={{ ...theme.type.label, color: theme.color.txError }}>Stop</Text>
+            </Pressable>
+          ) : (
+            <Pressable
+              onPress={onSend}
+              style={{
+                paddingVertical: theme.space.sm,
+                paddingHorizontal: theme.space.lg,
+                borderRadius: theme.radius.md,
+                backgroundColor: theme.color.bgAccent,
+              }}>
+              <Text style={{ ...theme.type.label, color: theme.color.txAccent }}>Send</Text>
+            </Pressable>
+          )}
+        </View>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }

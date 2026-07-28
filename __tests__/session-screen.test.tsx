@@ -1,11 +1,13 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import SessionScreen from '../src/app/(tabs)/(instances)/[instanceId]';
 import { MockSessionAPI } from '../src/lib/session/mock';
 import type { SessionAPI } from '../src/lib/session/api';
 import type { SubscriptionHandler } from '../src/lib/session/events';
 import type { Host } from '../src/lib/hosts';
+import { space } from '../src/theme';
 
 // The screen calls `sessionAPIFor(host)` rather than constructing its own
 // MockSessionAPI (Task 5's shared-store requirement, Task 15's host-aware
@@ -321,6 +323,35 @@ describe('Session screen', () => {
     });
 
     expect(await screen.findByText('turn failed: no_api_key')).toBeTruthy();
+  });
+
+  it("gives the composer bottom clearance from the real safe-area inset, so it clears the native tab bar/home indicator", async () => {
+    // Device-verified-only territory (see [instanceId].tsx's comment): this
+    // asserts the composer's own static padding tracks whatever the OS
+    // reports as the bottom safe-area inset, since that's the only lever
+    // available with no `useBottomTabBarHeight()` equivalent for NativeTabs.
+    // A real `SafeAreaProvider` with fixed `initialMetrics` (rather than
+    // stubbing the hook's return value directly) exercises the actual
+    // context path components read from, matching every other assertion in
+    // this suite's preference for the real wiring over a hand-stubbed value.
+    jest.useFakeTimers();
+    mockApi = new MockSessionAPI({ fragmentDelayMs: 5 }) as unknown as SessionAPI;
+    const inst = await (mockApi as MockSessionAPI).create('tycho');
+    mockInstanceId = inst.id;
+
+    await render(
+      <SafeAreaProvider
+        initialMetrics={{
+          insets: { top: 59, left: 0, right: 0, bottom: 34 },
+          frame: { x: 0, y: 0, width: 390, height: 844 },
+        }}>
+        <SessionScreen />
+      </SafeAreaProvider>,
+    );
+
+    const composer = await screen.findByTestId('composer-row');
+    const flatStyle = Object.assign({}, ...([composer.props.style].flat() as object[]));
+    expect(flatStyle.paddingBottom).toBe(space.md + 34);
   });
 
   it('restores the draft text after a rejected send rather than losing it', async () => {
