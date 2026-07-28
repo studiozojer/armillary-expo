@@ -44,6 +44,25 @@ describe('MockSessionAPI honesty obligations', () => {
     expect(transients.every((e) => e.seq === 0)).toBe(true);
   });
 
+  it('never fires the gap signal for a fresh subscribe at the default earliestSeq', async () => {
+    jest.useFakeTimers();
+    // Default earliestSeq (1): a from=0 subscribe on a brand-new session has
+    // nothing missing between the cursor and what's available — the engine
+    // itself only fires when `from + 1 < earliest_seq`, and 0 + 1 is not < 1.
+    const api = new MockSessionAPI();
+    const inst = await api.create('tycho');
+
+    const gaps: GapInfo[] = [];
+    api.subscribe(inst.stream, 0, {
+      onEvent: () => {},
+      onStatus: () => {},
+      onGap: (g) => gaps.push(g),
+    });
+    await jest.advanceTimersByTimeAsync(0);
+
+    expect(gaps).toEqual([]);
+  });
+
   it('fires the gap signal when the cursor predates earliestSeq', async () => {
     jest.useFakeTimers();
     // Fake timers + never advancing them: the canned generation's setTimeout

@@ -176,7 +176,12 @@ export class MockSessionAPI implements SessionAPI {
 
     handler.onStatus('replaying');
 
-    if (fromSeq < this.earliestSeq) {
+    // The engine fires iff `from + 1 < earliest_seq` — i.e. there's at least
+    // one seq strictly between the cursor and what's available. `fromSeq <
+    // earliestSeq` alone over-fires: a fresh subscribe (fromSeq 0, default
+    // earliestSeq 1) has nothing missing between them, yet that looser
+    // check would still call onGap.
+    if (fromSeq + 1 < this.earliestSeq) {
       handler.onGap({ requestedFrom: fromSeq, earliestAvailable: this.earliestSeq });
     }
 
