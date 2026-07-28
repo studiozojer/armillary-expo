@@ -6,6 +6,11 @@ import { DAOUI_SOURCE_COMMIT, ROLE_COUNT, darkColors, lightColors, type ColorRol
 
 export { DAOUI_SOURCE_COMMIT, ROLE_COUNT, type ColorRole };
 
+// Re-exported so `@/theme` stays the single styling entry point. The import
+// back into this module from `nav-theme` is type-only, so there is no runtime
+// cycle here.
+export { navThemeFor } from './nav-theme';
+
 /**
  * Layout scales.
  *

@@ -1,17 +1,33 @@
 import { useFonts } from 'expo-font';
-import { DarkTheme, DefaultTheme, ThemeProvider } from 'expo-router/react-navigation';
+import { ThemeProvider } from 'expo-router/react-navigation';
 import { Stack } from 'expo-router/stack';
 import * as SplashScreen from 'expo-splash-screen';
-import { useEffect } from 'react';
-import { useColorScheme } from 'react-native';
+import { useEffect, type ReactNode } from 'react';
 
 import { HostProvider } from '@/lib/host-context';
 import { PreferencesProvider } from '@/lib/preferences';
+import { navThemeFor, useTheme } from '@/theme';
 import { fontMap } from '@/theme/fonts.gen';
 import { splashReady } from '@/theme/splash';
 import { ThemeModeProvider } from '@/theme/theme-context';
 
 SplashScreen.preventAutoHideAsync();
+
+/**
+ * The navigation chrome, themed from the same tokens as the content.
+ *
+ * A separate component rather than inline in RootLayout because it has to read
+ * `useTheme()`, and that hook only sees the app-owned mode from *inside*
+ * ThemeModeProvider. The provider order used to be the other way round —
+ * ThemeProvider above ThemeModeProvider, reading the raw `useColorScheme()` —
+ * which agrees with the content today only because `Appearance.setColorScheme`
+ * is process-wide. A mode held in context alone would silently desync the
+ * chrome from the screen it frames.
+ */
+function NavigationChrome({ children }: { children: ReactNode }) {
+  const theme = useTheme();
+  return <ThemeProvider value={navThemeFor(theme)}>{children}</ThemeProvider>;
+}
 
 /**
  * The root is a `Stack`, and the tab bar sits inside it.
@@ -26,7 +42,6 @@ SplashScreen.preventAutoHideAsync();
  * own `Stack` and draws one.
  */
 export default function RootLayout() {
-  const colorScheme = useColorScheme();
   const [fontsLoaded, fontError] = useFonts(fontMap);
 
   // useFonts never reports loaded=true on failure — it sets fontError and
@@ -55,8 +70,8 @@ export default function RootLayout() {
   if (!ready) return null;
 
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <ThemeModeProvider>
+    <ThemeModeProvider>
+      <NavigationChrome>
         <HostProvider>
           <PreferencesProvider>
             <Stack>
@@ -68,7 +83,7 @@ export default function RootLayout() {
             </Stack>
           </PreferencesProvider>
         </HostProvider>
-      </ThemeModeProvider>
-    </ThemeProvider>
+      </NavigationChrome>
+    </ThemeModeProvider>
   );
 }
