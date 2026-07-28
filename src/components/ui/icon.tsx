@@ -56,6 +56,14 @@ export function Icon({
       name={{ ios: spec.ios, web: spec.web, android: spec.web }}
       size={size}
       tintColor={theme.color[color]}
+      // Decorative by construction. The pressable or heading that contains an icon
+      // carries the label; the icon repeating it would double every announcement.
+      // This is not only politeness — off-Apple, SymbolView renders the Material
+      // glyph as a private-use Unicode character in a <Text>, which a screen reader
+      // announces as noise. If an icon ever needs to be the sole meaning of a
+      // control, give the CONTROL a label; do not un-hide the icon.
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
     />
   );
 }
