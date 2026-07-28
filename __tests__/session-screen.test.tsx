@@ -5,16 +5,27 @@ import SessionScreen from '../src/app/(tabs)/(instances)/[instanceId]';
 import { MockSessionAPI } from '../src/lib/session/mock';
 import type { SessionAPI } from '../src/lib/session/api';
 
-// The screen imports `sessionAPI` from this module rather than constructing
-// its own MockSessionAPI (Task 5's shared-store requirement). Mocked with a
-// getter so each test can point it at a freshly configured instance —
-// Babel's commonjs transform reads `_instance.sessionAPI` at each call site
-// rather than caching it to a local binding, so the getter is live.
+// The screen calls `sessionAPIFor(host)` rather than constructing its own
+// MockSessionAPI (Task 5's shared-store requirement, Task 15's host-aware
+// factory). Mocked so each test can point it at a freshly configured
+// instance regardless of which host object the screen's `useHost()` mock
+// hands back.
 let mockApi: SessionAPI;
 jest.mock('../src/lib/session/instance', () => ({
-  get sessionAPI() {
-    return mockApi;
-  },
+  sessionAPIFor: () => mockApi,
+}));
+
+// `useHost()` backs the screen's `useMemo(() => sessionAPIFor(host), ...)`
+// and its `ready` gate — a fixed, already-ready host is enough here since
+// these tests exercise the session surface, not host switching.
+jest.mock('../src/lib/host-context', () => ({
+  useHost: () => ({
+    host: { id: 'test-host', label: 'test', daemonUrl: 'http://test:7778', inboxUrl: 'http://test:7777' },
+    hosts: [],
+    setHost: () => {},
+    generation: 0,
+    ready: true,
+  }),
 }));
 
 // Similarly for the route param: the screen reads `instanceId` via

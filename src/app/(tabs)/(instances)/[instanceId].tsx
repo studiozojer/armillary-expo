@@ -1,10 +1,11 @@
 import { useLocalSearchParams } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
-import { Alert, FlatList, Pressable, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, FlatList, Pressable, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { MarkdownView } from '@/components/markdown-view';
-import { sessionAPI } from '@/lib/session/instance';
+import { useHost } from '@/lib/host-context';
+import { sessionAPIFor } from '@/lib/session/instance';
 import type { SessionRow } from '@/lib/session/project';
 import { useSession } from '@/lib/session/use-session';
 import { markedThemeFor, useTheme } from '@/theme';
@@ -30,7 +31,15 @@ function rowKey(row: SessionRow): string {
 export default function SessionScreen() {
   const theme = useTheme();
   const { instanceId } = useLocalSearchParams<{ instanceId: string }>();
-  const { rows, status, gap, sendError, send, interrupt, evict } = useSession(sessionAPI, instanceId);
+  const { host, generation, ready } = useHost();
+  // Same factory, same identity rule as the list screen (Task 5's shared
+  // store, now host-aware): whichever instance the list screen created this
+  // is, by construction, the same client object. Keyed on `host.id` +
+  // `generation` rather than `host` itself for the same reason as the list
+  // screen (see its comment) — `sessionAPIFor` already memoizes by id/url.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const api = useMemo(() => sessionAPIFor(host), [host.id, generation]);
+  const { rows, status, gap, sendError, send, interrupt, evict } = useSession(api, instanceId);
   const [draft, setDraft] = useState('');
 
   const streaming = rows.some((r) => r.kind === 'streaming');
@@ -69,6 +78,17 @@ export default function SessionScreen() {
     },
     [evict],
   );
+
+  // Same guard as the list screen: hold off on the visible session until the
+  // stored host has hydrated, so a cold launch doesn't flash a session
+  // attached against the default host before correcting.
+  if (!ready) {
+    return (
+      <SafeAreaView style={{ flex: 1, justifyContent: 'center' }} edges={[]}>
+        <ActivityIndicator />
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={{ flex: 1 }} edges={[]}>
