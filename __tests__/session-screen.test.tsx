@@ -1,10 +1,13 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import SessionScreen from '../src/app/(tabs)/(instances)/[instanceId]';
 import { MockSessionAPI } from '../src/lib/session/mock';
 import type { SessionAPI } from '../src/lib/session/api';
+import type { SubscriptionHandler } from '../src/lib/session/events';
 import type { Host } from '../src/lib/hosts';
+import { space } from '../src/theme';
 
 // The screen calls `sessionAPIFor(host)` rather than constructing its own
 // MockSessionAPI (Task 5's shared-store requirement, Task 15's host-aware
@@ -42,6 +45,23 @@ let mockInstanceId: string;
 jest.mock('expo-router', () => ({
   useLocalSearchParams: () => ({ instanceId: mockInstanceId }),
 }));
+
+// `Stack.Screen` (from `expo-router/stack`, a separate module from the
+// wholesale 'expo-router' mock above) registers per-screen options through a
+// real navigator's context — rendered standalone (this file's whole approach;
+// see the comment above) it throws "Couldn't find a route object". Mocked as
+// a plain `Text` carrying the title, so the dynamic-title test below can
+// assert on it the same way every other visible-row test in this file does,
+// without pulling in a full `renderRouter` navigator just for one field.
+jest.mock('expo-router/stack', () => {
+  const { Text: RNText } = require('react-native');
+  return {
+    Stack: {
+      Screen: ({ options }: { options?: { title?: string } }) =>
+        options?.title ? <RNText testID="stack-screen-title">{options.title}</RNText> : null,
+    },
+  };
+});
 
 const CANNED_REPLY = 'the log remembers what actually happened here, not what was meant.';
 
@@ -225,10 +245,113 @@ describe('Session screen', () => {
 
     await render(<SessionScreen />);
 
-    expect(await screen.findByText(/Couldn't reach the session — no such instance: does-not-exist/)).toBeTruthy();
+    expect(await screen.findByText(/Couldn't reach the instance — no such instance: does-not-exist/)).toBeTruthy();
     expect(screen.queryByText('Reconnecting…')).toBeNull();
     // Not duplicated by the send-error banner too.
     expect(screen.getAllByText(/no such instance: does-not-exist/)).toHaveLength(1);
+  });
+
+  it("sets the header title to @operator once attach resolves, and shows the instance's short id", async () => {
+    jest.useFakeTimers();
+    mockApi = new MockSessionAPI({ fragmentDelayMs: 5 }) as unknown as SessionAPI;
+    const inst = await (mockApi as MockSessionAPI).create('tycho');
+    mockInstanceId = inst.id;
+
+    await render(<SessionScreen />);
+
+    expect(await screen.findByTestId('stack-screen-title')).toHaveTextContent('@tycho');
+    expect(screen.getByText(inst.id.slice(0, 8))).toBeTruthy();
+  });
+
+  it('titles a dispatcher-routed instance "dispatcher", not "@null" or blank', async () => {
+    jest.useFakeTimers();
+    mockApi = new MockSessionAPI({ fragmentDelayMs: 5 }) as unknown as SessionAPI;
+    const inst = await (mockApi as MockSessionAPI).create(null);
+    mockInstanceId = inst.id;
+
+    await render(<SessionScreen />);
+
+    expect(await screen.findByTestId('stack-screen-title')).toHaveTextContent('dispatcher');
+  });
+
+  it('renders a failure-shaped assistant_message as a visible failure line naming the machine code, never a blank row', async () => {
+    // Hand-rolled double (same style as use-session.test.tsx's scriptedApi):
+    // no send() path in MockSessionAPI produces a failure-shaped turn — that's
+    // armillary-engine's fail_turn (loop_.rs), not this app's mock — so this
+    // test delivers the exact envelope shape directly via subscribe()'s handler.
+    let handler!: SubscriptionHandler;
+    const fakeApi: SessionAPI = {
+      create: jest.fn(),
+      list: jest.fn(),
+      attach: jest.fn(async () => ({
+        instance: {
+          id: 'inst-err',
+          operator: 'tycho',
+          stream: 's-err',
+          startedAt: '2026-07-28T00:00:00.000Z',
+          lastSeq: 0,
+        },
+        earliestSeq: 1,
+        headSeq: 0,
+      })),
+      subscribe: jest.fn((_stream: string, _fromSeq: number, h: SubscriptionHandler) => {
+        handler = h;
+        queueMicrotask(() => h.onStatus('live'));
+        return () => {};
+      }),
+      send: jest.fn(),
+      interrupt: jest.fn(),
+      evict: jest.fn(),
+    };
+    mockApi = fakeApi;
+    mockInstanceId = 'inst-err';
+
+    await render(<SessionScreen />);
+    await waitFor(() => expect(handler).toBeDefined());
+
+    await act(async () => {
+      handler.onEvent({
+        stream: 's-err',
+        id: 's-err:1:abc',
+        seq: 1,
+        ts: '2026-07-28T00:00:00.000Z',
+        actor: { role: 'operator', instance: 'tycho' },
+        type: 'assistant_message',
+        version: 1,
+        data: { text: '', generation: 'gen-1', interrupted: true, error: 'no_api_key' },
+      });
+    });
+
+    expect(await screen.findByText('turn failed: no_api_key')).toBeTruthy();
+  });
+
+  it("gives the composer bottom clearance from the real safe-area inset, so it clears the native tab bar/home indicator", async () => {
+    // Device-verified-only territory (see [instanceId].tsx's comment): this
+    // asserts the composer's own static padding tracks whatever the OS
+    // reports as the bottom safe-area inset, since that's the only lever
+    // available with no `useBottomTabBarHeight()` equivalent for NativeTabs.
+    // A real `SafeAreaProvider` with fixed `initialMetrics` (rather than
+    // stubbing the hook's return value directly) exercises the actual
+    // context path components read from, matching every other assertion in
+    // this suite's preference for the real wiring over a hand-stubbed value.
+    jest.useFakeTimers();
+    mockApi = new MockSessionAPI({ fragmentDelayMs: 5 }) as unknown as SessionAPI;
+    const inst = await (mockApi as MockSessionAPI).create('tycho');
+    mockInstanceId = inst.id;
+
+    await render(
+      <SafeAreaProvider
+        initialMetrics={{
+          insets: { top: 59, left: 0, right: 0, bottom: 34 },
+          frame: { x: 0, y: 0, width: 390, height: 844 },
+        }}>
+        <SessionScreen />
+      </SafeAreaProvider>,
+    );
+
+    const composer = await screen.findByTestId('composer-row');
+    const flatStyle = Object.assign({}, ...([composer.props.style].flat() as object[]));
+    expect(flatStyle.paddingBottom).toBe(space.md + 34);
   });
 
   it('restores the draft text after a rejected send rather than losing it', async () => {

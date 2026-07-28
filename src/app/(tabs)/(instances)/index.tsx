@@ -1,6 +1,6 @@
-import { Link } from 'expo-router';
+import { Link, useFocusEffect } from 'expo-router';
 import { Stack } from 'expo-router/stack';
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useRef } from 'react';
 import { ActivityIndicator, FlatList, Pressable, Text } from 'react-native';
 
 import { InstanceCard } from '@/components/instance-card';
@@ -53,6 +53,25 @@ export default function Instances() {
     `${host.id}:${generation}`,
     load,
     ready,
+  );
+
+  // Refetch whenever this tab regains focus (e.g. returning from a session
+  // that appended a new turn, or from the new-instance sheet) — not just on
+  // mount and pull-to-refresh. `useFocusEffect`'s callback also fires on the
+  // very first focus, which coincides with this component's own mount — and
+  // `useLoader`'s own mount effect already triggered the first fetch, so
+  // firing `refresh()` there too would be a redundant second request on every
+  // cold visit. The ref (not state — this must not itself trigger a
+  // re-render) skips exactly that first call and refreshes on every one after.
+  const hasFocusedOnce = useRef(false);
+  useFocusEffect(
+    useCallback(() => {
+      if (!hasFocusedOnce.current) {
+        hasFocusedOnce.current = true;
+        return;
+      }
+      void refresh();
+    }, [refresh]),
   );
 
   if (state.status === 'error') {
@@ -115,7 +134,7 @@ export default function Instances() {
           by the error state above, not faked here. */}
       {MOCK ? (
         <Box p="lg">
-          <Callout title="Mock session data">
+          <Callout title="Mock instance data">
             EXPO_PUBLIC_SESSION_MOCK=1 — not the live engine.
           </Callout>
         </Box>
@@ -125,6 +144,7 @@ export default function Instances() {
         <ActivityIndicator style={{ marginTop: theme.space.xl }} />
       ) : (
         <FlatList
+          testID="instances-list"
           data={instances}
           keyExtractor={(instance) => instance.id}
           // No horizontal padding on the container: rows are full-bleed like

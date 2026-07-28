@@ -7,6 +7,7 @@ import type {
   AssistantMessageData,
   EventEnvelope,
   GapInfo,
+  Instance,
   SubscriptionHandler,
   SubscriptionStatus,
 } from './events';
@@ -51,6 +52,10 @@ export type UseSessionResult = {
   rows: SessionRow[];
   status: SubscriptionStatus;
   gap: GapInfo | null;
+  /** The attached instance — its `id`, `operator`, `stream`. `null` before
+   *  attach() resolves (or if it never does); set from the attach result,
+   *  same source `streamRef` and `headSeq` already come from. */
+  instance: Instance | null;
   /** Resolves `true` if the send was accepted, `false` if it was rejected
    *  (in which case `sendError` is also set). */
   send(text: string): Promise<boolean>;
@@ -90,6 +95,7 @@ export function useSession(api: SessionAPI, instanceId: string, enabled = true):
   const [status, setStatus] = useState<SubscriptionStatus>('replaying');
   const [gap, setGap] = useState<GapInfo | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
+  const [instance, setInstance] = useState<Instance | null>(null);
 
   // Refs, not state: read synchronously by code that must not wait for a
   // render (the reconnect cursor, the cache key, dedup) and written from
@@ -201,6 +207,7 @@ export function useSession(api: SessionAPI, instanceId: string, enabled = true):
     setStatus('replaying');
     setGap(null);
     setSendError(null);
+    setInstance(null);
     streamRef.current = null;
     clearReconnectTimer();
     unsubscribeRef.current?.();
@@ -234,6 +241,7 @@ export function useSession(api: SessionAPI, instanceId: string, enabled = true):
       if (cancelled || epoch.current !== mine) return;
       const stream = attachInfo.instance.stream;
       streamRef.current = stream;
+      setInstance(attachInfo.instance);
 
       let cached = await readScrollback(stream);
       if (cancelled || epoch.current !== mine) return;
@@ -305,5 +313,5 @@ export function useSession(api: SessionAPI, instanceId: string, enabled = true):
 
   const rows = useMemo(() => projectSession(durable, transients, pending), [durable, transients, pending]);
 
-  return { rows, status, gap, send, interrupt, evict, sendError };
+  return { rows, status, gap, send, interrupt, evict, sendError, instance };
 }

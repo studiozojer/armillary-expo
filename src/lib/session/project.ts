@@ -16,7 +16,20 @@ import type {
 } from './events';
 
 export type SessionRow =
-  | { kind: 'message'; id: string; seq: number; role: ActorRole; text: string; interrupted?: boolean; evicted?: boolean }
+  | {
+      kind: 'message';
+      id: string;
+      seq: number;
+      role: ActorRole;
+      text: string;
+      interrupted?: boolean;
+      evicted?: boolean;
+      /** The engine's machine code for a failed turn (see events.ts's
+       *  AssistantMessageData comment). Set only for a failure-shaped
+       *  assistant_message — never derived from `text`, so an empty-but-not-
+       *  failed message (were one ever to exist) would not be mistaken for one. */
+      error?: string;
+    }
   | { kind: 'streaming'; generation: string; text: string }
   | { kind: 'pending'; clientKey: string; text: string }
   | { kind: 'system'; id: string; seq: number; label: string }
@@ -80,6 +93,7 @@ export function projectSession(
         const data = e.data as AssistantMessageData;
         const row: MessageRow = { kind: 'message', id: e.id, seq: e.seq, role: e.actor.role, text: data.text };
         if (data.interrupted) row.interrupted = true;
+        if (data.error) row.error = data.error;
         if (evictedIds.has(e.id)) row.evicted = true;
         rows.push(row);
         break;

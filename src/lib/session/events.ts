@@ -49,7 +49,20 @@ export type DurableType = (typeof DURABLE_TYPES)[number];
 export const ASSISTANT_DELTA = 'assistant_delta';
 
 export type UserMessageData = { text: string; clientKey?: string };
-export type AssistantMessageData = { text: string; generation: string; interrupted?: boolean; model?: string };
+/**
+ * `error`: the engine's machine code for a failed turn (e.g. `no_api_key`,
+ * `provider_api_400` — `armillary-engine`'s `fail_turn` in `loop_.rs`), paired
+ * with `text: ""` and `interrupted: true` on that same failure-shaped
+ * envelope. Never a human sentence — the house rule is to name the refusal
+ * verbatim, not paraphrase it.
+ */
+export type AssistantMessageData = {
+  text: string;
+  generation: string;
+  interrupted?: boolean;
+  model?: string;
+  error?: string;
+};
 export type AssistantDeltaData = { textSoFar: string; generation: string };
 export type BootData = { path: string; sha256: string };
 export type ContextEvictData = { target: string };
