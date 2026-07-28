@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react-native';
 import { Platform, StyleSheet } from 'react-native';
 
-import { ICONS, ListRow } from '../src/components/ui';
+import { ICONS, ListRow, Text } from '../src/components/ui';
 import { themeFor } from '../src/theme';
 
 // Shaped the way @testing-library/react-native's own internal
@@ -160,5 +160,33 @@ describe('<ListRow>', () => {
     const leadingIcon = symbols[0];
     expect(leadingIcon?.props.name).toBe(platformName(ICONS.file));
     expect(leadingIcon?.props.name).not.toBe(platformName(ICONS.folder));
+  });
+
+  describe('the trailing slot', () => {
+    // Same per-platform resolution the icon test explains: SymbolView collapses
+    // its {ios, web, android} name to a single string before the host node.
+    const platformName = (spec: { ios: string; web: string }) =>
+      Platform.OS === 'ios' ? spec.ios : spec.web;
+
+    const symbolNames = () =>
+      findAllByType(screen.toJSON() as JsonNode | null, 'ViewManagerAdapter_SymbolModule').map(
+        (symbol) => symbol.props.name,
+      );
+
+    it('holds the chevron when the caller supplies nothing', async () => {
+      await render(<ListRow icon="folder" label="tycho" />);
+      expect(symbolNames()).toContain(platformName(ICONS.chevron));
+    });
+
+    it('replaces the chevron with what the caller supplies, rather than sitting beside it', async () => {
+      // Replaces, not appends: TreeList's voicenote dot means "this file's
+      // transcription state", and a chevron left next to it would read as a
+      // second, separate affordance on the same row. Assert the absence as
+      // well as the presence — a version that rendered both would pass the
+      // positive half alone.
+      await render(<ListRow icon="file" label="memo.m4a" trailing={<Text>●</Text>} />);
+      expect(screen.getByText('●')).toBeTruthy();
+      expect(symbolNames()).not.toContain(platformName(ICONS.chevron));
+    });
   });
 });

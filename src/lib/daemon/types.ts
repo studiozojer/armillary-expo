@@ -52,3 +52,29 @@ export class DaemonError extends Error {
     this.status = status;
   }
 }
+
+export type VoicenoteState = 'transcribed' | 'untranscribed' | 'audio_absent';
+
+export type VoicenoteTranscript = {
+  path: string;
+  title?: string;
+  recorded?: string;
+  duration_min?: string;
+  transcribed_by?: string;
+  model?: string;
+};
+
+export type VoicenoteEntry = {
+  audio: string;
+  /** Absent when the audio is not on this machine. */
+  bytes?: number;
+  state: VoicenoteState;
+  transcript?: VoicenoteTranscript;
+};
+
+export type VoicenoteIndex = {
+  audio_root: string;
+  /** Where the engine looked — so an empty result can say where. */
+  transcript_roots: string[];
+  entries: VoicenoteEntry[];
+};

@@ -1,7 +1,7 @@
-import { Link, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { Stack } from 'expo-router/stack';
 import { useCallback } from 'react';
-import { ActivityIndicator, Pressable } from 'react-native';
+import { ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ModuleList } from '@/components/module-list';
@@ -12,7 +12,7 @@ import { useHost } from '@/lib/host-context';
 import { useLoader } from '@/lib/use-loader';
 import { useTheme } from '@/theme';
 
-export default function Explorer() {
+export default function CompositionScreen() {
   const theme = useTheme();
   const router = useRouter();
   const { host, generation, ready } = useHost();
@@ -76,21 +76,11 @@ export default function Explorer() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: theme.color.bgSolidBase }} edges={[]}>
-      <Stack.Screen
-        options={{
-          // In the header, not floating: an absolutely-positioned button in a
-          // screen that owns no chrome ends up underneath the native tab bar.
-          headerRight: () => (
-            <Link href="/capture" asChild>
-              <Pressable hitSlop={8}>
-                <Text variant="label" color="txAccent">
-                  Capture
-                </Text>
-              </Pressable>
-            </Link>
-          ),
-        }}
-      />
+      {/* No Capture button here any more: this screen used to be the Explorer
+          index and carried it, and main split the two apart — the workspace
+          listing is the index now and owns that header, so a second Capture
+          entry point one push deeper would just be a duplicate. */}
+      <Stack.Screen options={{ title: 'Composition' }} />
       <ModuleList
         composition={state.data}
         hostLabel={host.label}

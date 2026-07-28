@@ -5,11 +5,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useHost } from '@/lib/host-context';
 import { probe, type Host, type Reachability } from '@/lib/hosts';
+import { useShowDotfiles } from '@/lib/preferences';
 import { useTheme } from '@/theme';
 
 export default function Settings() {
   const theme = useTheme();
   const { host, hosts, setHost } = useHost();
+  const { showDotfiles, setShowDotfiles } = useShowDotfiles();
   const [results, setResults] = useState<Record<string, Reachability>>({});
 
   const probeAll = useCallback(async () => {
@@ -26,8 +28,24 @@ export default function Settings() {
 
   return (
     <SafeAreaView style={{ flex: 1 }} edges={['bottom']}>
-      <Stack.Screen options={{ title: 'Host' }} />
+      <Stack.Screen options={{ title: 'Settings' }} />
       <ScrollView contentContainerStyle={{ padding: theme.space.lg }}>
+        <Text style={{ ...theme.type.caption, color: theme.color.txTertiary }}>Files</Text>
+        <Pressable
+          onPress={() => setShowDotfiles(!showDotfiles)}
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            paddingVertical: theme.space.md,
+            marginBottom: theme.space.lg,
+          }}>
+          <Text style={{ ...theme.type.body, color: theme.color.txPrimary }}>Show dotfiles</Text>
+          <Text style={{ ...theme.type.label, color: theme.color.txAccent }}>
+            {showDotfiles ? 'On' : 'Off'}
+          </Text>
+        </Pressable>
+
         <Text style={{ ...theme.type.caption, color: theme.color.txTertiary }}>
           Which machine is serving this workspace. Changing it takes effect immediately — no
           rebuild.

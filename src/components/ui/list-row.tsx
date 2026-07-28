@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { Pressable } from 'react-native';
 
 import { useTheme } from '@/theme';
@@ -9,7 +10,8 @@ import { Inline, Stack } from './stack';
 import { Text } from './text';
 
 /**
- * A row in a list: leading icon typed by kind, label, optional note, chevron.
+ * A row in a list: leading icon typed by kind, label, optional note, and a
+ * trailing slot that holds a chevron unless the caller fills it.
  *
  * The pressed state paints a surface rather than fading the row. `opacity: 0.6`
  * — which is what every hand-rolled row in this app did — dims the text along
@@ -19,12 +21,22 @@ export function ListRow({
   icon,
   label,
   note,
+  trailing,
   onPress,
   testID,
 }: {
   icon: IconName;
   label: string;
   note?: string;
+  /**
+   * What sits at the end of the row. Omitted, it is the chevron — the shape
+   * that says "this pushes a screen", which is what almost every row does.
+   * Supplied, it *replaces* the chevron rather than sitting beside it: two
+   * trailing marks read as two affordances, and the caller that has something
+   * specific to say there (the voicenote inbox's transcription dot) is saying
+   * it about this row, not adding to it.
+   */
+  trailing?: ReactNode;
   onPress?: () => void;
   testID?: string;
 }) {
@@ -70,7 +82,15 @@ export function ListRow({
             ) : null}
           </Stack>
 
-          <Icon name="chevron" size={14} color="icSecondary" />
+          {/* `!== undefined`, not truthiness: a caller computing this slot can
+              legitimately produce an empty-but-present node, and falling back
+              to the chevron in that case would put a "pushes a screen" mark on
+              a row the caller deliberately left bare. */}
+          {trailing !== undefined ? (
+            trailing
+          ) : (
+            <Icon name="chevron" size={14} color="icSecondary" />
+          )}
         </Inline>
       </Box>
     </Pressable>

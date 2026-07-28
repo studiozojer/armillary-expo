@@ -10,8 +10,9 @@ import { useTheme } from '@/theme';
  * both platforms agree. Until then the two deliberately differ, and this note
  * is here so the difference reads as scheduled rather than accidental.
  *
- * Rebuilt off the Expo template's ThemedText/ThemedView, which carried their
- * own hardcoded palette and could not follow daoUI.
+ * Rebuilt off the Expo template's themed-text/themed-view wrappers, which
+ * carried their own hardcoded palette and could not follow daoUI. Both are
+ * deleted; this is the only version of this file that compiles.
  */
 export default function AppTabs() {
   return (
@@ -19,10 +20,13 @@ export default function AppTabs() {
       <TabSlot style={{ height: '100%' }} />
       <TabList asChild>
         <TabBar>
-          <TabTrigger name="(instances)" href="/(instances)" asChild>
+          {/* Group-qualified on both, because both tab indexes resolve to `/`
+              and only the group segment tells them apart. Both moved with the
+              tabs into `(tabs)`; the unqualified hrefs no longer resolve. */}
+          <TabTrigger name="(instances)" href="/(tabs)/(instances)" asChild>
             <TabButton>Instances</TabButton>
           </TabTrigger>
-          <TabTrigger name="(explorer)" href="/" asChild>
+          <TabTrigger name="(explorer)" href="/(tabs)/(explorer)" asChild>
             <TabButton>Explorer</TabButton>
           </TabTrigger>
         </TabBar>
