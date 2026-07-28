@@ -4,37 +4,29 @@ import { useCallback } from 'react';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { TreeList } from '@/components/tree-list';
+import { ModuleList } from '@/components/module-list';
 import { DaemonClient } from '@/lib/daemon/client';
-import { annotationsFor } from '@/lib/annotations';
-import type { Composition, TreeResponse } from '@/lib/daemon/types';
+import type { Composition } from '@/lib/daemon/types';
 import { useHost } from '@/lib/host-context';
 import { useLoader } from '@/lib/use-loader';
 import { useTheme } from '@/theme';
 
-export default function Explorer() {
+export default function CompositionScreen() {
   const theme = useTheme();
   const { host, generation, ready } = useHost();
 
   const load = useCallback(
-    async (signal: AbortSignal) => {
-      const client = new DaemonClient(host.daemonUrl);
-      const tree = await client.getTree('', signal);
-      // The filesystem is the load-bearing half. If /composition fails we still
-      // render the workspace, just without subtitles — the old screen could
-      // show nothing at all in this case.
-      const composition = await client.getComposition(signal).catch(() => null);
-      return { tree, composition };
-    },
+    (signal: AbortSignal) => new DaemonClient(host.daemonUrl).getComposition(signal),
     [host.daemonUrl],
   );
 
   // `ready` gates the first fetch until the stored host has hydrated, so a cold
   // launch does not fire at the default host and then race its own correction.
-  const { state, refreshing, refresh, retry } = useLoader<{
-    tree: TreeResponse;
-    composition: Composition | null;
-  }>(`${host.id}:${generation}`, load, ready);
+  const { state, refreshing, refresh, retry } = useLoader<Composition>(
+    `${host.id}:${generation}`,
+    load,
+    ready,
+  );
 
   if (state.status === 'error') {
     return (
@@ -102,48 +94,14 @@ export default function Explorer() {
     );
   }
 
-  const { tree, composition } = state.data;
-  const annotations = composition ? annotationsFor(composition) : {};
-
   return (
     <SafeAreaView style={{ flex: 1 }} edges={[]}>
-      <Stack.Screen
-        options={{
-          // In the header, not floating: an absolutely-positioned button in a
-          // screen that owns no chrome ends up underneath the native tab bar.
-          headerRight: () => (
-            <Link href="/capture" asChild>
-              <Pressable hitSlop={8}>
-                <Text style={{ ...theme.type.label, color: theme.color.txAccent }}>Capture</Text>
-              </Pressable>
-            </Link>
-          ),
-        }}
-      />
-      <TreeList
-        base=""
-        entries={tree.entries}
-        total={tree.total}
-        truncated={tree.truncated}
-        subtitleFor={(name) => annotations[name]}
+      <Stack.Screen options={{ title: 'Composition' }} />
+      <ModuleList
+        composition={state.data}
+        hostLabel={host.label}
         refreshing={refreshing}
         onRefresh={refresh}
-        header={
-          <View style={{ paddingTop: theme.space.lg }}>
-            <Text style={{ ...theme.type.title, color: theme.color.txPrimary }}>
-              {host.label}
-            </Text>
-            {/* Where the old three-section view survives: composition summary
-                and protocol load-timings, one tap away rather than gone. */}
-            <Link href="/composition" asChild>
-              <Text style={{ ...theme.type.caption, color: theme.color.txAccent }}>
-                {composition
-                  ? `${composition.operators.length} operators · ${composition.commons.length} commons · ${composition.repos.length} repos ›`
-                  : 'composition unavailable ›'}
-              </Text>
-            </Link>
-          </View>
-        }
       />
     </SafeAreaView>
   );
