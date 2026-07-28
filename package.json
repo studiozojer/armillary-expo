@@ -53,17 +53,5 @@
     "sync-tokens": "node scripts/sync-tokens.mjs",
     "sync-fonts": "node scripts/sync-fonts.mjs"
   },
-  "private": true,
-  "jest": {
-    "preset": "jest-expo",
-    "setupFiles": [
-      "<rootDir>/jest.setup.js"
-    ],
-    "modulePathIgnorePatterns": [
-      "<rootDir>/.worktrees/"
-    ],
-    "transformIgnorePatterns": [
-      "node_modules/(?!((jest-)?react-native|@react-native(-community)?|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|react-navigation|@react-navigation/.*|@unimodules/.*|unimodules|sentry-expo|native-base|react-native-svg|react-native-marked|marked|github-slugger))"
-    ]
-  }
+  "private": true
 }
