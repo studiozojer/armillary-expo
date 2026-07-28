@@ -64,6 +64,10 @@ export const type = {
 
 export type TextVariant = keyof typeof type;
 
+export type Space = keyof typeof space;
+export type Radius = keyof typeof radius;
+export type BorderWidth = keyof typeof border;
+
 export type Theme = {
   scheme: 'light' | 'dark';
   color: Record<ColorRole, string>;
