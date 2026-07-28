@@ -10,7 +10,14 @@
 // Run: npm run sync-fonts
 
 import { execFileSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -54,6 +61,16 @@ try {
 }
 
 mkdirSync(DEST, { recursive: true });
+
+// Replace, not merge: a face daoUI has since renamed or dropped must not
+// survive as a stale committed binary with no git diff signal. Scoped to
+// .otf so this never touches anything else that might live in DEST.
+const stale = readdirSync(DEST).filter((f) => f.endsWith('.otf') && !faces.includes(f));
+for (const face of stale) {
+  unlinkSync(join(DEST, face));
+  console.log(`sync-fonts: pruned stale ${face}`);
+}
+
 for (const face of faces) copyFileSync(join(SRC, face), join(DEST, face));
 
 const entries = faces
