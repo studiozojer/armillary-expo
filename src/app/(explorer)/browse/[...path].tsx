@@ -1,10 +1,11 @@
 import { Stack, useLocalSearchParams } from 'expo-router';
 import { useCallback } from 'react';
-import { ActivityIndicator, RefreshControl, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, RefreshControl, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { MarkdownView } from '@/components/markdown-view';
 import { TreeList } from '@/components/tree-list';
+import { Box, Text } from '@/components/ui';
 import { DaemonClient } from '@/lib/daemon/client';
 import { DaemonError, type FileResponse, type TreeResponse } from '@/lib/daemon/types';
 import { useHost } from '@/lib/host-context';
@@ -79,7 +80,9 @@ export default function Browse() {
   const title = path.split('/').pop() || 'Browse';
 
   return (
-    <SafeAreaView style={{ flex: 1 }} edges={['bottom']}>
+    <SafeAreaView
+      style={{ flex: 1, backgroundColor: theme.color.bgSolidBase }}
+      edges={['bottom']}>
       <Stack.Screen options={{ title }} />
 
       {state.status === 'loading' ? (
@@ -87,29 +90,17 @@ export default function Browse() {
           <ActivityIndicator />
         </View>
       ) : state.status === 'error' ? (
-        <View style={{ flex: 1, padding: theme.space.lg }}>
-          <Text style={{ ...theme.type.heading, color: theme.color.txPrimary }}>
-            {titleFor(state.error)}
-          </Text>
-          <Text
-            style={{
-              ...theme.type.caption,
-              color: theme.color.txTertiary,
-              paddingTop: theme.space.xs,
-            }}>
+        <Box p="lg" style={{ flex: 1 }}>
+          <Text variant="heading">{titleFor(state.error)}</Text>
+          <Text variant="caption" color="txTertiary" style={{ paddingTop: theme.space.xs }}>
             {path}
           </Text>
           {detailFor(state.error) ? (
-            <Text
-              style={{
-                ...theme.type.caption,
-                color: theme.color.txTertiary,
-                paddingTop: theme.space.sm,
-              }}>
+            <Text variant="caption" color="txTertiary" style={{ paddingTop: theme.space.sm }}>
               {detailFor(state.error)}
             </Text>
           ) : null}
-        </View>
+        </Box>
       ) : state.data.kind === 'dir' ? (
         <TreeList
           base={path}

@@ -1,8 +1,10 @@
-import { Link } from 'expo-router';
-import { FlatList, Pressable, RefreshControl, Text } from 'react-native';
+import { useRouter } from 'expo-router';
+import { FlatList, RefreshControl } from 'react-native';
 
 import { useTheme } from '@/theme';
 import type { TreeEntry } from '@/lib/daemon/types';
+
+import { Box, ListRow, ROW_ICON_LANE, Rule, Text } from './ui';
 
 export function TreeList({
   base,
@@ -20,6 +22,7 @@ export function TreeList({
   onRefresh?: () => void;
 }) {
   const theme = useTheme();
+  const router = useRouter();
 
   return (
     <FlatList
@@ -29,61 +32,35 @@ export function TreeList({
         onRefresh ? <RefreshControl refreshing={refreshing} onRefresh={onRefresh} /> : undefined
       }
       contentContainerStyle={{
-        paddingHorizontal: theme.space.lg,
         paddingBottom: theme.space.xxxl,
       }}
       ListFooterComponent={
         truncated ? (
           // Said out loud. A list silently cut to its first 500 entries looks
           // exactly like a complete one.
-          <Text
-            style={{
-              ...theme.type.caption,
-              color: theme.color.txTertiary,
-              paddingTop: theme.space.md,
-            }}>
-            Showing {entries.length} of {total} — this directory is too large to list in full.
-          </Text>
+          <Box px="lg" style={{ paddingTop: theme.space.md }}>
+            <Text variant="caption" color="txTertiary">
+              Showing {entries.length} of {total} — this directory is too large to list in full.
+            </Text>
+          </Box>
         ) : null
       }
       ListEmptyComponent={
-        <Text
-          style={{
-            ...theme.type.body,
-            color: theme.color.txTertiary,
-            paddingTop: theme.space.lg,
-          }}>
-          Empty.
-        </Text>
+        <Box px="lg" style={{ paddingTop: theme.space.lg }}>
+          <Text color="txTertiary">Empty.</Text>
+        </Box>
       }
-      renderItem={({ item }) => {
+      renderItem={({ item, index }) => {
         const full = base ? `${base}/${item.name}` : item.name;
         return (
-          <Link href={`/browse/${full}`} asChild>
-            <Pressable
-              style={({ pressed }) => ({
-                opacity: pressed ? 0.6 : 1,
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: theme.space.sm,
-                paddingVertical: theme.space.sm,
-                borderBottomWidth: theme.border.hairline,
-                borderBottomColor: theme.color.bdPrimary,
-              })}>
-              <Text style={{ ...theme.type.body, color: theme.color.txTertiary, width: 14 }}>
-                {item.dir ? '▸' : '·'}
-              </Text>
-              <Text
-                style={{
-                  ...theme.type.body,
-                  color: item.dir ? theme.color.txPrimary : theme.color.txSecondary,
-                  flex: 1,
-                }}
-                numberOfLines={1}>
-                {item.name}
-              </Text>
-            </Pressable>
-          </Link>
+          <>
+            <ListRow
+              icon={item.dir ? 'folder' : 'file'}
+              label={item.name}
+              onPress={() => router.push(`/browse/${full}`)}
+            />
+            {index < entries.length - 1 ? <Rule inset={ROW_ICON_LANE} /> : null}
+          </>
         );
       }}
     />

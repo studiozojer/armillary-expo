@@ -1,8 +1,10 @@
-import { Link } from 'expo-router';
-import { Pressable, RefreshControl, SectionList, Text, View } from 'react-native';
+import { Link, useRouter } from 'expo-router';
+import { Pressable, RefreshControl, SectionList } from 'react-native';
 
 import { useTheme } from '@/theme';
 import type { Composition, Module } from '@/lib/daemon/types';
+
+import { Box, ListRow, ROW_ICON_LANE, Rule, SectionHeader, Text } from './ui';
 
 type Section = { title: string; data: Module[] };
 
@@ -29,6 +31,7 @@ export function ModuleList({
   onRefresh?: () => void;
 }) {
   const theme = useTheme();
+  const router = useRouter();
   const data = sections(composition);
 
   return (
@@ -39,71 +42,47 @@ export function ModuleList({
         onRefresh ? <RefreshControl refreshing={refreshing} onRefresh={onRefresh} /> : undefined
       }
       contentContainerStyle={{
-        paddingHorizontal: theme.space.lg,
         paddingBottom: theme.space.xxxl,
       }}
       ListHeaderComponent={
-        <View style={{ paddingTop: theme.space.lg }}>
-          <Text style={{ ...theme.type.title, color: theme.color.txPrimary }}>Loaded modules</Text>
+        <Box px="lg" style={{ paddingTop: theme.space.lg }}>
+          <Text variant="title">Loaded modules</Text>
           {/* Which armillary you are looking at, always visible. Two machines
-              can both be serving a workspace, and only the host tells them apart. */}
+              can both be serving a workspace, and only the host tells them apart.
+              Wrapped in a Pressable rather than handing Link's `asChild` clone
+              straight to the kit's Text: that Text only forwards the named
+              props it declares, so an injected `onPress` lands on a component
+              that drops it on the floor — the same silent-no-onPress shape
+              Sprint 1 shipped once already, just with Text standing in for the
+              View it happened to on. Pressable is a real host component and
+              takes the clone correctly. */}
           <Link href="/settings" asChild>
-            <Text
-              style={{
-                ...theme.type.caption,
-                color: theme.color.txAccent,
-                paddingTop: theme.space.xxs,
-              }}>
-              {hostLabel} ›
-            </Text>
+            <Pressable hitSlop={8}>
+              <Text variant="caption" color="txAccent" style={{ paddingTop: theme.space.xxs }}>
+                {hostLabel} ›
+              </Text>
+            </Pressable>
           </Link>
-        </View>
+        </Box>
       }
       ListEmptyComponent={
-        <Text
-          style={{
-            ...theme.type.body,
-            color: theme.color.txTertiary,
-            paddingTop: theme.space.lg,
-          }}>
-          This workspace composes nothing. That is a working state, not an error.
-        </Text>
+        <Box px="lg" style={{ paddingTop: theme.space.lg }}>
+          <Text color="txTertiary">
+            This workspace composes nothing. That is a working state, not an error.
+          </Text>
+        </Box>
       }
-      renderSectionHeader={({ section }) => (
-        <Text
-          style={{
-            ...theme.type.caption,
-            color: theme.color.txTertiary,
-            letterSpacing: 1,
-            paddingTop: theme.space.xl,
-            paddingBottom: theme.space.xs,
-          }}>
-          {section.title}
-        </Text>
-      )}
-      renderItem={({ item }) => (
-        <Link href={`/browse/${item.path}`} asChild>
-          <Pressable
-            style={({ pressed }) => ({
-              opacity: pressed ? 0.6 : 1,
-              paddingVertical: theme.space.sm,
-              borderBottomWidth: theme.border.hairline,
-              borderBottomColor: theme.color.bdPrimary,
-            })}>
-            <Text style={{ ...theme.type.heading, color: theme.color.txPrimary }}>{item.name}</Text>
-            {item.note ? (
-              <Text
-                style={{
-                  ...theme.type.caption,
-                  color: theme.color.txTertiary,
-                  paddingTop: theme.space.xxs,
-                }}
-                numberOfLines={2}>
-                {item.note}
-              </Text>
-            ) : null}
-          </Pressable>
-        </Link>
+      renderSectionHeader={({ section }) => <SectionHeader>{section.title}</SectionHeader>}
+      renderItem={({ item, index, section }) => (
+        <>
+          <ListRow
+            icon="folder"
+            label={item.name}
+            note={item.note}
+            onPress={() => router.push(`/browse/${item.path}`)}
+          />
+          {index < section.data.length - 1 ? <Rule inset={ROW_ICON_LANE} /> : null}
+        </>
       )}
     />
   );
