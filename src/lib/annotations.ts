@@ -17,9 +17,13 @@ export function annotationsFor(composition: Composition): Record<string, string>
   const note = (path: string, text: string | undefined) => {
     const [head, ...rest] = path.split('/');
     if (rest.length === 0) {
-      // Composed directly at the root — the commons, usually.
+      // Composed directly at the root. No `else 'commons'` here: that
+      // fallback was reachable from all three callers below, so an unnoted
+      // root-level operator or repo — not just the commons — got labelled
+      // "commons", inventing a fact the manifest never stated. The commons
+      // call already supplies its own `?? 'commons'` default; everyone else
+      // gets nothing, which is the honest answer when the manifest is silent.
       if (text) out[head] = text;
-      else out[head] = 'commons';
       return;
     }
     slots[head] = (slots[head] ?? 0) + 1;

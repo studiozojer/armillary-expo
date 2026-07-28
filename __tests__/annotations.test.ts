@@ -26,4 +26,20 @@ describe('annotationsFor', () => {
     // nothing, and saying nothing about it says exactly that.
     expect(annotationsFor(composition)['local']).toBeUndefined();
   });
+
+  it('does not label an unnoted root-level operator or repo "commons"', () => {
+    // A root-level `[[repos]]` (or `[[operators]]`) entry with no `note` is
+    // not the commons — the manifest just didn't say anything about it. The
+    // old fallback invented "commons" for this case because it was shared
+    // code with the commons caller's own default; each caller must supply its
+    // own default, not inherit one meant for someone else.
+    const withRootRepo = {
+      ...composition,
+      repos: [
+        ...composition.repos,
+        { name: 'armillary-core', path: 'armillary-core' },
+      ],
+    };
+    expect(annotationsFor(withRootRepo)['armillary-core']).toBeUndefined();
+  });
 });
