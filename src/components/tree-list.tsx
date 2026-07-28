@@ -19,7 +19,13 @@ export function TreeList({
 }: {
   base: string;
   entries: TreeEntry[];
-  total?: number;
+  /**
+   * Required, not optional: both callers always have it (it comes straight off
+   * `TreeResponse`), and an optional `total` here was what let the footer read
+   * "of undefined" whenever `truncated` was true but a caller forgot to pass
+   * one — a type that permits the bug rather than one that rules it out.
+   */
+  total: number;
   truncated?: boolean;
   /**
    * How many entries the engine actually returned, before any client-side
@@ -32,14 +38,36 @@ export function TreeList({
   refreshing?: boolean;
   onRefresh?: () => void;
   subtitleFor?: (name: string) => string | undefined;
-  /** Unused in this task — consumed by the voicenote inbox (per-file state). */
-  trailingFor?: (name: string) => string | undefined;
+  /**
+   * Given the full path (`base` joined with the entry name), not the bare
+   * name — the voicenote inbox keys its state map on the full path so that
+   * two identically-named files in different subdirectories cannot collide.
+   */
+  trailingFor?: (path: string) => string | undefined;
   header?: ReactNode;
 }) {
   const theme = useTheme();
   // What the engine sent minus what is on screen: entirely a local filter's
   // doing, since `returned` already reflects the engine's own count.
   const hiddenByFilter = returned - entries.length;
+
+  // Three quantities can be in play at once (rows on screen, what the engine
+  // returned, what the directory actually holds), and "500 of 5000 ... 80 more
+  // hidden" reads as if the 80 belong to the missing 4500 — inviting the
+  // reader to add numbers that don't compose. Each clause below names its own
+  // pair, so there is no "more" left to misread.
+  const footerText = (() => {
+    const parts: string[] = [];
+    if (truncated) {
+      parts.push(`Showing ${entries.length} of ${returned} returned (${total} in this directory).`);
+    } else if (hiddenByFilter > 0) {
+      parts.push(`Showing ${entries.length} of ${returned} returned.`);
+    }
+    if (hiddenByFilter > 0) {
+      parts.push(`${hiddenByFilter} hidden by the dotfile setting.`);
+    }
+    return parts.length > 0 ? parts.join(' ') : null;
+  })();
 
   return (
     <FlatList
@@ -57,25 +85,19 @@ export function TreeList({
       // the cast just bridges our looser public prop type to that.
       ListHeaderComponent={header as React.ComponentType | React.JSX.Element | undefined}
       ListFooterComponent={
-        truncated || hiddenByFilter > 0 ? (
-          // Said out loud, both halves. A list silently cut to its first 500
-          // entries looks exactly like a complete one, and a directory that
-          // looks shorter than it is — with nothing saying why — is the same
-          // defect one level down from the point of this screen: it must not
-          // lie about what the filesystem holds.
+        footerText ? (
+          // Said out loud. A list silently cut to its first 500 entries looks
+          // exactly like a complete one, and a directory that looks shorter
+          // than it is — with nothing saying why — is the same defect one
+          // level down from the point of this screen: it must not lie about
+          // what the filesystem holds.
           <Text
             style={{
               ...theme.type.caption,
               color: theme.color.txTertiary,
               paddingTop: theme.space.md,
             }}>
-            {truncated
-              ? `Showing ${returned} of ${total} — this directory is too large to list in full.`
-              : null}
-            {truncated && hiddenByFilter > 0 ? ' ' : null}
-            {hiddenByFilter > 0
-              ? `${hiddenByFilter} more hidden by the dotfile setting.`
-              : null}
+            {footerText}
           </Text>
         ) : null
       }
@@ -123,9 +145,9 @@ export function TreeList({
                   </Text>
                 ) : null}
               </View>
-              {trailingFor?.(item.name) ? (
+              {trailingFor?.(full) ? (
                 <Text style={{ ...theme.type.caption, color: theme.color.txTertiary }}>
-                  {trailingFor(item.name)}
+                  {trailingFor(full)}
                 </Text>
               ) : null}
             </Pressable>

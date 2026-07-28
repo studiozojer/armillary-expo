@@ -92,27 +92,9 @@ export default function Browse() {
   const load = useCallback(
     async (signal: AbortSignal): Promise<Node> => {
       const client = new DaemonClient(host.daemonUrl);
+      let tree: TreeResponse | undefined;
       try {
-        const tree = await client.getTree(path, signal);
-        // The state dot needs the voicenote index, and no other directory has
-        // any reason to pay for that fetch. Only directories that themselves
-        // list an audio-extension entry are candidates for being the
-        // audio_root, so this stays a zero-cost check everywhere else; the
-        // fetched index's own `audio_root` is still the thing that decides
-        // whether the dots actually get shown.
-        const hasAudioEntry = tree.entries.some(
-          (entry) => !entry.dir && isAudioPath(entry.name),
-        );
-        if (hasAudioEntry) {
-          const index = await tryGetVoicenotes(client, signal);
-          if (index && index.audio_root === path) {
-            const states = new Map(
-              index.entries.map((entry) => [entry.audio.split('/').pop() ?? entry.audio, entry.state]),
-            );
-            return { kind: 'dir', tree, voicenoteStates: states };
-          }
-        }
-        return { kind: 'dir', tree };
+        tree = await client.getTree(path, signal);
       } catch (e) {
         // Only fall through when the engine specifically said "not a directory".
         // The bare `catch {}` this replaces treated a dropped tailnet, a 403 and
@@ -122,12 +104,55 @@ export default function Browse() {
         const isNotADirectory = e instanceof DaemonError && e.status === 400;
         if (!isNotADirectory) throw e;
       }
+
+      if (tree) {
+        // The voicenotes fetch sits outside the `getTree` try/catch above on
+        // purpose. It is a decoration — a state dot next to a filename — not a
+        // diagnosis of the path being browsed, so its failure must never be
+        // able to make a real directory (this one, plainly listed a moment
+        // ago) read as "not a directory". A composed-but-misconfigured
+        // `audio_root` answering 400, or a 500, or a tailnet blip, all fail
+        // soft here. An abort is different: that is this request itself being
+        // cancelled, and must still propagate so `useLoader` can ignore the
+        // stale write.
+        const hasAudioEntry = tree.entries.some(
+          (entry) => !entry.dir && isAudioPath(entry.name),
+        );
+        if (hasAudioEntry) {
+          try {
+            const index = await tryGetVoicenotes(client, signal);
+            if (index && index.audio_root === path) {
+              // Keyed on the full path, not the basename: the index can in
+              // principle span subdirectories of `audio_root`, and two files
+              // both named `memo.m4a` collapsing to one map entry would let
+              // the inbox dot on one file's row silently show another file's
+              // state.
+              const states = new Map(index.entries.map((entry) => [entry.audio, entry.state]));
+              return { kind: 'dir', tree, voicenoteStates: states };
+            }
+          } catch (e) {
+            if (signal.aborted) throw e;
+          }
+        }
+        return { kind: 'dir', tree };
+      }
+
       try {
         return { kind: 'file', file: await client.getFile(path, signal) };
       } catch (e) {
         // A 415 on an audio path is not the end of the story any more: the file
-        // has a page even though its bytes are not served.
-        if (e instanceof DaemonError && e.status === 415 && isAudioPath(path)) {
+        // has a page even though its bytes are not served. Neither is a 404 —
+        // the audio index is consulted on both now, because an entry whose
+        // audio never left the machine that recorded it is not on this
+        // machine's disk either, so `/file` answers 404 for it just as it
+        // would for a genuine typo. Only a matching index entry turns that
+        // into the audio page; anything else still rethrows and still reads
+        // "Not found".
+        if (
+          e instanceof DaemonError &&
+          (e.status === 415 || e.status === 404) &&
+          isAudioPath(path)
+        ) {
           const index = await tryGetVoicenotes(client, signal);
           const entry = index?.entries.find((candidate) => candidate.audio === path);
           if (entry) return { kind: 'audio', entry };
@@ -149,8 +174,12 @@ export default function Browse() {
   const voicenoteStates =
     state.status === 'ok' && state.data.kind === 'dir' ? state.data.voicenoteStates : undefined;
   const trailingFor = voicenoteStates
-    ? (name: string) => {
-        const voicenoteState = voicenoteStates.get(name);
+    ? (entryPath: string) => {
+        // `entryPath` is the full path TreeList computes (`base` + name), not
+        // a bare filename — matching how `voicenoteStates` above is now keyed,
+        // so two identically-named files in different subdirectories cannot
+        // collide onto the same dot.
+        const voicenoteState = voicenoteStates.get(entryPath);
         return voicenoteState === 'transcribed' ? '●' : voicenoteState === 'untranscribed' ? '○' : undefined;
       }
     : undefined;
