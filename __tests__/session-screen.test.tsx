@@ -1,0 +1,118 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { act, fireEvent, render, screen } from '@testing-library/react-native';
+
+import SessionScreen from '../src/app/(tabs)/(instances)/[instanceId]';
+import { MockSessionAPI } from '../src/lib/session/mock';
+import type { SessionAPI } from '../src/lib/session/api';
+
+// The screen imports `sessionAPI` from this module rather than constructing
+// its own MockSessionAPI (Task 5's shared-store requirement). Mocked with a
+// getter so each test can point it at a freshly configured instance —
+// Babel's commonjs transform reads `_instance.sessionAPI` at each call site
+// rather than caching it to a local binding, so the getter is live.
+let mockApi: SessionAPI;
+jest.mock('../src/lib/session/instance', () => ({
+  get sessionAPI() {
+    return mockApi;
+  },
+}));
+
+// Similarly for the route param: the screen reads `instanceId` via
+// `useLocalSearchParams`, mocked directly rather than routed through
+// `expo-router/testing-library`'s full navigator (this screen owns no
+// navigation logic worth exercising through a real Stack).
+let mockInstanceId: string;
+jest.mock('expo-router', () => ({
+  useLocalSearchParams: () => ({ instanceId: mockInstanceId }),
+}));
+
+const CANNED_REPLY = 'the log remembers what actually happened here, not what was meant.';
+
+describe('Session screen', () => {
+  beforeEach(async () => {
+    // Every test's first `create()` on a fresh MockSessionAPI gets the same
+    // id ('inst-mock-1') since its counter restarts at 0 — so a leftover
+    // scrollback cache from a prior test would otherwise bleed into this
+    // one's render (use-session.ts hydrates from AsyncStorage before the
+    // live subscription delivers anything).
+    await AsyncStorage.clear();
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('renders fixture messages already in the log', async () => {
+    jest.useFakeTimers();
+    mockApi = new MockSessionAPI({ fragmentDelayMs: 5 }) as unknown as SessionAPI;
+    const inst = await (mockApi as MockSessionAPI).create('tycho');
+    await mockApi.send(inst.id, 'hello there', 'seed');
+    await jest.advanceTimersByTimeAsync(200);
+    mockInstanceId = inst.id;
+
+    await render(<SessionScreen />);
+
+    expect(await screen.findByText('hello there')).toBeTruthy();
+    expect(screen.getByText(CANNED_REPLY)).toBeTruthy();
+  });
+
+  it('composer send shows the text immediately as a pending row', async () => {
+    jest.useFakeTimers();
+    mockApi = new MockSessionAPI({ fragmentDelayMs: 5 }) as unknown as SessionAPI;
+    const inst = await (mockApi as MockSessionAPI).create('tycho');
+    mockInstanceId = inst.id;
+
+    await render(<SessionScreen />);
+
+    // Each fireEvent call is awaited in turn — bundling both inside one
+    // act() without awaiting the first meant the second fired against a
+    // stale onPress closure captured before the changeText re-render
+    // committed, silently no-opping (draft still '' in that closure).
+    await fireEvent.changeText(screen.getByPlaceholderText('Message'), 'ping');
+    await fireEvent.press(screen.getByText('Send'));
+
+    expect(screen.getByText('ping')).toBeTruthy();
+  });
+
+  it('shows a streaming row updating and a Stop affordance during generation, then exactly one copy after settling', async () => {
+    jest.useFakeTimers();
+    mockApi = new MockSessionAPI({ fragmentDelayMs: 10 }) as unknown as SessionAPI;
+    const inst = await (mockApi as MockSessionAPI).create('tycho');
+    mockInstanceId = inst.id;
+
+    await render(<SessionScreen />);
+
+    await fireEvent.changeText(screen.getByPlaceholderText('Message'), 'go');
+    await fireEvent.press(screen.getByText('Send'));
+
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(15);
+    });
+
+    expect(screen.getByText('Stop')).toBeTruthy();
+    expect(screen.getByText('the…')).toBeTruthy();
+
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(1000);
+    });
+
+    // Supersession pinned at the UI layer: the streaming snapshot must not
+    // survive alongside the durable final text.
+    expect(screen.getAllByText(CANNED_REPLY)).toHaveLength(1);
+    expect(screen.queryByText('Stop')).toBeNull();
+  });
+
+  it('shows a gap row naming the missing range for a session with a truncated log', async () => {
+    jest.useFakeTimers();
+    mockApi = new MockSessionAPI({ earliestSeq: 5, fragmentDelayMs: 5 }) as unknown as SessionAPI;
+    const inst = await (mockApi as MockSessionAPI).create('tycho');
+    mockInstanceId = inst.id;
+
+    await render(<SessionScreen />);
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(0);
+    });
+
+    expect(await screen.findByText(/before seq 5/)).toBeTruthy();
+  });
+});

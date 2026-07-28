@@ -1,23 +1,20 @@
 import { Stack } from 'expo-router/stack';
-import { useEffect, useState } from 'react';
-import { FlatList, Text, View } from 'react-native';
+import { useCallback } from 'react';
+import { ActivityIndicator, FlatList, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { InstanceCard } from '@/components/instance-card';
 import { SettingsButton } from '@/components/settings-button';
 import type { Instance } from '@/lib/session/events';
-import { MockSessionAPI } from '@/lib/session/mock';
+import { sessionAPI } from '@/lib/session/instance';
+import { useLoader } from '@/lib/use-loader';
 import { useTheme } from '@/theme';
-
-const api = new MockSessionAPI();
 
 export default function Instances() {
   const theme = useTheme();
-  const [instances, setInstances] = useState<Instance[]>([]);
 
-  useEffect(() => {
-    void api.list().then(setInstances);
-  }, []);
+  const load = useCallback(async () => sessionAPI.list(), []);
+  const { state, refreshing, refresh } = useLoader<Instance[]>('instances', load);
 
   return (
     <SafeAreaView style={{ flex: 1 }} edges={[]}>
@@ -38,23 +35,29 @@ export default function Instances() {
           borderWidth: theme.border.thin,
           borderColor: theme.color.bdSecondary,
         }}>
-        <Text style={{ ...theme.type.label, color: theme.color.txWarning }}>Not live yet</Text>
+        <Text style={{ ...theme.type.label, color: theme.color.txWarning }}>Mock session data</Text>
         <Text
           style={{
             ...theme.type.caption,
             color: theme.color.txSecondary,
             paddingTop: theme.space.xxs,
           }}>
-          Fixture data behind the SessionAPI seam. The engine has no loop in sprint 1.
+          The live engine arrives with sprint 2 phase C.
         </Text>
       </View>
 
-      <FlatList
-        data={instances}
-        keyExtractor={(instance) => instance.id}
-        contentContainerStyle={{ paddingHorizontal: theme.space.lg }}
-        renderItem={({ item }) => <InstanceCard instance={item} />}
-      />
+      {state.status === 'loading' ? (
+        <ActivityIndicator style={{ marginTop: theme.space.xl }} />
+      ) : (
+        <FlatList
+          data={state.status === 'ok' ? state.data : []}
+          keyExtractor={(instance) => instance.id}
+          contentContainerStyle={{ paddingHorizontal: theme.space.lg }}
+          refreshing={refreshing}
+          onRefresh={refresh}
+          renderItem={({ item }) => <InstanceCard instance={item} />}
+        />
+      )}
     </SafeAreaView>
   );
 }
