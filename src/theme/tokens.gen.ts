@@ -12,6 +12,8 @@
 
 export const DAOUI_SOURCE_COMMIT = "c0a241c";
 
+export const ROLE_COUNT = 36;
+
 export const lightColors = {
   "txPrimary": "#191b18ff",
   "txSecondary": "#3d403bbf",

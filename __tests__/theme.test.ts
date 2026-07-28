@@ -1,4 +1,4 @@
-import { DAOUI_SOURCE_COMMIT, themeFor } from '../src/theme';
+import { DAOUI_SOURCE_COMMIT, ROLE_COUNT, themeFor } from '../src/theme';
 import { darkColors, lightColors } from '../src/theme/tokens.gen';
 
 describe('theme tokens', () => {
@@ -68,5 +68,15 @@ describe('theme tokens', () => {
       expect(scheme.bgSolidButtonHover).not.toBe(scheme.bgSolidButton);
       expect(scheme.bgSolidButtonPressed).not.toBe(scheme.bgSolidButton);
     }
+  });
+
+  it('produces a key for every role without collision', () => {
+    // The key format is deliberately lossy: 'bg/solid/card-secondary' and
+    // 'bg/solid-card/secondary' would both produce 'bgSolidCardSecondary'.
+    // We cannot make collisions impossible by construction, so we make them
+    // loud at generation time. This test verifies that no collision happened
+    // by checking that the number of keys equals the number of roles generated.
+    expect(Object.keys(lightColors)).toHaveLength(ROLE_COUNT);
+    expect(Object.keys(darkColors)).toHaveLength(ROLE_COUNT);
   });
 });

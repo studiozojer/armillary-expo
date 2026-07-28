@@ -1,8 +1,8 @@
 import { useColorScheme } from 'react-native';
 
-import { DAOUI_SOURCE_COMMIT, darkColors, lightColors, type ColorRole } from './tokens.gen';
+import { DAOUI_SOURCE_COMMIT, ROLE_COUNT, darkColors, lightColors, type ColorRole } from './tokens.gen';
 
-export { DAOUI_SOURCE_COMMIT, type ColorRole };
+export { DAOUI_SOURCE_COMMIT, ROLE_COUNT, type ColorRole };
 
 /**
  * Layout scales.
