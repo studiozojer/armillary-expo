@@ -1,10 +1,11 @@
+import { Link } from 'expo-router';
 import { Stack } from 'expo-router/stack';
 import { useCallback, useMemo } from 'react';
 import { ActivityIndicator, FlatList, Pressable, Text } from 'react-native';
 
 import { InstanceCard } from '@/components/instance-card';
 import { SettingsButton } from '@/components/settings-button';
-import { Box, Callout, ROW_ICON_LANE, Rule, Screen } from '@/components/ui';
+import { Box, Callout, Icon, ROW_ICON_LANE, Rule, Screen } from '@/components/ui';
 import { useHost } from '@/lib/host-context';
 import type { Instance } from '@/lib/session/events';
 import { sessionAPIFor } from '@/lib/session/instance';
@@ -15,6 +16,23 @@ import { useTheme } from '@/theme';
  *  Read once at module scope — like `DAEMON_BASE_URL`, this is a build-time
  *  choice, not something that changes while the app is running. */
 const MOCK = process.env.EXPO_PUBLIC_SESSION_MOCK === '1';
+
+/**
+ * Opens the new-instance sheet. Present on both this screen's states (the
+ * list and the "can't reach the engine" error) — the same reasoning as
+ * `SettingsButton` living in both: a button missing from one branch renders
+ * exactly like a screen with no button, which is how Settings went missing
+ * once already.
+ */
+function NewInstanceButton() {
+  return (
+    <Link href="/(tabs)/(instances)/new" asChild>
+      <Pressable hitSlop={8} accessibilityLabel="New instance">
+        <Icon name="plus" size={20} color="icAccent" />
+      </Pressable>
+    </Link>
+  );
+}
 
 export default function Instances() {
   const theme = useTheme();
@@ -40,7 +58,9 @@ export default function Instances() {
   if (state.status === 'error') {
     return (
       <Screen p="lg">
-        <Stack.Screen options={{ headerLeft: () => <SettingsButton /> }} />
+        <Stack.Screen
+          options={{ headerLeft: () => <SettingsButton />, headerRight: () => <NewInstanceButton /> }}
+        />
         {/* Named specifically — an unreachable engine is exactly what a
             stubbed-looking banner used to paper over. */}
         <Text style={{ ...theme.type.heading, color: theme.color.txPrimary }}>
@@ -85,7 +105,9 @@ export default function Instances() {
       {/* Settings is reachable from both tabs, because it holds the host
           switcher — and which machine is serving is as load-bearing here as it
           is in Explorer. */}
-      <Stack.Screen options={{ headerLeft: () => <SettingsButton /> }} />
+      <Stack.Screen
+        options={{ headerLeft: () => <SettingsButton />, headerRight: () => <NewInstanceButton /> }}
+      />
 
       {/* Once this was a permanent "not live yet" banner. The live engine has
           arrived — the honest banner now only exists when the mock is

@@ -9,6 +9,12 @@ export default function InstancesLayout() {
           unregistered screen silently no-ops (the sprint-1 defect documented
           in (explorer)/_layout.tsx). */}
       <Stack.Screen name="[instanceId]" options={{ title: 'Session' }} />
+      {/* The `+` sheet. `formSheet`, not `modal`: react-native-screens 4.26 /
+          this SDK's native-stack supports it cleanly, and a picker-plus-button
+          reads as a sheet, not a full-screen takeover like Capture's `modal`.
+          Registered here for the same reason `[instanceId]` is — an
+          unregistered route has nothing to push onto. */}
+      <Stack.Screen name="new" options={{ title: 'New instance', presentation: 'formSheet' }} />
     </Stack>
   );
 }
