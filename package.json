@@ -50,7 +50,8 @@
     "web": "expo start --web",
     "lint": "expo lint",
     "test": "jest",
-    "sync-tokens": "node scripts/sync-tokens.mjs"
+    "sync-tokens": "node scripts/sync-tokens.mjs",
+    "sync-fonts": "node scripts/sync-fonts.mjs"
   },
   "private": true,
   "jest": {
