@@ -5,14 +5,46 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { MarkdownView } from '@/components/markdown-view';
 import { TreeList } from '@/components/tree-list';
+import { isAudioPath, VoicenotePage } from '@/components/voicenote-page';
 import { DaemonClient } from '@/lib/daemon/client';
-import { DaemonError, type FileResponse, type TreeResponse } from '@/lib/daemon/types';
+import {
+  DaemonError,
+  type FileResponse,
+  type TreeResponse,
+  type VoicenoteEntry,
+  type VoicenoteIndex,
+  type VoicenoteState,
+} from '@/lib/daemon/types';
 import { useHost } from '@/lib/host-context';
 import { visibleEntries, useShowDotfiles } from '@/lib/preferences';
 import { useLoader } from '@/lib/use-loader';
 import { markedThemeFor, useTheme } from '@/theme';
 
-type Node = { kind: 'dir'; tree: TreeResponse } | { kind: 'file'; file: FileResponse };
+type Node =
+  | { kind: 'dir'; tree: TreeResponse; voicenoteStates?: Map<string, VoicenoteState> }
+  | { kind: 'file'; file: FileResponse }
+  | { kind: 'audio'; entry: VoicenoteEntry };
+
+/**
+ * A workspace that composes no voicenotes protocol 404s here — an absence of
+ * the feature, not a network problem, so it resolves to `null` rather than
+ * throwing. Everything else propagates, including an aborted fetch: silently
+ * resolving on an abort would let a stale-key load finish successfully after
+ * the screen requesting it is gone, the exact pattern already flagged for
+ * `getComposition(...).catch(() => null)` in `index.tsx` — this must not
+ * repeat it.
+ */
+async function tryGetVoicenotes(
+  client: DaemonClient,
+  signal: AbortSignal,
+): Promise<VoicenoteIndex | null> {
+  try {
+    return await client.getVoicenotes(signal);
+  } catch (e) {
+    if (e instanceof DaemonError && e.status === 404) return null;
+    throw e;
+  }
+}
 
 /** Each refusal gets its own sentence. A 415 on a .png means something specific,
  *  and saying so is more useful than a generic failure the reader must guess at. */
@@ -61,7 +93,26 @@ export default function Browse() {
     async (signal: AbortSignal): Promise<Node> => {
       const client = new DaemonClient(host.daemonUrl);
       try {
-        return { kind: 'dir', tree: await client.getTree(path, signal) };
+        const tree = await client.getTree(path, signal);
+        // The state dot needs the voicenote index, and no other directory has
+        // any reason to pay for that fetch. Only directories that themselves
+        // list an audio-extension entry are candidates for being the
+        // audio_root, so this stays a zero-cost check everywhere else; the
+        // fetched index's own `audio_root` is still the thing that decides
+        // whether the dots actually get shown.
+        const hasAudioEntry = tree.entries.some(
+          (entry) => !entry.dir && isAudioPath(entry.name),
+        );
+        if (hasAudioEntry) {
+          const index = await tryGetVoicenotes(client, signal);
+          if (index && index.audio_root === path) {
+            const states = new Map(
+              index.entries.map((entry) => [entry.audio.split('/').pop() ?? entry.audio, entry.state]),
+            );
+            return { kind: 'dir', tree, voicenoteStates: states };
+          }
+        }
+        return { kind: 'dir', tree };
       } catch (e) {
         // Only fall through when the engine specifically said "not a directory".
         // The bare `catch {}` this replaces treated a dropped tailnet, a 403 and
@@ -71,7 +122,18 @@ export default function Browse() {
         const isNotADirectory = e instanceof DaemonError && e.status === 400;
         if (!isNotADirectory) throw e;
       }
-      return { kind: 'file', file: await client.getFile(path, signal) };
+      try {
+        return { kind: 'file', file: await client.getFile(path, signal) };
+      } catch (e) {
+        // A 415 on an audio path is not the end of the story any more: the file
+        // has a page even though its bytes are not served.
+        if (e instanceof DaemonError && e.status === 415 && isAudioPath(path)) {
+          const index = await tryGetVoicenotes(client, signal);
+          const entry = index?.entries.find((candidate) => candidate.audio === path);
+          if (entry) return { kind: 'audio', entry };
+        }
+        throw e;
+      }
     },
     [host.daemonUrl, path],
   );
@@ -79,6 +141,19 @@ export default function Browse() {
   const { state, refreshing, refresh } = useLoader<Node>(`${host.id}:${path}`, load, ready);
 
   const title = path.split('/').pop() || 'Browse';
+
+  // Captured as a plain `Map | undefined` rather than read through
+  // `state.data` inside the render closure below: TS narrowing on a
+  // discriminated union doesn't survive into a nested function body, so this
+  // is what lets `trailingFor` stay typed without re-deriving the union tag.
+  const voicenoteStates =
+    state.status === 'ok' && state.data.kind === 'dir' ? state.data.voicenoteStates : undefined;
+  const trailingFor = voicenoteStates
+    ? (name: string) => {
+        const voicenoteState = voicenoteStates.get(name);
+        return voicenoteState === 'transcribed' ? '●' : voicenoteState === 'untranscribed' ? '○' : undefined;
+      }
+    : undefined;
 
   return (
     <SafeAreaView style={{ flex: 1 }} edges={['bottom']}>
@@ -119,9 +194,12 @@ export default function Browse() {
           total={state.data.tree.total}
           truncated={state.data.tree.truncated}
           returned={state.data.tree.entries.length}
+          trailingFor={trailingFor}
           refreshing={refreshing}
           onRefresh={refresh}
         />
+      ) : state.data.kind === 'audio' ? (
+        <VoicenotePage path={path} entry={state.data.entry} />
       ) : (
         // A rendered file gets pull-to-refresh too. It was the one surface
         // without it, which made "is the board current?" answerable everywhere
