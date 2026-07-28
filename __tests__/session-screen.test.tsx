@@ -16,16 +16,19 @@ jest.mock('../src/lib/session/instance', () => ({
 }));
 
 // `useHost()` backs the screen's `useMemo(() => sessionAPIFor(host), ...)`
-// and its `ready` gate — a fixed, already-ready host is enough here since
-// these tests exercise the session surface, not host switching.
+// and its `ready` gate. A mutable value (read fresh on every call, like the
+// `sessionAPI`/`sessionAPIFor` getter above) rather than a fixed object, so
+// one test below can flip `ready` mid-test and rerender — most tests just
+// leave it at the default (already-ready) and never touch it.
+let mockHostValue = {
+  host: { id: 'test-host', label: 'test', daemonUrl: 'http://test:7778', inboxUrl: 'http://test:7777' },
+  hosts: [] as { id: string; label: string; daemonUrl: string; inboxUrl: string }[],
+  setHost: () => {},
+  generation: 0,
+  ready: true,
+};
 jest.mock('../src/lib/host-context', () => ({
-  useHost: () => ({
-    host: { id: 'test-host', label: 'test', daemonUrl: 'http://test:7778', inboxUrl: 'http://test:7777' },
-    hosts: [],
-    setHost: () => {},
-    generation: 0,
-    ready: true,
-  }),
+  useHost: () => mockHostValue,
 }));
 
 // Similarly for the route param: the screen reads `instanceId` via
@@ -47,6 +50,8 @@ describe('Session screen', () => {
     // one's render (use-session.ts hydrates from AsyncStorage before the
     // live subscription delivers anything).
     await AsyncStorage.clear();
+    // Reset in case a prior test flipped `ready` and didn't restore it.
+    mockHostValue = { ...mockHostValue, ready: true };
   });
 
   afterEach(() => {
@@ -125,5 +130,32 @@ describe('Session screen', () => {
     });
 
     expect(await screen.findByText(/before seq 5/)).toBeTruthy();
+  });
+
+  it('holds off attaching until the host is ready, then loads once it flips true', async () => {
+    jest.useFakeTimers();
+    const api = new MockSessionAPI({ fragmentDelayMs: 5 });
+    const attachSpy = jest.spyOn(api, 'attach');
+    mockApi = api as unknown as SessionAPI;
+    const inst = await api.create('tycho');
+    await api.send(inst.id, 'hello there', 'seed');
+    await jest.advanceTimersByTimeAsync(200);
+    mockInstanceId = inst.id;
+
+    // Models the cold-launch window: the stored host hasn't hydrated yet.
+    mockHostValue = { ...mockHostValue, ready: false };
+    const { rerender } = await render(<SessionScreen />);
+
+    expect(attachSpy).not.toHaveBeenCalled();
+    expect(screen.queryByText('hello there')).toBeNull();
+
+    // The host resolves — `ready` flips, and the screen re-renders.
+    mockHostValue = { ...mockHostValue, ready: true };
+    await act(async () => {
+      rerender(<SessionScreen />);
+    });
+
+    expect(attachSpy).toHaveBeenCalledTimes(1);
+    expect(await screen.findByText('hello there')).toBeTruthy();
   });
 });

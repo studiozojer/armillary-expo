@@ -49,7 +49,15 @@ export type UseSessionResult = {
   send(text: string): Promise<void>;
   interrupt(): Promise<void>;
   evict(eventId: string): Promise<void>;
-  /** Set when the most recent send() was rejected; cleared by the next send(). */
+  /**
+   * Set when the most recent send() was rejected, or when attach() itself
+   * failed (unknown instance, host unreachable, ...) — cleared by the next
+   * send(). Reusing one field rather than adding a dedicated `attachError`:
+   * both are "this session hit a server-side problem, and here's why",
+   * rendered identically by the caption the session screen already puts near
+   * the composer — a second field would need a second render site for no
+   * behavioral difference.
+   */
   sendError: string | null;
 };
 
@@ -60,8 +68,15 @@ export type UseSessionResult = {
  * received before the drop is re-requested. Optimistic sends are echoed as
  * `pending` rows until a durable event with the same `clientKey` lands
  * (`projectSession` does the reconciling; this hook just feeds it state).
+ *
+ * `enabled` (default true) gates the whole lifecycle, mirroring
+ * `useLoader`'s `enabled` — pass `false` while the caller doesn't yet know
+ * the right `api`/`instanceId` (e.g. a host still hydrating from storage).
+ * While disabled, no attach/subscribe fires and nothing is scheduled; a
+ * false→true flip starts the lifecycle fresh against whichever `api` is
+ * current *at that render*, never one captured earlier while disabled.
  */
-export function useSession(api: SessionAPI, instanceId: string): UseSessionResult {
+export function useSession(api: SessionAPI, instanceId: string, enabled = true): UseSessionResult {
   const [durable, setDurable] = useState<EventEnvelope[]>([]);
   const [transients, setTransients] = useState<Map<string, AssistantDeltaData>>(new Map());
   const [pending, setPending] = useState<PendingSend[]>([]);
@@ -156,9 +171,13 @@ export function useSession(api: SessionAPI, instanceId: string): UseSessionResul
   }
 
   useEffect(() => {
+    // Bumped on every run of this effect — an instanceId change and an
+    // enabled flip both own a fresh cursor, cache, and connection, exactly
+    // like each other.
     const mine = ++epoch.current;
 
-    // Reset: this instanceId owns a fresh cursor, cache, and connection.
+    // Reset: this instanceId (or enabled-edge) owns a fresh cursor, cache,
+    // and connection.
     setDurable([]);
     durableRef.current = [];
     setTransients(new Map());
@@ -171,10 +190,31 @@ export function useSession(api: SessionAPI, instanceId: string): UseSessionResul
     unsubscribeRef.current?.();
     unsubscribeRef.current = null;
 
+    // Disabled: reset above and stop — no attach, no subscribe, nothing
+    // scheduled. `apiRef.current` may be a placeholder/fallback client at
+    // this point (e.g. the default host while the stored one is still
+    // hydrating); the whole point of `enabled` is that this effect never
+    // touches it. A later flip to enabled re-runs this effect (it's in the
+    // dependency array below) and reads `apiRef.current` fresh at that time.
+    if (!enabled) return;
+
     let cancelled = false;
 
     void (async () => {
-      const attachInfo = await apiRef.current.attach(instanceId);
+      let attachInfo;
+      try {
+        attachInfo = await apiRef.current.attach(instanceId);
+      } catch (error) {
+        if (cancelled || epoch.current !== mine) return;
+        // Caught rather than left to reject unhandled: an unreachable host or
+        // an unknown instance is a real, expected failure mode here, not a
+        // programmer error. `closed` stops this from reading as an infinite
+        // "Loading…" — see UseSessionResult.sendError's comment for why the
+        // message rides that field rather than a dedicated one.
+        setStatus('closed');
+        setSendError(error instanceof Error ? error.message : String(error));
+        return;
+      }
       if (cancelled || epoch.current !== mine) return;
       const stream = attachInfo.instance.stream;
       streamRef.current = stream;
@@ -198,7 +238,7 @@ export function useSession(api: SessionAPI, instanceId: string): UseSessionResul
       unsubscribeRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [instanceId]);
+  }, [instanceId, enabled]);
 
   const send = useCallback(
     async (text: string): Promise<void> => {

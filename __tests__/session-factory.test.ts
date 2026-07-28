@@ -55,4 +55,14 @@ describe('sessionAPIFor', () => {
     const b = sessionAPIFor(makeHost({ id: 'distinct-b' }));
     expect(a).not.toBe(b);
   });
+
+  it('the same host id with a different daemonUrl produces a different instance', () => {
+    // Pins the memo key by inspection: it's `${mock}:${host.id}:${host.daemonUrl}`,
+    // not just the id — a host record whose URL changed (e.g. re-resolved,
+    // or a config edit) must not get handed the old client.
+    delete process.env.EXPO_PUBLIC_SESSION_MOCK;
+    const a = sessionAPIFor(makeHost({ id: 'same-id', daemonUrl: 'http://one:7778' }));
+    const b = sessionAPIFor(makeHost({ id: 'same-id', daemonUrl: 'http://two:7778' }));
+    expect(a).not.toBe(b);
+  });
 });

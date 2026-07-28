@@ -89,13 +89,15 @@ function rowLabel(r: SessionRow): string {
 function Harness({
   api,
   instanceId,
+  enabled = true,
   capture,
 }: {
   api: SessionAPI;
   instanceId: string;
+  enabled?: boolean;
   capture: (r: UseSessionResult) => void;
 }) {
-  const result = useSession(api, instanceId);
+  const result = useSession(api, instanceId, enabled);
   capture(result);
   return (
     <>
@@ -273,5 +275,64 @@ describe('useSession', () => {
 
     expect(current.rows.some((r) => r.kind === 'pending')).toBe(false);
     expect(current.sendError).toMatch(/refused: instance busy/);
+  });
+
+  it('does not attach or subscribe while disabled', async () => {
+    const { api } = scriptedApi('s1');
+    await render(<Harness api={api} instanceId="inst-1" enabled={false} capture={() => {}} />);
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(api.attach).not.toHaveBeenCalled();
+    expect(api.subscribe).not.toHaveBeenCalled();
+  });
+
+  it('flips disabled to enabled and attaches against whichever api is current at that point — never a stale one seen while disabled', async () => {
+    // Models the cold-launch case: `api` is the fallback host's client while
+    // the stored host is still hydrating (`enabled=false`); once the real
+    // host resolves, both `api` and `enabled` flip together in the same
+    // render. This must never fire attach() against the fallback client.
+    const wrongHost = scriptedApi('wrong-stream');
+    const rightHost = scriptedApi('right-stream');
+
+    const { rerender } = await render(
+      <Harness api={wrongHost.api} instanceId="inst-1" enabled={false} capture={() => {}} />,
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(wrongHost.api.attach).not.toHaveBeenCalled();
+
+    await act(async () => {
+      rerender(<Harness api={rightHost.api} instanceId="inst-1" enabled={true} capture={() => {}} />);
+      await Promise.resolve();
+    });
+
+    expect(rightHost.api.attach).toHaveBeenCalledTimes(1);
+    expect(wrongHost.api.attach).not.toHaveBeenCalled();
+  });
+
+  it('surfaces an attach() rejection rather than leaving the screen stuck loading (and does not throw unhandled)', async () => {
+    const { api, attachDeferred } = scriptedApi('s1');
+    let current!: UseSessionResult;
+    await render(<Harness api={api} instanceId="inst-1" capture={(r) => (current = r)} />);
+
+    expect(current.status).toBe('replaying');
+
+    await act(async () => {
+      attachDeferred.reject(new Error('unknown_instance'));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // 'closed' rather than stuck on 'replaying' forever — the screen renders
+    // anything other than 'live'/'replaying' as a status line, so this at
+    // least stops reading as an infinite spinner.
+    expect(current.status).toBe('closed');
+    // Reusing sendError (rather than a dedicated field) — see use-session.ts's
+    // comment on why.
+    expect(current.sendError).toMatch(/unknown_instance/);
   });
 });

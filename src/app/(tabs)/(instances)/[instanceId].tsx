@@ -39,7 +39,12 @@ export default function SessionScreen() {
   // screen (see its comment) — `sessionAPIFor` already memoizes by id/url.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const api = useMemo(() => sessionAPIFor(host), [host.id, generation]);
-  const { rows, status, gap, sendError, send, interrupt, evict } = useSession(api, instanceId);
+  // `ready` gates the fetch itself, not just what's rendered — see
+  // use-session.ts's `enabled` param. Without this, a cold launch with a
+  // persisted non-default host would attach()/subscribe() against the
+  // fallback host before the stored one hydrates, and never retry once it
+  // does (the effect keys on instanceId, not on which api it was given).
+  const { rows, status, gap, sendError, send, interrupt, evict } = useSession(api, instanceId, ready);
   const [draft, setDraft] = useState('');
 
   const streaming = rows.some((r) => r.kind === 'streaming');
