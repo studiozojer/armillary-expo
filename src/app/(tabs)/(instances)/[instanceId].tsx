@@ -5,6 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { MarkdownView } from '@/components/markdown-view';
 import { useHost } from '@/lib/host-context';
+import type { Host } from '@/lib/hosts';
 import { sessionAPIFor } from '@/lib/session/instance';
 import type { SessionRow } from '@/lib/session/project';
 import { useSession } from '@/lib/session/use-session';
@@ -29,22 +30,48 @@ function rowKey(row: SessionRow): string {
 }
 
 export default function SessionScreen() {
-  const theme = useTheme();
   const { instanceId } = useLocalSearchParams<{ instanceId: string }>();
   const { host, generation, ready } = useHost();
+
+  // Same guard as the list screen: hold off on the visible session until the
+  // stored host has hydrated, so a cold launch doesn't flash a session
+  // attached against the default host before correcting.
+  if (!ready) {
+    return (
+      <SafeAreaView style={{ flex: 1, justifyContent: 'center' }} edges={[]}>
+        <ActivityIndicator />
+      </SafeAreaView>
+    );
+  }
+
+  // Keyed on `host.id`: a mid-session host switch must not leave the
+  // subscription attached to the old host while sends target the new one
+  // (useSession's own effect only re-runs on `instanceId`/`enabled`, not on
+  // `api` — a fresh `api` object alone doesn't tear down the old
+  // subscription). Keying the component that *calls* useSession on the host
+  // id forces React to unmount the old instance (running its cleanup —
+  // unsubscribe — before the old api is dropped) and mount a fresh one that
+  // attaches/subscribes against the new host from scratch.
+  return <SessionView key={host.id} instanceId={instanceId} host={host} generation={generation} />;
+}
+
+function SessionView({
+  instanceId,
+  host,
+  generation,
+}: {
+  instanceId: string;
+  host: Host;
+  generation: number;
+}) {
+  const theme = useTheme();
   // Same factory, same identity rule as the list screen (Task 5's shared
   // store, now host-aware): whichever instance the list screen created this
   // is, by construction, the same client object. Keyed on `host.id` +
   // `generation` rather than `host` itself for the same reason as the list
   // screen (see its comment) — `sessionAPIFor` already memoizes by id/url.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   const api = useMemo(() => sessionAPIFor(host), [host.id, generation]);
-  // `ready` gates the fetch itself, not just what's rendered — see
-  // use-session.ts's `enabled` param. Without this, a cold launch with a
-  // persisted non-default host would attach()/subscribe() against the
-  // fallback host before the stored one hydrates, and never retry once it
-  // does (the effect keys on instanceId, not on which api it was given).
-  const { rows, status, gap, sendError, send, interrupt, evict } = useSession(api, instanceId, ready);
+  const { rows, status, gap, sendError, send, interrupt, evict } = useSession(api, instanceId);
   const [draft, setDraft] = useState('');
 
   const streaming = rows.some((r) => r.kind === 'streaming');
@@ -83,17 +110,6 @@ export default function SessionScreen() {
     },
     [evict],
   );
-
-  // Same guard as the list screen: hold off on the visible session until the
-  // stored host has hydrated, so a cold launch doesn't flash a session
-  // attached against the default host before correcting.
-  if (!ready) {
-    return (
-      <SafeAreaView style={{ flex: 1, justifyContent: 'center' }} edges={[]}>
-        <ActivityIndicator />
-      </SafeAreaView>
-    );
-  }
 
   return (
     <SafeAreaView style={{ flex: 1 }} edges={[]}>

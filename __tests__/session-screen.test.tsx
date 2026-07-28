@@ -4,15 +4,18 @@ import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import SessionScreen from '../src/app/(tabs)/(instances)/[instanceId]';
 import { MockSessionAPI } from '../src/lib/session/mock';
 import type { SessionAPI } from '../src/lib/session/api';
+import type { Host } from '../src/lib/hosts';
 
 // The screen calls `sessionAPIFor(host)` rather than constructing its own
 // MockSessionAPI (Task 5's shared-store requirement, Task 15's host-aware
 // factory). Mocked so each test can point it at a freshly configured
 // instance regardless of which host object the screen's `useHost()` mock
-// hands back.
+// hands back. A jest.fn (rather than a bare closure) so the host-switch test
+// below can give it a per-host implementation instead of one fixed return.
 let mockApi: SessionAPI;
+const mockSessionAPIFor = jest.fn((_host: Host) => mockApi);
 jest.mock('../src/lib/session/instance', () => ({
-  sessionAPIFor: () => mockApi,
+  sessionAPIFor: (host: Host) => mockSessionAPIFor(host),
 }));
 
 // `useHost()` backs the screen's `useMemo(() => sessionAPIFor(host), ...)`
@@ -52,6 +55,8 @@ describe('Session screen', () => {
     await AsyncStorage.clear();
     // Reset in case a prior test flipped `ready` and didn't restore it.
     mockHostValue = { ...mockHostValue, ready: true };
+    mockSessionAPIFor.mockReset();
+    mockSessionAPIFor.mockImplementation(() => mockApi);
   });
 
   afterEach(() => {
@@ -157,5 +162,59 @@ describe('Session screen', () => {
 
     expect(attachSpy).toHaveBeenCalledTimes(1);
     expect(await screen.findByText('hello there')).toBeTruthy();
+  });
+
+  it('remounts and re-subscribes fresh against the new host on a mid-session host switch', async () => {
+    jest.useFakeTimers();
+
+    const apiA = new MockSessionAPI({ fragmentDelayMs: 5 });
+    const instA = await apiA.create('tycho');
+    // Wrap subscribe so its returned unsubscribe is observable — the point
+    // of this test is that the *old* host's subscription gets torn down,
+    // not merely that a new one starts.
+    const unsubSpyA = jest.fn();
+    const realSubscribeA = apiA.subscribe.bind(apiA);
+    jest.spyOn(apiA, 'subscribe').mockImplementation((stream, fromSeq, handler) => {
+      const unsub = realSubscribeA(stream, fromSeq, handler);
+      return () => {
+        unsubSpyA();
+        unsub();
+      };
+    });
+
+    const apiB = new MockSessionAPI({ fragmentDelayMs: 5 });
+    // Same counter start as apiA (each MockSessionAPI's own counter begins
+    // at 0), so this instance shares the id the screen is already attached
+    // to under host A.
+    await apiB.create('tycho');
+    const attachSpyB = jest.spyOn(apiB, 'attach');
+    const subscribeSpyB = jest.spyOn(apiB, 'subscribe');
+
+    const hostA = { id: 'host-a', label: 'a', daemonUrl: 'http://a', inboxUrl: 'http://a' };
+    const hostB = { id: 'host-b', label: 'b', daemonUrl: 'http://b', inboxUrl: 'http://b' };
+    mockSessionAPIFor.mockImplementation((host: Host) =>
+      host.id === hostB.id ? (apiB as unknown as SessionAPI) : (apiA as unknown as SessionAPI),
+    );
+    mockApi = apiA as unknown as SessionAPI;
+    mockInstanceId = instA.id;
+    mockHostValue = { ...mockHostValue, host: hostA, generation: 0 };
+
+    const { rerender } = await render(<SessionScreen />);
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(0);
+    });
+    expect(subscribeSpyB).not.toHaveBeenCalled();
+    expect(unsubSpyA).not.toHaveBeenCalled();
+
+    // Switch hosts mid-session.
+    mockHostValue = { ...mockHostValue, host: hostB, generation: 1 };
+    await act(async () => {
+      rerender(<SessionScreen />);
+      await jest.advanceTimersByTimeAsync(0);
+    });
+
+    expect(unsubSpyA).toHaveBeenCalled();
+    expect(attachSpyB).toHaveBeenCalledTimes(1);
+    expect(subscribeSpyB).toHaveBeenCalledTimes(1);
   });
 });
