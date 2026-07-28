@@ -1,6 +1,10 @@
 import type { SessionAPI } from './api';
 import type {
+  Actor,
+  AssistantDeltaData,
+  AssistantMessageData,
   AttachInfo,
+  ContextEvictData,
   DurableType,
   EventEnvelope,
   Instance,
@@ -9,25 +13,55 @@ import type {
   Unsubscribe,
   UserMessageData,
 } from './events';
+import { ASSISTANT_DELTA } from './events';
 
 /** `instance_created` has no dedicated payload type in the design — it just names who started. */
 type InstanceCreatedData = { operator: string | null };
+/** `interrupt` has no dedicated payload in the design — the event *type* + actor carries the meaning. */
+type InterruptData = Record<string, never>;
+
+/** Built cumulatively word-by-word into each transient snapshot (I-4: snapshot, never delta). */
+const CANNED_REPLY = 'the log remembers what actually happened here, not what was meant.'.split(' ');
+
+/** A subscription's tail-delivery state, tracked apart from the raw handler so a
+ *  synchronous append during replay can be buffered instead of delivered early
+ *  (see `subscribe`). */
+type ListenerEntry = {
+  handler: SubscriptionHandler;
+  replaying: boolean;
+  buffer: EventEnvelope[];
+};
+
+/** Tracks the in-flight canned generation for an instance, so `interrupt` has
+ *  something concrete to cancel and a last snapshot to keep. */
+type PendingGeneration = {
+  timer: ReturnType<typeof setTimeout>;
+  generation: string;
+  textSoFar: string;
+  actor: Actor;
+};
 
 export class MockSessionAPI implements SessionAPI {
   private instances = new Map<string, Instance>();
   /** Keyed by stream. Only durable events (seq > 0) live here — invariant iii's ledger. */
   private events = new Map<string, EventEnvelope[]>();
-  private listeners = new Map<string, SubscriptionHandler[]>();
+  private listeners = new Map<string, ListenerEntry[]>();
+  private pendingGenerations = new Map<string, PendingGeneration>();
   private counter = 0;
   private readonly earliestSeq: number;
   private readonly fragmentDelayMs: number;
 
   constructor(opts?: { earliestSeq?: number; fragmentDelayMs?: number }) {
     this.earliestSeq = opts?.earliestSeq ?? 1;
-    this.fragmentDelayMs = opts?.fragmentDelayMs ?? 0;
+    this.fragmentDelayMs = opts?.fragmentDelayMs ?? 25;
   }
 
-  private append<T>(stream: string, type: DurableType, data: T): EventEnvelope<T> {
+  private append<T>(
+    stream: string,
+    type: DurableType,
+    data: T,
+    actor: Actor = { role: 'user' },
+  ): EventEnvelope<T> {
     const list = this.events.get(stream) ?? [];
     const seq = (list[list.length - 1]?.seq ?? 0) + 1;
     const event: EventEnvelope<T> = {
@@ -38,7 +72,7 @@ export class MockSessionAPI implements SessionAPI {
       id: `${stream}:${seq}:${Math.random().toString(36).slice(2, 8)}`,
       seq,
       ts: new Date().toISOString(),
-      actor: { role: 'user' },
+      actor,
       type,
       version: 1,
       data,
@@ -46,9 +80,56 @@ export class MockSessionAPI implements SessionAPI {
     list.push(event);
     this.events.set(stream, list);
 
-    for (const handler of this.listeners.get(stream) ?? []) handler.onEvent(event);
+    for (const entry of this.listeners.get(stream) ?? []) {
+      if (entry.replaying) entry.buffer.push(event);
+      else entry.handler.onEvent(event);
+    }
 
     return event;
+  }
+
+  /** Transients: seq 0, never stored, never replayed (I-4). Delivered straight to
+   *  whoever's listening now — they're not part of the replay/buffer ordering
+   *  problem `subscribe` solves for durable events. */
+  private emitTransient<T>(stream: string, type: string, data: T, actor: Actor): void {
+    const event: EventEnvelope<T> = {
+      stream,
+      id: `${stream}:0:${Math.random().toString(36).slice(2, 8)}`,
+      seq: 0,
+      ts: new Date().toISOString(),
+      actor,
+      type,
+      version: 1,
+      data,
+    };
+    for (const entry of this.listeners.get(stream) ?? []) entry.handler.onEvent(event);
+  }
+
+  private startGeneration(instance: Instance, generation: string): void {
+    const actor: Actor = { role: 'operator', instance: instance.operator ?? 'dispatcher' };
+    let index = 0;
+
+    const step = () => {
+      index++;
+      const textSoFar = CANNED_REPLY.slice(0, index).join(' ');
+      this.emitTransient<AssistantDeltaData>(instance.stream, ASSISTANT_DELTA, { textSoFar, generation }, actor);
+
+      if (index < CANNED_REPLY.length) {
+        const timer = setTimeout(step, this.fragmentDelayMs);
+        this.pendingGenerations.set(instance.id, { timer, generation, textSoFar, actor });
+      } else {
+        this.pendingGenerations.delete(instance.id);
+        this.append<AssistantMessageData>(
+          instance.stream,
+          'assistant_message',
+          { text: textSoFar, generation },
+          actor,
+        );
+      }
+    };
+
+    const timer = setTimeout(step, this.fragmentDelayMs);
+    this.pendingGenerations.set(instance.id, { timer, generation, textSoFar: '', actor });
   }
 
   private headSeq(stream: string): number {
@@ -88,23 +169,48 @@ export class MockSessionAPI implements SessionAPI {
   }
 
   subscribe(stream: string, fromSeq: number, handler: SubscriptionHandler): Unsubscribe {
+    const entry: ListenerEntry = { handler, replaying: true, buffer: [] };
     const list = this.listeners.get(stream) ?? [];
-    list.push(handler);
+    list.push(entry);
     this.listeners.set(stream, list);
 
     handler.onStatus('replaying');
+
+    if (fromSeq < this.earliestSeq) {
+      handler.onGap({ requestedFrom: fromSeq, earliestAvailable: this.earliestSeq });
+    }
+
     queueMicrotask(() => {
       const durable = (this.events.get(stream) ?? []).filter(
         (e) => e.seq > fromSeq && e.seq >= this.earliestSeq,
       );
-      for (const event of durable) handler.onEvent(event);
+      const deliveredSeqs = new Set<number>();
+      for (const event of durable) {
+        handler.onEvent(event);
+        deliveredSeqs.add(event.seq);
+      }
+
+      // Ordering hole: a send() landing synchronously between subscribe() and
+      // this tick appends via the live path above (`append`'s notify loop),
+      // which — before this fix — called handler.onEvent immediately, ahead of
+      // the replay batch that (moments later) contains that same event again.
+      // `append` now buffers instead of delivering while `entry.replaying` is
+      // true, so anything that arrived during replay is here, in arrival
+      // order; drop what the replay batch already covered and flush the rest.
+      entry.replaying = false;
+      const tail = entry.buffer
+        .filter((e) => !deliveredSeqs.has(e.seq))
+        .sort((a, b) => a.seq - b.seq);
+      entry.buffer = [];
+      for (const event of tail) handler.onEvent(event);
+
       handler.onStatus('live');
     });
 
     return () => {
       this.listeners.set(
         stream,
-        (this.listeners.get(stream) ?? []).filter((h) => h !== handler),
+        (this.listeners.get(stream) ?? []).filter((e) => e !== entry),
       );
     };
   }
@@ -116,14 +222,39 @@ export class MockSessionAPI implements SessionAPI {
     const event = this.append<UserMessageData>(instance.stream, 'user_message', { text, clientKey });
     instance.lastSeq = event.seq;
 
+    this.startGeneration(instance, `gen-${event.seq}`);
+
     return { id: event.id, seq: event.seq };
   }
 
-  async interrupt(_instanceId: string): Promise<void> {
-    throw new Error('unimplemented');
+  async interrupt(instanceId: string): Promise<void> {
+    const instance = this.instances.get(instanceId);
+    if (!instance) throw new Error('unknown_instance');
+
+    const pending = this.pendingGenerations.get(instanceId);
+    if (!pending) return; // idempotent: nothing running, nothing appended.
+
+    clearTimeout(pending.timer);
+    this.pendingGenerations.delete(instanceId);
+
+    this.append<InterruptData>(instance.stream, 'interrupt', {}, { role: 'user' });
+    this.append<AssistantMessageData>(
+      instance.stream,
+      'assistant_message',
+      { text: pending.textSoFar, generation: pending.generation, interrupted: true },
+      pending.actor,
+    );
   }
 
-  async evict(_instanceId: string, _eventId: string): Promise<void> {
-    throw new Error('unimplemented');
+  async evict(instanceId: string, eventId: string): Promise<void> {
+    const instance = this.instances.get(instanceId);
+    if (!instance) throw new Error('unknown_instance');
+
+    const target = (this.events.get(instance.stream) ?? []).find((e) => e.id === eventId);
+    if (!target) throw new Error('unknown_event');
+
+    // Evict never removes anything (P-1) — it appends a marker the context
+    // reducer honors; the target stays in the stream untouched.
+    this.append<ContextEvictData>(instance.stream, 'context_evict', { target: eventId }, { role: 'user' });
   }
 }
