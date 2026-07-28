@@ -150,6 +150,15 @@ export function useSession(api: SessionAPI, instanceId: string, enabled = true):
         if (epoch.current !== mine) return;
         if (s === 'closed') {
           setStatus('reconnecting');
+          // A connection drop mid-generation otherwise freezes the last
+          // transient forever: a streaming row with no more deltas coming,
+          // which pins the composer on Stop (an engine interrupt against a
+          // generation that's already gone is a 204 no-op, so nothing ever
+          // clears it). Post-drop transient snapshots are provably stale —
+          // if the generation actually completed, the durable
+          // assistant_message that supersedes it arrives via replay on
+          // reconnect, same as any other durable event this cursor missed.
+          setTransients(new Map());
           scheduleReconnect(mine);
           return;
         }

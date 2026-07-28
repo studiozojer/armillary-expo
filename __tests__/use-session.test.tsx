@@ -3,6 +3,7 @@ import { act, render, screen, waitFor } from '@testing-library/react-native';
 import { Text } from 'react-native';
 
 import type { SessionAPI } from '../src/lib/session/api';
+import { ASSISTANT_DELTA } from '../src/lib/session/events';
 import type {
   AttachInfo,
   EventEnvelope,
@@ -241,6 +242,52 @@ describe('useSession', () => {
 
     expect(subscribeCalls.length).toBe(2);
     expect(subscribeCalls[1].fromSeq).toBe(2);
+  });
+
+  it('clears a frozen mid-generation transient on a closed status, and renders the durable finalizer exactly once on reconnect', async () => {
+    jest.useFakeTimers();
+    const { api, resolveAttach, subscribeCalls } = scriptedApi('s1');
+    let current!: UseSessionResult;
+    await render(<Harness api={api} instanceId="inst-1" capture={(r) => (current = r)} />);
+
+    await act(async () => {
+      resolveAttach();
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(subscribeCalls.length).toBe(1);
+
+    const handler = subscribeCalls[0].handler;
+    await act(async () => {
+      handler.onEvent(envelope(ASSISTANT_DELTA, { textSoFar: 'the log', generation: 'gen-1' }, 0));
+    });
+    expect(current.rows.some((r) => r.kind === 'streaming')).toBe(true);
+
+    // Connection drops mid-generation: the transient must not survive as a
+    // permanently-frozen streaming row.
+    await act(async () => {
+      handler.onStatus('closed');
+    });
+    expect(current.rows.some((r) => r.kind === 'streaming')).toBe(false);
+
+    await act(async () => {
+      jest.advanceTimersByTime(1000);
+    });
+    expect(subscribeCalls.length).toBe(2);
+
+    // The generation had in fact completed before the drop — its durable
+    // finalizer arrives via replay on reconnect, and renders exactly once.
+    const reconnectHandler = subscribeCalls[1].handler;
+    await act(async () => {
+      reconnectHandler.onEvent(
+        envelope('assistant_message', { text: 'the log remembers', generation: 'gen-1' }, 1),
+      );
+    });
+
+    const finals = current.rows.filter((r) => r.kind === 'message' && r.text === 'the log remembers');
+    expect(finals).toHaveLength(1);
+    expect(current.rows.some((r) => r.kind === 'streaming')).toBe(false);
   });
 
   it('persists a bounded window of at most 200 durable events', async () => {
