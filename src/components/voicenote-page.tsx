@@ -68,6 +68,22 @@ export function VoicenotePage({ path, entry }: { path: string; entry: VoicenoteE
             </Text>
           </Pressable>
         </Link>
+      ) : entry.state === 'transcribed' ? (
+        // `state` says transcribed but `transcript` is missing — data the
+        // engine itself is inconsistent about. The old `else` here printed
+        // "Not transcribed yet." for this case, which is a second, different
+        // false statement layered on the first: not only wrong, but wrong in
+        // a way that tells the reader to go run a command that has already
+        // been run. Naming the inconsistency is the honest thing to render.
+        <View>
+          <Text style={{ ...theme.type.body, color: theme.color.txPrimary }}>
+            Marked transcribed, but no transcript is on record.
+          </Text>
+          <Text style={{ ...theme.type.caption, color: theme.color.txTertiary }}>
+            The engine's index disagrees with itself here — this is not something to fix by
+            transcribing again.
+          </Text>
+        </View>
       ) : entry.state === 'audio_absent' ? (
         <View>
           <Text style={{ ...theme.type.body, color: theme.color.txPrimary }}>

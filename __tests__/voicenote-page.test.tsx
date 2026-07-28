@@ -56,6 +56,21 @@ describe('VoicenotePage', () => {
     expect(screen.getByText(/not on this machine/i)).toBeTruthy();
   });
 
+  it('names the inconsistency rather than claiming "not transcribed yet" when transcribed but the transcript is missing', async () => {
+    // `state: 'transcribed'` with no `transcript` object is the engine's index
+    // disagreeing with itself. Falling into the same branch as "untranscribed"
+    // would print a second false statement on top of the first, and tell the
+    // reader to run a command that has already been run.
+    await render(
+      <VoicenotePage
+        path="local/inbox/inconsistent.m4a"
+        entry={{ audio: 'local/inbox/inconsistent.m4a', bytes: 100, state: 'transcribed' }}
+      />,
+    );
+    expect(screen.getByText(/no transcript is on record/i)).toBeTruthy();
+    expect(screen.queryByText(/not transcribed yet/i)).toBeNull();
+  });
+
   it('renders the player as visibly unbuilt rather than broken', async () => {
     await render(
       <VoicenotePage
