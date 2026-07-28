@@ -2,10 +2,10 @@ import { Link } from 'expo-router';
 import { Stack } from 'expo-router/stack';
 import { useCallback } from 'react';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { SettingsButton } from '@/components/settings-button';
 import { TreeList } from '@/components/tree-list';
+import { Screen } from '@/components/ui';
 import { DaemonClient } from '@/lib/daemon/client';
 import { annotationsFor } from '@/lib/annotations';
 import type { Composition, TreeResponse } from '@/lib/daemon/types';
@@ -41,7 +41,7 @@ export default function Explorer() {
 
   if (state.status === 'error') {
     return (
-      <SafeAreaView style={{ flex: 1, padding: theme.space.lg }}>
+      <Screen p="lg">
         <Text style={{ ...theme.type.heading, color: theme.color.txPrimary }}>
           Can&apos;t reach the engine
         </Text>
@@ -93,15 +93,15 @@ export default function Explorer() {
             </Pressable>
           </Link>
         </View>
-      </SafeAreaView>
+      </Screen>
     );
   }
 
   if (state.status === 'loading') {
     return (
-      <SafeAreaView style={{ flex: 1, justifyContent: 'center' }}>
+      <Screen style={{ justifyContent: 'center' }}>
         <ActivityIndicator />
-      </SafeAreaView>
+      </Screen>
     );
   }
 
@@ -109,7 +109,7 @@ export default function Explorer() {
   const annotations = composition ? annotationsFor(composition) : {};
 
   return (
-    <SafeAreaView style={{ flex: 1 }} edges={[]}>
+    <Screen edges={[]}>
       <Stack.Screen
         options={{
           // Settings had no entry point at all between the old three-section
@@ -155,6 +155,6 @@ export default function Explorer() {
           </View>
         }
       />
-    </SafeAreaView>
+    </Screen>
   );
 }

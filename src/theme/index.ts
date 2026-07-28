@@ -1,3 +1,4 @@
+import type { MarkedStyles } from 'react-native-marked';
 import { useColorScheme } from 'react-native';
 
 import { families } from './fonts.gen';
@@ -5,6 +6,11 @@ import { useThemeMode } from './theme-context';
 import { DAOUI_SOURCE_COMMIT, ROLE_COUNT, darkColors, lightColors, type ColorRole } from './tokens.gen';
 
 export { DAOUI_SOURCE_COMMIT, ROLE_COUNT, type ColorRole };
+
+// Re-exported so `@/theme` stays the single styling entry point. The import
+// back into this module from `nav-theme` is type-only, so there is no runtime
+// cycle here.
+export { navThemeFor } from './nav-theme';
 
 /**
  * Layout scales.
@@ -120,5 +126,96 @@ export function markedThemeFor(theme: Theme) {
       m: space.md,
       l: space.lg,
     },
+  };
+}
+
+/**
+ * react-native-marked's per-element styles, mapped onto the type ramp.
+ *
+ * `markedThemeFor` above supplies colours and spacing and nothing else, so
+ * every rendered `.md` — the largest reading surface in the app, and the entire
+ * point of Explorer — was set in the system font while twelve studio faces sat
+ * loaded and unused. This is the other half.
+ *
+ * The library flattens `[itsOwnDefaults, userStyles]` per element, so what is
+ * written here wins and anything omitted keeps the library's default. Two of
+ * those defaults have to be overridden rather than merely added to:
+ *
+ * - Headings carry `fontWeight: '500' | 'bold'`. Against a named PostScript
+ *   face that makes iOS synthesise a bold instead of picking a sibling cut,
+ *   which does not exist here — so every heading declares `normal` and lets the
+ *   family carry the weight. (`strong` is the deliberate exception: Whyte ships
+ *   no bold cut, so a synthesised one is the only bold available.)
+ * - `codespan` carries `fontStyle: 'italic'` and `fontWeight: '300'`, which is
+ *   the library's idea of code, not ours.
+ *
+ * `paragraph`, `blockquote`, `code`, `list` and `hr` are ViewStyles — containers
+ * — so they carry no family; the text inside a paragraph is styled by `text`
+ * and the text inside a list item by `li`.
+ *
+ * KNOWN GAP, and it is the library's: a FENCED code block's text is styled from
+ * the `em` key (`Parser.js` passes `styles.em` as the block's textStyle), which
+ * is also prose italics. Fraktion cannot reach fenced blocks through `styles`
+ * without turning every italic in the document mono, so `em` stays Whyte and
+ * fenced blocks render in it. Inline code (`codespan`) does get Fraktion. The
+ * real fix is a `Renderer` subclass overriding `code()`, which is a change to
+ * MarkdownView's shape rather than to its styling, and is left for whoever
+ * decides the reading surface wants one.
+ */
+export function markedStylesFor(theme: Theme): MarkedStyles {
+  const heading = { fontWeight: 'normal' } as const;
+
+  return {
+    // The document's own title, in the inktrap display cut — the one place in
+    // the app the display face earns its inktraps at size.
+    h1: { ...type.display, ...heading, color: theme.color.txPrimary },
+    h2: { ...type.title, ...heading, color: theme.color.txPrimary },
+    h3: { ...type.heading, ...heading, color: theme.color.txPrimary },
+    // Below h3 the ramp has no larger-than-body sizes left, so the display cut
+    // rather than the size is what separates these from the paragraphs around
+    // them.
+    h4: { ...type.body, ...heading, fontFamily: families.whyte.display, color: theme.color.txPrimary },
+    h5: { ...type.label, ...heading, fontFamily: families.whyte.display, color: theme.color.txPrimary },
+    h6: { ...type.caption, ...heading, fontFamily: families.whyte.display, color: theme.color.txPrimary },
+
+    // Body copy. tx/body rather than tx/primary: it is the role daoUI publishes
+    // for running text, and this is the only running text in the app.
+    text: { ...type.body, color: theme.color.txBody },
+    li: { ...type.body, color: theme.color.txBody },
+    // Whyte ships no bold cut, so this is the one place a synthesised weight is
+    // the right answer rather than an accident.
+    strong: { ...type.body, fontWeight: 'bold', color: theme.color.txPrimary },
+    em: { ...type.body, fontStyle: 'italic', color: theme.color.txBody },
+    link: { ...type.body, fontStyle: 'normal', color: theme.color.txAccent },
+
+    // The instrument register, where it belongs. Both of the library's own
+    // code affectations — italic, weight 300 — are overridden rather than
+    // merged onto.
+    codespan: {
+      ...type.mono,
+      fontStyle: 'normal',
+      fontWeight: 'normal',
+      color: theme.color.txPrimary,
+      backgroundColor: theme.color.bgSecondary,
+    },
+    code: {
+      padding: space.md,
+      borderRadius: radius.md,
+      backgroundColor: theme.color.bgSecondary,
+      // The library sets this so a short line still fills the horizontal
+      // ScrollView it wraps the block in; dropping it would leave the fill
+      // ending mid-line.
+      minWidth: '100%',
+    },
+
+    // Containers. A quote reads as one because of the rule beside it, not
+    // because the type changed.
+    blockquote: {
+      borderLeftWidth: space.xxs,
+      borderLeftColor: theme.color.bdCard,
+      paddingLeft: space.lg,
+    },
+    paragraph: { paddingVertical: space.sm },
+    hr: { borderBottomWidth: border.hairline, borderBottomColor: theme.color.bdCard },
   };
 }
