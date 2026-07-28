@@ -13,7 +13,8 @@ export type IconName =
   | 'settings'
   | 'inbox'
   | 'plus'
-  | 'send';
+  | 'send'
+  | 'check';
 
 /**
  * The single place platform icon names live.
@@ -37,6 +38,7 @@ export const ICONS: Record<IconName, { ios: SFSymbol; web: AndroidSymbol }> = {
   inbox: { ios: 'tray', web: 'inbox' },
   plus: { ios: 'plus', web: 'add' },
   send: { ios: 'arrow.up', web: 'arrow_upward' },
+  check: { ios: 'checkmark', web: 'check' },
 };
 
 export function Icon({
