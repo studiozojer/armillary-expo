@@ -60,6 +60,21 @@ describe('Button primary fill/label contrast (WCAG AA, computed from theme token
     const t = themeFor(scheme);
     expect(contrastRatio(t.color.txButton, t.color.bgSolidButton)).toBeGreaterThanOrEqual(4.5);
   });
+
+  // The test above proves the TOKEN PAIR is sound — it says nothing about
+  // whether Button actually uses that pair. Revert button.tsx's primary
+  // label from 'txButton' back to 'txPrimary' (the exact bug this file's
+  // history fixed) and the assertion above still passes untouched, because
+  // it never renders a <Button>. This one closes that gap by rendering the
+  // real component and reading the real resolved colour off the real label.
+  // Both tests are needed; neither subsumes the other — do not delete either
+  // one as "redundant" with the other.
+  it('wires the primary label to tx/button, not tx/primary', async () => {
+    await render(<Button label="Create" onPress={jest.fn()} />);
+    const label = styleOf(screen.getByText('Create'));
+    expect(label.color).toBe(theme.color.txButton);
+    expect(label.color).not.toBe(theme.color.txPrimary);
+  });
 });
 
 describe('composed components', () => {
