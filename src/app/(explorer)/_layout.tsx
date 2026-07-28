@@ -16,7 +16,6 @@ export default function ExplorerLayout() {
       <Stack.Screen name="settings" options={{ title: 'Host', presentation: 'modal' }} />
       <Stack.Screen name="capture" options={{ title: 'Capture', presentation: 'modal' }} />
       <Stack.Screen name="browse/[...path]" />
-      <Stack.Screen name="spike-markdown" options={{ title: 'Markdown spike' }} />
     </Stack>
   );
 }
