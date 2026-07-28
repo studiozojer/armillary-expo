@@ -15,6 +15,53 @@ const theme = themeFor('light');
 const styleOf = (node: { props: { style?: unknown } }) =>
   StyleSheet.flatten(node.props.style as never) as Record<string, unknown>;
 
+// WCAG 2.x relative luminance, from sRGB channels in [0, 255].
+function relativeLuminance({ r, g, b }: { r: number; g: number; b: number }): number {
+  const linearize = (c: number) => {
+    const s = c / 255;
+    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * linearize(r) + 0.7152 * linearize(g) + 0.0722 * linearize(b);
+}
+
+function parseHex8(hex: string): { r: number; g: number; b: number; a: number } {
+  const clean = hex.replace('#', '');
+  return {
+    r: parseInt(clean.slice(0, 2), 16),
+    g: parseInt(clean.slice(2, 4), 16),
+    b: parseInt(clean.slice(4, 6), 16),
+    a: clean.length >= 8 ? parseInt(clean.slice(6, 8), 16) / 255 : 1,
+  };
+}
+
+/**
+ * WCAG contrast ratio between a (possibly translucent) foreground colour and
+ * an opaque background it sits on, computed from the actual token strings —
+ * not a hardcoded pair — so a future role swap that looks fine in isolation
+ * but reads badly once composited (as tx/primary did on bg/solid/button,
+ * ~1.2:1 in dark mode) fails here instead of only showing up on a device.
+ */
+function contrastRatio(fgHex: string, bgHex: string): number {
+  const fg = parseHex8(fgHex);
+  const bg = parseHex8(bgHex);
+  const composited = {
+    r: fg.r * fg.a + bg.r * (1 - fg.a),
+    g: fg.g * fg.a + bg.g * (1 - fg.a),
+    b: fg.b * fg.a + bg.b * (1 - fg.a),
+  };
+  const lFg = relativeLuminance(composited);
+  const lBg = relativeLuminance(bg);
+  const [lighter, darker] = lFg > lBg ? [lFg, lBg] : [lBg, lFg];
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+describe('Button primary fill/label contrast (WCAG AA, computed from theme tokens)', () => {
+  it.each(['light', 'dark'] as const)('tx/button on bg/solid/button reads >= 4.5:1 in %s', (scheme) => {
+    const t = themeFor(scheme);
+    expect(contrastRatio(t.color.txButton, t.color.bgSolidButton)).toBeGreaterThanOrEqual(4.5);
+  });
+});
+
 describe('composed components', () => {
   it('draws a hairline rule, inset when asked', async () => {
     await render(<Rule testID="r" inset={ROW_ICON_LANE} />);
@@ -60,11 +107,17 @@ describe('composed components', () => {
   it('presses a Button and refuses to when disabled', async () => {
     const onPress = jest.fn();
     await render(<Button label="Create" onPress={onPress} />);
-    fireEvent.press(screen.getByText('Create'));
+    // fireEvent.press is async in this @testing-library/react-native version —
+    // it wraps the handler call in act() and returns a promise. Leaving it
+    // un-awaited let the first press's act-scope still be settling when the
+    // second one (below) opened its own, which is exactly what produced
+    // "overlapping act() calls" here. Awaiting both is the actual fix, not a
+    // suppression of the warning.
+    await fireEvent.press(screen.getByText('Create'));
     expect(onPress).toHaveBeenCalledTimes(1);
 
     await screen.rerender(<Button label="Create" onPress={onPress} disabled />);
-    fireEvent.press(screen.getByText('Create'));
+    await fireEvent.press(screen.getByText('Create'));
     expect(onPress).toHaveBeenCalledTimes(1);
   });
 });

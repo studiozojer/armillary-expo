@@ -23,7 +23,7 @@ const OUT = join(HERE, '..', 'src', 'theme', 'tokens.gen.ts');
 // nobody reads. Add a role here when a screen needs it.
 const ROLES = [
   'tx/primary', 'tx/secondary', 'tx/tertiary', 'tx/body', 'tx/accent', 'tx/error',
-  'tx/warning', 'tx/success', 'tx/disabled',
+  'tx/warning', 'tx/success', 'tx/disabled', 'tx/button',
 
   // Opaque surfaces. These, not the bg/* overlays, are what a page and a card
   // are painted with — the overlays are elevation washes meant to sit on top.

@@ -39,8 +39,12 @@ export function Button({
       })}>
       <Text
         variant="label"
+        // The primary fill inverts by scheme (cream in dark, near-black in
+        // light), so its label has to invert with it — `txButton` does that;
+        // `txPrimary` is tuned against the page background, not against
+        // `bg/solid/button`, and reads at ~1.2:1 there in both schemes.
         color={
-          disabled ? 'txDisabled' : variant === 'secondary' ? 'txSecondary' : 'txPrimary'
+          disabled ? 'txDisabled' : variant === 'secondary' ? 'txSecondary' : 'txButton'
         }>
         {label}
       </Text>

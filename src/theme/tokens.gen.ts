@@ -12,7 +12,7 @@
 
 export const DAOUI_SOURCE_COMMIT = "c0a241c";
 
-export const ROLE_COUNT = 36;
+export const ROLE_COUNT = 37;
 
 export const lightColors = {
   "txPrimary": "#191b18ff",
@@ -24,6 +24,7 @@ export const lightColors = {
   "txWarning": "#f18736f2",
   "txSuccess": "#6a8b5bf2",
   "txDisabled": "#3d403b38",
+  "txButton": "#f8f1e5ff",
   "bgSolidBase": "#f9f2e7ff",
   "bgSolidCard": "#f2eadeff",
   "bgSolidCardSecondary": "#f4ede1ff",
@@ -63,6 +64,7 @@ export const darkColors = {
   "txWarning": "#f18736f2",
   "txSuccess": "#6a8b5bf2",
   "txDisabled": "#f3f6f833",
+  "txButton": "#3d403bff",
   "bgSolidBase": "#1a1714ff",
   "bgSolidCard": "#2c2721ff",
   "bgSolidCardSecondary": "#36312bff",
