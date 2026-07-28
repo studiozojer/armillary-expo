@@ -4,7 +4,11 @@ import { Pressable, Text, View } from 'react-native';
 import { useTheme } from '@/theme';
 
 /**
- * The web tab bar. Mirrors the native pill: Instances first, Explorer second.
+ * The web tab bar. Instances first, Explorer second.
+ *
+ * Native still orders these the other way round; Task 11 flips it, after which
+ * both platforms agree. Until then the two deliberately differ, and this note
+ * is here so the difference reads as scheduled rather than accidental.
  *
  * Rebuilt off the Expo template's ThemedText/ThemedView, which carried their
  * own hardcoded palette and could not follow daoUI.
