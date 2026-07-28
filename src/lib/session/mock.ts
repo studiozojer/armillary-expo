@@ -1,27 +1,60 @@
 import type { SessionAPI } from './api';
-import type { EventEnvelope, Instance } from './events';
+import type {
+  AttachInfo,
+  DurableType,
+  EventEnvelope,
+  Instance,
+  SendReceipt,
+  SubscriptionHandler,
+  Unsubscribe,
+  UserMessageData,
+} from './events';
 
-const FIXTURES: Instance[] = [
-  {
-    id: 'inst-tycho-01',
-    operator: 'tycho',
-    stream: 'inst-tycho-01',
-    startedAt: '2026-07-26T09:12:00.000Z',
-    lastSeq: 42,
-  },
-  {
-    id: 'inst-dispatch-01',
-    operator: null,
-    stream: 'inst-dispatch-01',
-    startedAt: '2026-07-26T11:03:00.000Z',
-    lastSeq: 7,
-  },
-];
+/** `instance_created` has no dedicated payload type in the design — it just names who started. */
+type InstanceCreatedData = { operator: string | null };
 
 export class MockSessionAPI implements SessionAPI {
-  private instances: Instance[] = FIXTURES.map((i) => ({ ...i }));
-  private listeners = new Map<string, ((event: EventEnvelope) => void)[]>();
+  private instances = new Map<string, Instance>();
+  /** Keyed by stream. Only durable events (seq > 0) live here — invariant iii's ledger. */
+  private events = new Map<string, EventEnvelope[]>();
+  private listeners = new Map<string, SubscriptionHandler[]>();
   private counter = 0;
+  private readonly earliestSeq: number;
+  private readonly fragmentDelayMs: number;
+
+  constructor(opts?: { earliestSeq?: number; fragmentDelayMs?: number }) {
+    this.earliestSeq = opts?.earliestSeq ?? 1;
+    this.fragmentDelayMs = opts?.fragmentDelayMs ?? 0;
+  }
+
+  private append<T>(stream: string, type: DurableType, data: T): EventEnvelope<T> {
+    const list = this.events.get(stream) ?? [];
+    const seq = (list[list.length - 1]?.seq ?? 0) + 1;
+    const event: EventEnvelope<T> = {
+      stream,
+      // `stream:seq:random`, not an array index. Invariant (ii) forbids
+      // position-as-identity, and a mock should not teach a shape the real log
+      // rejects — the stub is what the next implementer reads first.
+      id: `${stream}:${seq}:${Math.random().toString(36).slice(2, 8)}`,
+      seq,
+      ts: new Date().toISOString(),
+      actor: { role: 'user' },
+      type,
+      version: 1,
+      data,
+    };
+    list.push(event);
+    this.events.set(stream, list);
+
+    for (const handler of this.listeners.get(stream) ?? []) handler.onEvent(event);
+
+    return event;
+  }
+
+  private headSeq(stream: string): number {
+    const list = this.events.get(stream) ?? [];
+    return list[list.length - 1]?.seq ?? 0;
+  }
 
   async create(operator: string | null): Promise<Instance> {
     const id = `inst-mock-${++this.counter}`;
@@ -32,54 +65,65 @@ export class MockSessionAPI implements SessionAPI {
       startedAt: new Date().toISOString(),
       lastSeq: 0,
     };
-    this.instances.push(instance);
-    return instance;
+    this.instances.set(id, instance);
+
+    const created = this.append<InstanceCreatedData>(id, 'instance_created', { operator });
+    instance.lastSeq = created.seq;
+
+    return { ...instance };
   }
 
   async list(): Promise<Instance[]> {
-    return this.instances.map((i) => ({ ...i }));
+    return [...this.instances.values()].map((i) => ({ ...i, lastSeq: this.headSeq(i.stream) }));
   }
 
-  async attach(instanceId: string): Promise<Instance> {
-    const found = this.instances.find((i) => i.id === instanceId);
+  async attach(instanceId: string): Promise<AttachInfo> {
+    const found = this.instances.get(instanceId);
     if (!found) throw new Error(`no such instance: ${instanceId}`);
-    return found;
+    return {
+      instance: { ...found, lastSeq: this.headSeq(found.stream) },
+      earliestSeq: this.earliestSeq,
+      headSeq: this.headSeq(found.stream),
+    };
   }
 
-  subscribe(
-    instanceId: string,
-    _fromSeq: number,
-    onEvent: (event: EventEnvelope) => void,
-  ): () => void {
-    const list = this.listeners.get(instanceId) ?? [];
-    list.push(onEvent);
-    this.listeners.set(instanceId, list);
+  subscribe(stream: string, fromSeq: number, handler: SubscriptionHandler): Unsubscribe {
+    const list = this.listeners.get(stream) ?? [];
+    list.push(handler);
+    this.listeners.set(stream, list);
+
+    handler.onStatus('replaying');
+    queueMicrotask(() => {
+      const durable = (this.events.get(stream) ?? []).filter(
+        (e) => e.seq > fromSeq && e.seq >= this.earliestSeq,
+      );
+      for (const event of durable) handler.onEvent(event);
+      handler.onStatus('live');
+    });
+
     return () => {
       this.listeners.set(
-        instanceId,
-        (this.listeners.get(instanceId) ?? []).filter((fn) => fn !== onEvent),
+        stream,
+        (this.listeners.get(stream) ?? []).filter((h) => h !== handler),
       );
     };
   }
 
-  async send(instanceId: string, text: string): Promise<void> {
-    const instance = await this.attach(instanceId);
-    instance.lastSeq += 1;
+  async send(instanceId: string, text: string, clientKey: string): Promise<SendReceipt> {
+    const instance = this.instances.get(instanceId);
+    if (!instance) throw new Error(`no such instance: ${instanceId}`);
 
-    const event: EventEnvelope<{ text: string }> = {
-      stream: instance.stream,
-      // `stream:seq`, not an array index. Invariant (ii) forbids
-      // position-as-identity, and a mock should not teach a shape the real log
-      // rejects — the stub is what the next implementer reads first.
-      id: `${instance.stream}:${instance.lastSeq}`,
-      seq: instance.lastSeq,
-      ts: new Date().toISOString(),
-      actor: { role: 'user' },
-      type: 'user_message',
-      version: 1,
-      data: { text },
-    };
+    const event = this.append<UserMessageData>(instance.stream, 'user_message', { text, clientKey });
+    instance.lastSeq = event.seq;
 
-    for (const listener of this.listeners.get(instanceId) ?? []) listener(event);
+    return { id: event.id, seq: event.seq };
+  }
+
+  async interrupt(_instanceId: string): Promise<void> {
+    throw new Error('unimplemented');
+  }
+
+  async evict(_instanceId: string, _eventId: string): Promise<void> {
+    throw new Error('unimplemented');
   }
 }
