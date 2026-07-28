@@ -118,6 +118,10 @@ export class LiveSessionAPI implements SessionAPI {
 
     void (async () => {
       const parser = createSSEParser();
+      // Declared outside the try so the `finally` below can always release it
+      // (cancel implicitly releases the lock too), rather than leaving lock
+      // release to GC on whichever exit path happened to run.
+      let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
       try {
         const response = await this.fetcher(
           `${this.baseUrl}/streams/${encodeURIComponent(stream)}/events?from=${fromSeq}`,
@@ -125,13 +129,21 @@ export class LiveSessionAPI implements SessionAPI {
         );
 
         if (!response.ok || !response.body) {
+          // A non-OK response (e.g. an unknown stream) or a fetch
+          // implementation that didn't hand back a streamable body ends the
+          // subscription immediately, with no retry of its own — reconnect
+          // is `useSession`'s job. Warn so this doesn't fail silently.
+          // eslint-disable-next-line no-console
+          console.warn(
+            `LiveSessionAPI: subscribe to '${stream}' got status ${response.status}; closing without retry`,
+          );
           emitClosedOnce();
           return;
         }
 
         handler.onStatus('replaying');
 
-        const reader = response.body.getReader();
+        reader = response.body.getReader();
         const decoder = new TextDecoder();
 
         for (;;) {
@@ -162,9 +174,15 @@ export class LiveSessionAPI implements SessionAPI {
 
         emitClosedOnce();
       } catch {
-        // Read error or abort (including unsubscribe-triggered abort) — both
-        // land on 'closed'. The hook ignores status after it has unsubscribed.
+        // Read error or abort (including unsubscribe-triggered abort, mid-
+        // stream or otherwise) — both land on 'closed'. The hook ignores
+        // status after it has unsubscribed.
         emitClosedOnce();
+      } finally {
+        // Errored-by-abort or already-closed, cancel() is safe either way —
+        // a rejection here (e.g. cancelling an already-errored reader) is
+        // expected, not exceptional, so it's swallowed rather than rethrown.
+        reader?.cancel().catch(() => {});
       }
     })();
 

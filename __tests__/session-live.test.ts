@@ -265,6 +265,70 @@ describe('LiveSessionAPI', () => {
       expect(capturedSignal?.aborted).toBe(true);
     });
 
+    it('mid-stream unsubscribe terminates a blocked read and fires closed exactly once', async () => {
+      // A stream that never closes: after the first chunk, `reader.read()`
+      // would block forever on its own. The double wires the injected signal
+      // itself (real fetch does this internally; a scripted fetcher has to
+      // do it by hand) — aborting rejects the pending read with an
+      // AbortError, which is the only thing that can end this loop.
+      const handler = collectingHandler();
+      const fetcher = jest.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
+        const signal = init?.signal;
+        const encoder = new TextEncoder();
+        const stream = new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(
+              encoder.encode(
+                'event: envelope\ndata: {"stream":"inst-1","id":"inst-1:1:a","seq":1,"ts":"t",' +
+                  '"actor":{"role":"user"},"type":"user_message","version":1,"data":{}}\n\n',
+              ),
+            );
+            // Deliberately no controller.close() — proving abort (not
+            // end-of-stream) is what terminates the read loop below.
+            signal?.addEventListener('abort', () => {
+              controller.error(new DOMException('Aborted', 'AbortError'));
+            });
+          },
+        });
+        return new Response(stream, { status: 200 });
+      });
+
+      const rejections: unknown[] = [];
+      const onUnhandledRejection = (reason: unknown) => rejections.push(reason);
+      process.on('unhandledRejection', onUnhandledRejection);
+
+      try {
+        const unsubscribe = client(fetcher).subscribe('inst-1', 0, handler);
+        await flush();
+        expect(handler.events).toHaveLength(1); // the first frame arrived before we abort
+
+        unsubscribe();
+        await flush();
+        await flush();
+
+        expect(handler.statuses.filter((s) => s === 'closed')).toHaveLength(1);
+      } finally {
+        process.off('unhandledRejection', onUnhandledRejection);
+      }
+
+      expect(rejections).toEqual([]);
+    });
+
+    it('warns naming the status and closes once when the subscribe response is not ok', async () => {
+      const fetcher = jest.fn().mockResolvedValue(jsonResponse(404, 'unknown_stream'));
+      const handler = collectingHandler();
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+      client(fetcher).subscribe('nope', 0, handler);
+      await flush();
+
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(warnSpy.mock.calls[0][0]).toEqual(expect.stringContaining('404'));
+      expect(handler.statuses).toEqual(['closed']);
+
+      warnSpy.mockRestore();
+    });
+
     it('skips a malformed envelope frame without killing the subscription; the next valid frame still arrives', async () => {
       const good: EventEnvelope = {
         stream: 'inst-1',
