@@ -1,7 +1,13 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { fireEvent, render, screen } from '@testing-library/react-native';
 import { Pressable, Text } from 'react-native';
 
-import { PreferencesProvider, useShowDotfiles, visibleEntries } from '../src/lib/preferences';
+import {
+  loadShowDotfiles,
+  PreferencesProvider,
+  useShowDotfiles,
+  visibleEntries,
+} from '../src/lib/preferences';
 
 const entries = [
   { name: '.claude', dir: true },
@@ -46,14 +52,31 @@ describe('PreferencesProvider', () => {
     );
 
     // loadShowDotfiles() resolves asynchronously (AsyncStorage), so the
-    // default only lands after an effect flush.
-    expect(await screen.findByText('.claude')).toBeTruthy();
-    expect(screen.getByText('CLAUDE.md')).toBeTruthy();
+    // default only lands after an effect flush. Dotfiles are hidden by
+    // default, so the listing starts without `.claude` and gains it — the
+    // direction is incidental to what is under test, which is that an
+    // already-mounted consumer sees the change at all.
+    expect(await screen.findByText('CLAUDE.md')).toBeTruthy();
+    expect(screen.queryByText('.claude')).toBeNull();
 
     fireEvent.press(screen.getByText('toggle'));
 
-    expect(await screen.findByText('CLAUDE.md')).toBeTruthy();
-    expect(screen.queryByText('.claude')).toBeNull();
+    expect(await screen.findByText('.claude')).toBeTruthy();
+    expect(screen.getByText('CLAUDE.md')).toBeTruthy();
+  });
+
+  it('hides dotfiles until told otherwise', async () => {
+    // The default is a decision, not an accident — reversed on device after
+    // the first walk, where five of the workspace root's twenty entries turned
+    // out to be editor and harness state. Pinned so a later refactor cannot
+    // quietly restore the original "show everything" default.
+    await AsyncStorage.clear();
+    await expect(loadShowDotfiles()).resolves.toBe(false);
+  });
+
+  it('honours a stored preference over the default', async () => {
+    await AsyncStorage.setItem('armillary.showDotfiles', 'true');
+    await expect(loadShowDotfiles()).resolves.toBe(true);
   });
 
   it('throws when read outside a provider, so a screen cannot silently fall back to a private copy', async () => {

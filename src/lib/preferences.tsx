@@ -15,16 +15,27 @@ export function visibleEntries(entries: TreeEntry[], showDotfiles: boolean): Tre
   return showDotfiles ? [...entries] : entries.filter((e) => !e.name.startsWith('.'));
 }
 
+/**
+ * Hidden by default (David, on device, 2026-07-27).
+ *
+ * The original call was the opposite, and the reasoning was that a browser
+ * hiding things out of the box is back to being a projection. Seeing the real
+ * root on a phone falsified it: `.claude/`, `.obsidian/`, `.pi/`,
+ * `.superpowers/` and `.DS_Store` are five of the twenty entries, and none of
+ * them is workspace content. The honesty the screen owes is about what it
+ * *claims*, not about showing everything at once — and the toggle is one tap
+ * away, saying plainly how many entries it is hiding.
+ */
+const DEFAULT_SHOW_DOTFILES = false;
+
 export async function loadShowDotfiles(): Promise<boolean> {
   try {
     const stored = await AsyncStorage.getItem(KEY);
-    // Defaults to shown. A browser that hides things out of the box is back to
-    // being a projection, which is the thing being removed.
-    return stored === null ? true : stored === 'true';
+    return stored === null ? DEFAULT_SHOW_DOTFILES : stored === 'true';
   } catch {
     // Matches hosts.ts's posture: a storage failure falls back to the default
     // rather than surfacing as a broken screen.
-    return true;
+    return DEFAULT_SHOW_DOTFILES;
   }
 }
 
@@ -47,7 +58,10 @@ const PreferencesContext = createContext<PreferencesContextValue | null>(null);
  * way a toggle in one mounted screen is visible to another already-mounted one.
  */
 export function PreferencesProvider({ children }: { children: React.ReactNode }) {
-  const [showDotfiles, setState] = useState(true);
+  // Seeded with the default rather than with `true`, so the first frame already
+  // matches what the stored value will almost always say. Seeding optimistically
+  // the other way made dotfiles flash in and then vanish on every cold launch.
+  const [showDotfiles, setState] = useState(DEFAULT_SHOW_DOTFILES);
 
   useEffect(() => {
     void loadShowDotfiles().then(setState);
