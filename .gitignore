@@ -52,3 +52,6 @@ example
 # path that, from a worktree, lands here rather than at the armillary root.
 # Gitignored — machine wiring, not content. See scripts/worktree.sh.
 /repos/
+
+# SDD ledger and brainstorm mockups — scratch, not content.
+.superpowers/
