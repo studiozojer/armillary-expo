@@ -1,4 +1,4 @@
-import { StyleSheet, Text as RNText, type StyleProp, type TextStyle } from 'react-native';
+import { Text as RNText, type StyleProp, type TextStyle } from 'react-native';
 
 import { useTheme, type ColorRole, type TextVariant } from '@/theme';
 
@@ -30,10 +30,7 @@ export function Text({
   return (
     <RNText
       numberOfLines={numberOfLines}
-      style={StyleSheet.flatten([
-        { ...theme.type[variant], color: theme.color[color], textAlign: align },
-        style,
-      ])}>
+      style={[{ ...theme.type[variant], color: theme.color[color], textAlign: align }, style]}>
       {children}
     </RNText>
   );
