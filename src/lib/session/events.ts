@@ -66,3 +66,21 @@ export type SubscriptionHandler = {
   onGap(g: GapInfo): void;
 };
 export type Unsubscribe = () => void;
+
+/**
+ * Thrown by `LiveSessionAPI` on a non-OK HTTP response. Lives here (not in
+ * `live.ts`) to mirror `daemon/types.ts`'s `DaemonError`: the session
+ * contract's error shape belongs with the other session types, not buried in
+ * one transport's implementation file — a future second HTTP-backed
+ * implementation (or a test double) can import it without importing
+ * `LiveSessionAPI` itself.
+ */
+export class SessionError extends Error {
+  readonly status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = 'SessionError';
+    this.status = status;
+  }
+}
