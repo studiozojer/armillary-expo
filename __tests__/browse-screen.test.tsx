@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { renderRouter, screen } from 'expo-router/testing-library';
 import { Stack } from 'expo-router/stack';
 
-import Browse from '../src/app/(explorer)/browse/[...path]';
+import Browse from '../src/app/(tabs)/(explorer)/browse/[...path]';
 import { HostProvider } from '../src/lib/host-context';
 import { PreferencesProvider } from '../src/lib/preferences';
 

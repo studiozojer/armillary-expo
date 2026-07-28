@@ -4,6 +4,7 @@ import { useCallback } from 'react';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { SettingsButton } from '@/components/settings-button';
 import { TreeList } from '@/components/tree-list';
 import { DaemonClient } from '@/lib/daemon/client';
 import { annotationsFor } from '@/lib/annotations';
@@ -116,13 +117,7 @@ export default function Explorer() {
           // rewrite replaced that header and took the only link with it. Nothing
           // caught it, because a missing link renders exactly like a screen that
           // simply has no button.
-          headerLeft: () => (
-            <Link href="/settings" asChild>
-              <Pressable hitSlop={8}>
-                <Text style={{ ...theme.type.label, color: theme.color.txAccent }}>Settings</Text>
-              </Pressable>
-            </Link>
-          ),
+          headerLeft: () => <SettingsButton />,
           // In the header, not floating: an absolutely-positioned button in a
           // screen that owns no chrome ends up underneath the native tab bar.
           headerRight: () => (
