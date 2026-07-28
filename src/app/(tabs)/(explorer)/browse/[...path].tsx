@@ -18,7 +18,7 @@ import {
 import { useHost } from '@/lib/host-context';
 import { visibleEntries, useShowDotfiles } from '@/lib/preferences';
 import { useLoader } from '@/lib/use-loader';
-import { markedThemeFor, useTheme } from '@/theme';
+import { markedStylesFor, markedThemeFor, useTheme } from '@/theme';
 
 type Node =
   | { kind: 'dir'; tree: TreeResponse; voicenoteStates?: Map<string, VoicenoteState> }
@@ -236,7 +236,11 @@ export default function Browse() {
         <ScrollView
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} />}
           contentContainerStyle={{ flexGrow: 1 }}>
-          <MarkdownView source={state.data.file.text} theme={markedThemeFor(theme)} />
+          <MarkdownView
+            source={state.data.file.text}
+            theme={markedThemeFor(theme)}
+            styles={markedStylesFor(theme)}
+          />
         </ScrollView>
       )}
     </Screen>

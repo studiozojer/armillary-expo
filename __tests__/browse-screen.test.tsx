@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { renderRouter, screen } from 'expo-router/testing-library';
 import { Stack } from 'expo-router/stack';
+import { StyleSheet } from 'react-native';
 
 import Browse from '../src/app/(tabs)/(explorer)/browse/[...path]';
 import { HostProvider } from '../src/lib/host-context';
@@ -149,5 +150,41 @@ describe('Browse screen', () => {
     await renderRouter(context, { initialUrl: '/browse/local/inbox/typo.m4a' });
 
     expect(await screen.findByText('Not found')).toBeTruthy();
+  });
+
+  it('renders a markdown file in the studio faces, not the system font', async () => {
+    // markedStylesFor() on its own is a token pair: it proves the map is right
+    // and nothing about whether this screen — the largest reading surface in
+    // the app, and the entire point of Explorer — ever passes it. Drop the
+    // `styles={markedStylesFor(theme)}` prop and every other test stays green.
+    globalThis.fetch = jest.fn((url: string) => {
+      if (url.includes('/tree')) return jsonResponse(400, 'not a directory');
+      if (url.includes('/file')) {
+        return jsonResponse(200, {
+          path: 'zojercommons/BOARD.md',
+          sha256: 'x',
+          bytes: 32,
+          text: '# The board\n\nA paragraph of prose.\n',
+        });
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    }) as unknown as typeof fetch;
+
+    await renderRouter(context, { initialUrl: '/browse/zojercommons/BOARD.md' });
+
+    const heading = await screen.findByText('The board');
+    const paragraph = screen.getByText('A paragraph of prose.');
+
+    // react-native-marked flattens [itsOwnDefaults, userStyles] per element and
+    // hands the result straight to a <Text>, so props.style is a plain object
+    // here — flattening anyway keeps this honest if that ever changes.
+    const familyOf = (node: { props: { style?: unknown } }) =>
+      (StyleSheet.flatten(node.props.style as never) as Record<string, unknown>).fontFamily;
+
+    expect(familyOf(heading)).toMatch(/^ABCWhyte/);
+    expect(familyOf(paragraph)).toMatch(/^ABCWhyte/);
+    // The two registers actually differ — a version that set one family
+    // everywhere would pass the two assertions above.
+    expect(familyOf(heading)).not.toBe(familyOf(paragraph));
   });
 });
