@@ -8,7 +8,7 @@ export default function InstancesLayout() {
           `NativeTabs.Trigger` is not a navigator, so `Link` to an
           unregistered screen silently no-ops (the sprint-1 defect documented
           in (explorer)/_layout.tsx). */}
-      <Stack.Screen name="[instanceId]" options={{ title: 'Session' }} />
+      <Stack.Screen name="[instanceId]" options={{ title: 'Instance' }} />
       {/* The `+` sheet. `formSheet`, not `modal`: react-native-screens 4.26 /
           this SDK's native-stack supports it cleanly, and a picker-plus-button
           reads as a sheet, not a full-screen takeover like Capture's `modal`.

@@ -134,7 +134,7 @@ export default function Instances() {
           by the error state above, not faked here. */}
       {MOCK ? (
         <Box p="lg">
-          <Callout title="Mock session data">
+          <Callout title="Mock instance data">
             EXPO_PUBLIC_SESSION_MOCK=1 — not the live engine.
           </Callout>
         </Box>

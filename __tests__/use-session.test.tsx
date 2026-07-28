@@ -139,6 +139,21 @@ describe('useSession', () => {
     expect(current.rows.some((r) => r.kind === 'message' && r.text === 'cached hello')).toBe(true);
   });
 
+  it('exposes the attached instance once attach() resolves, and null beforehand', async () => {
+    const { api, resolveAttach } = scriptedApi('s1');
+    let current!: UseSessionResult;
+    await render(<Harness api={api} instanceId="inst-1" capture={(r) => (current = r)} />);
+
+    expect(current.instance).toBeNull();
+
+    await act(async () => {
+      resolveAttach();
+    });
+    await waitFor(() => expect(current.instance).not.toBeNull());
+    expect(current.instance?.id).toBe('inst-1');
+    expect(current.instance?.operator).toBeNull();
+  });
+
   it('subscribes from the cached cursor, not 0', async () => {
     await AsyncStorage.setItem(
       'armillary.scrollback.s1',

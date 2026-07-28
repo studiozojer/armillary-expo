@@ -1,4 +1,5 @@
 import { useLocalSearchParams } from 'expo-router';
+import { Stack } from 'expo-router/stack';
 import { useCallback, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, FlatList, Pressable, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -71,7 +72,7 @@ function SessionView({
   // `generation` rather than `host` itself for the same reason as the list
   // screen (see its comment) — `sessionAPIFor` already memoizes by id/url.
   const api = useMemo(() => sessionAPIFor(host), [host.id, generation]);
-  const { rows, status, gap, sendError, send, interrupt, evict } = useSession(api, instanceId);
+  const { rows, status, gap, sendError, send, interrupt, evict, instance } = useSession(api, instanceId);
   const [draft, setDraft] = useState('');
 
   const streaming = rows.some((r) => r.kind === 'streaming');
@@ -119,6 +120,16 @@ function SessionView({
 
   return (
     <SafeAreaView style={{ flex: 1 }} edges={[]}>
+      {instance ? (
+        // Set only once attach() resolves — before that, `_layout.tsx`'s
+        // static "Instance" fallback title holds. `@operator`/`dispatcher`
+        // names who's actually attached (vocabulary: an operator is a
+        // composed identity, not "a session") — matching how the app already
+        // names dispatcher-routed instances elsewhere (project.ts's
+        // `instance_created` system row).
+        <Stack.Screen options={{ title: instance.operator ? `@${instance.operator}` : 'dispatcher' }} />
+      ) : null}
+
       {status !== 'live' ? (
         <Text
           style={{
@@ -136,8 +147,23 @@ function SessionView({
               // and saying "Reconnecting…" would be dishonest. Name the
               // refusal instead, using the message attach() rejected with.
               status === 'closed'
-              ? `Couldn't reach the session — ${sendError ?? 'unknown error'}`
+              ? `Couldn't reach the instance — ${sendError ?? 'unknown error'}`
               : 'Reconnecting…'}
+        </Text>
+      ) : null}
+
+      {instance ? (
+        // Minimal id surface: identifiable without curl-ing the daemon. Not a
+        // metadata panel (that's a designed future pass) — just the short id,
+        // txTertiary, one line.
+        <Text
+          style={{
+            ...theme.type.caption,
+            color: theme.color.txTertiary,
+            textAlign: 'center',
+            paddingBottom: theme.space.xs,
+          }}>
+          {instance.id.slice(0, 8)}
         </Text>
       ) : null}
 

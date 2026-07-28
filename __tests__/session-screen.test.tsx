@@ -44,6 +44,23 @@ jest.mock('expo-router', () => ({
   useLocalSearchParams: () => ({ instanceId: mockInstanceId }),
 }));
 
+// `Stack.Screen` (from `expo-router/stack`, a separate module from the
+// wholesale 'expo-router' mock above) registers per-screen options through a
+// real navigator's context — rendered standalone (this file's whole approach;
+// see the comment above) it throws "Couldn't find a route object". Mocked as
+// a plain `Text` carrying the title, so the dynamic-title test below can
+// assert on it the same way every other visible-row test in this file does,
+// without pulling in a full `renderRouter` navigator just for one field.
+jest.mock('expo-router/stack', () => {
+  const { Text: RNText } = require('react-native');
+  return {
+    Stack: {
+      Screen: ({ options }: { options?: { title?: string } }) =>
+        options?.title ? <RNText testID="stack-screen-title">{options.title}</RNText> : null,
+    },
+  };
+});
+
 const CANNED_REPLY = 'the log remembers what actually happened here, not what was meant.';
 
 describe('Session screen', () => {
@@ -226,10 +243,33 @@ describe('Session screen', () => {
 
     await render(<SessionScreen />);
 
-    expect(await screen.findByText(/Couldn't reach the session — no such instance: does-not-exist/)).toBeTruthy();
+    expect(await screen.findByText(/Couldn't reach the instance — no such instance: does-not-exist/)).toBeTruthy();
     expect(screen.queryByText('Reconnecting…')).toBeNull();
     // Not duplicated by the send-error banner too.
     expect(screen.getAllByText(/no such instance: does-not-exist/)).toHaveLength(1);
+  });
+
+  it("sets the header title to @operator once attach resolves, and shows the instance's short id", async () => {
+    jest.useFakeTimers();
+    mockApi = new MockSessionAPI({ fragmentDelayMs: 5 }) as unknown as SessionAPI;
+    const inst = await (mockApi as MockSessionAPI).create('tycho');
+    mockInstanceId = inst.id;
+
+    await render(<SessionScreen />);
+
+    expect(await screen.findByTestId('stack-screen-title')).toHaveTextContent('@tycho');
+    expect(screen.getByText(inst.id.slice(0, 8))).toBeTruthy();
+  });
+
+  it('titles a dispatcher-routed instance "dispatcher", not "@null" or blank', async () => {
+    jest.useFakeTimers();
+    mockApi = new MockSessionAPI({ fragmentDelayMs: 5 }) as unknown as SessionAPI;
+    const inst = await (mockApi as MockSessionAPI).create(null);
+    mockInstanceId = inst.id;
+
+    await render(<SessionScreen />);
+
+    expect(await screen.findByTestId('stack-screen-title')).toHaveTextContent('dispatcher');
   });
 
   it('renders a failure-shaped assistant_message as a visible failure line naming the machine code, never a blank row', async () => {
