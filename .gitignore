@@ -44,3 +44,6 @@ example
 
 # local env — per-machine tokens, never committed
 .env*.local
+
+# Isolated concurrent streams — one branch, one worktree, one window.
+.worktrees/
