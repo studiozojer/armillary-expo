@@ -51,7 +51,9 @@ export type UseSessionResult = {
   rows: SessionRow[];
   status: SubscriptionStatus;
   gap: GapInfo | null;
-  send(text: string): Promise<void>;
+  /** Resolves `true` if the send was accepted, `false` if it was rejected
+   *  (in which case `sendError` is also set). */
+  send(text: string): Promise<boolean>;
   interrupt(): Promise<void>;
   evict(eventId: string): Promise<void>;
   /**
@@ -269,17 +271,22 @@ export function useSession(api: SessionAPI, instanceId: string, enabled = true):
   }, [instanceId, enabled]);
 
   const send = useCallback(
-    async (text: string): Promise<void> => {
+    // Returns whether the send was accepted, so the caller (the composer)
+    // can restore the draft text it optimistically cleared — without this,
+    // a rejected send silently loses whatever the user typed.
+    async (text: string): Promise<boolean> => {
       const mine = epoch.current;
       const clientKey = `ck-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       setSendError(null);
       setPending((prev) => [...prev, { clientKey, text, at: new Date().toISOString() }]);
       try {
         await apiRef.current.send(instanceId, text, clientKey);
+        return true;
       } catch (error) {
-        if (epoch.current !== mine) return;
+        if (epoch.current !== mine) return false;
         setPending((prev) => prev.filter((p) => p.clientKey !== clientKey));
         setSendError(error instanceof Error ? error.message : String(error));
+        return false;
       }
     },
     [instanceId],

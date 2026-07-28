@@ -217,4 +217,35 @@ describe('Session screen', () => {
     expect(attachSpyB).toHaveBeenCalledTimes(1);
     expect(subscribeSpyB).toHaveBeenCalledTimes(1);
   });
+
+  it('names the refusal distinctly when attach() fails, rather than showing "Reconnecting…"', async () => {
+    mockApi = new MockSessionAPI() as unknown as SessionAPI;
+    // No instance created — MockSessionAPI.attach() rejects for an unknown id.
+    mockInstanceId = 'does-not-exist';
+
+    await render(<SessionScreen />);
+
+    expect(await screen.findByText(/Couldn't reach the session — no such instance: does-not-exist/)).toBeTruthy();
+    expect(screen.queryByText('Reconnecting…')).toBeNull();
+    // Not duplicated by the send-error banner too.
+    expect(screen.getAllByText(/no such instance: does-not-exist/)).toHaveLength(1);
+  });
+
+  it('restores the draft text after a rejected send rather than losing it', async () => {
+    const api = new MockSessionAPI({ fragmentDelayMs: 5 });
+    const inst = await api.create('tycho');
+    jest.spyOn(api, 'send').mockRejectedValueOnce(new Error('refused: instance busy'));
+    mockApi = api as unknown as SessionAPI;
+    mockInstanceId = inst.id;
+
+    await render(<SessionScreen />);
+
+    await fireEvent.changeText(screen.getByPlaceholderText('Message'), 'important draft');
+    await act(async () => {
+      await fireEvent.press(screen.getByText('Send'));
+    });
+
+    expect(await screen.findByDisplayValue('important draft')).toBeTruthy();
+    expect(screen.getByText(/refused: instance busy/)).toBeTruthy();
+  });
 });

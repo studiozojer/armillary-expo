@@ -98,7 +98,13 @@ function SessionView({
     const text = draft.trim();
     if (!text) return;
     setDraft('');
-    void send(text);
+    void send(text).then((accepted) => {
+      if (accepted) return;
+      // Restore what was cleared optimistically — but only if the composer
+      // is still empty, so a rejection landing after the user has already
+      // started a new message doesn't clobber it.
+      setDraft((current) => (current === '' ? text : current));
+    });
   }, [draft, send]);
 
   const onLongPressMessage = useCallback(
@@ -121,7 +127,17 @@ function SessionView({
             textAlign: 'center',
             paddingVertical: theme.space.xs,
           }}>
-          {status === 'replaying' ? 'Loading…' : 'Reconnecting…'}
+          {status === 'replaying'
+            ? 'Loading…'
+            : // 'closed' only ever reaches here from an attach() failure
+              // (use-session.ts's onStatus handler converts a dropped live
+              // connection's 'closed' into 'reconnecting' before it gets
+              // this far) — so unlike 'reconnecting', nothing is retrying,
+              // and saying "Reconnecting…" would be dishonest. Name the
+              // refusal instead, using the message attach() rejected with.
+              status === 'closed'
+              ? `Couldn't reach the session — ${sendError ?? 'unknown error'}`
+              : 'Reconnecting…'}
         </Text>
       ) : null}
 
@@ -187,7 +203,11 @@ function SessionView({
         }}
       />
 
-      {sendError ? (
+      {sendError && status !== 'closed' ? (
+        // Suppressed when status is 'closed': that's an attach failure,
+        // already named by the status caption above — this banner is for a
+        // rejected send() on an otherwise-live session, not a second copy of
+        // the same message.
         <Text
           style={{
             ...theme.type.caption,
