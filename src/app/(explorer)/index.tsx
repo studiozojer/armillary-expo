@@ -111,6 +111,18 @@ export default function Explorer() {
     <SafeAreaView style={{ flex: 1 }} edges={[]}>
       <Stack.Screen
         options={{
+          // Settings had no entry point at all between the old three-section
+          // screen (which reached it by tapping the host label) and here — the
+          // rewrite replaced that header and took the only link with it. Nothing
+          // caught it, because a missing link renders exactly like a screen that
+          // simply has no button.
+          headerLeft: () => (
+            <Link href="/settings" asChild>
+              <Pressable hitSlop={8}>
+                <Text style={{ ...theme.type.label, color: theme.color.txAccent }}>Settings</Text>
+              </Pressable>
+            </Link>
+          ),
           // In the header, not floating: an absolutely-positioned button in a
           // screen that owns no chrome ends up underneath the native tab bar.
           headerRight: () => (

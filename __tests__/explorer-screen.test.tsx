@@ -75,4 +75,36 @@ describe('Explorer screen', () => {
     expect(screen.queryByText('.claude')).toBeNull();
     expect(screen.getByText(/2 hidden by the dotfile setting\./)).toBeTruthy();
   });
+
+  it('offers a way into Settings', async () => {
+    // A regression, found on device and by nobody else: the old three-section
+    // screen reached Settings by tapping the host label, the rewrite replaced
+    // that header, and the only link went with it. Reviews checked that
+    // /composition was reachable and never asked whether /settings still was —
+    // a missing link renders exactly like a screen that has no button, so
+    // nothing failed. This test is the thing that would have failed.
+    globalThis.fetch = jest.fn((url: string) => {
+      if (url.includes('/tree')) {
+        return jsonResponse(200, { path: '', total: 0, truncated: false, entries: [] });
+      }
+      if (url.includes('/composition')) return jsonResponse(404, 'not composed');
+      throw new Error(`unexpected fetch: ${url}`);
+    }) as unknown as typeof fetch;
+
+    await renderRouter(
+      {
+        _layout: () => (
+          <HostProvider>
+            <PreferencesProvider>
+              <Stack />
+            </PreferencesProvider>
+          </HostProvider>
+        ),
+        index: Explorer,
+      },
+      { initialUrl: '/' },
+    );
+
+    expect(await screen.findByText('Settings')).toBeTruthy();
+  });
 });
