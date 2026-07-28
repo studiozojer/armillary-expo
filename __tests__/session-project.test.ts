@@ -48,12 +48,13 @@ function assistantMessage(opts: {
   text: string;
   generation: string;
   interrupted?: boolean;
+  error?: string;
   seq?: number;
   id?: string;
 }): EventEnvelope<AssistantMessageData> {
   return makeEnvelope(
     'assistant_message',
-    { text: opts.text, generation: opts.generation, interrupted: opts.interrupted },
+    { text: opts.text, generation: opts.generation, interrupted: opts.interrupted, error: opts.error },
     { seq: opts.seq, id: opts.id, actor: operatorActor },
   );
 }
@@ -191,6 +192,29 @@ describe('projectSession', () => {
     const rows = projectSession([msg], new Map(), []);
     const row = rows.find(isMessageRow);
     expect(row?.interrupted).toBe(true);
+  });
+
+  it('carries the machine code onto the row for a failure-shaped assistant_message, and never blanks it', () => {
+    // Matches the engine's `fail_turn` shape (loop_.rs): text is always "",
+    // interrupted is always true, and error is the machine code verbatim.
+    const msg = assistantMessage({
+      text: '',
+      generation: 'gen-fail',
+      interrupted: true,
+      error: 'no_api_key',
+      seq: 1,
+    });
+    const rows = projectSession([msg], new Map(), []);
+    const row = rows.find(isMessageRow);
+    expect(row?.error).toBe('no_api_key');
+    expect(row?.text).toBe('');
+  });
+
+  it('leaves error undefined on an ordinary assistant_message', () => {
+    const msg = assistantMessage({ text: 'all good', generation: 'gen-ok', seq: 1 });
+    const rows = projectSession([msg], new Map(), []);
+    const row = rows.find(isMessageRow);
+    expect(row?.error).toBeUndefined();
   });
 
   it('never drops an unrecognized durable type — surfaces it as a visible system row', () => {

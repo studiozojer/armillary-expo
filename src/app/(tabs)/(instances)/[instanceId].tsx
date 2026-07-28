@@ -164,6 +164,22 @@ function SessionView({
                   </View>
                 );
               }
+              if (item.error) {
+                // The failure-shaped assistant_message the engine's fail_turn
+                // appends always carries text: "" alongside the error code
+                // (see events.ts's AssistantMessageData comment) — rendering
+                // the normal text branch below on an empty string is exactly
+                // the invisible-row bug this exists to fix, so this checks
+                // `error` first and never falls through to it. Named verbatim
+                // (house rule): the machine code, not a paraphrase.
+                return (
+                  <View style={{ paddingVertical: theme.space.sm }}>
+                    <Text style={{ ...theme.type.caption, color: theme.color.txWarning }}>
+                      {`turn failed: ${item.error}`}
+                    </Text>
+                  </View>
+                );
+              }
               return (
                 <Pressable onLongPress={() => onLongPressMessage(item)} style={{ paddingVertical: theme.space.sm }}>
                   {item.role === 'operator' ? (

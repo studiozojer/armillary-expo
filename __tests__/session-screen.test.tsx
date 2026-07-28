@@ -1,9 +1,10 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 
 import SessionScreen from '../src/app/(tabs)/(instances)/[instanceId]';
 import { MockSessionAPI } from '../src/lib/session/mock';
 import type { SessionAPI } from '../src/lib/session/api';
+import type { SubscriptionHandler } from '../src/lib/session/events';
 import type { Host } from '../src/lib/hosts';
 
 // The screen calls `sessionAPIFor(host)` rather than constructing its own
@@ -229,6 +230,57 @@ describe('Session screen', () => {
     expect(screen.queryByText('Reconnecting…')).toBeNull();
     // Not duplicated by the send-error banner too.
     expect(screen.getAllByText(/no such instance: does-not-exist/)).toHaveLength(1);
+  });
+
+  it('renders a failure-shaped assistant_message as a visible failure line naming the machine code, never a blank row', async () => {
+    // Hand-rolled double (same style as use-session.test.tsx's scriptedApi):
+    // no send() path in MockSessionAPI produces a failure-shaped turn — that's
+    // armillary-engine's fail_turn (loop_.rs), not this app's mock — so this
+    // test delivers the exact envelope shape directly via subscribe()'s handler.
+    let handler!: SubscriptionHandler;
+    const fakeApi: SessionAPI = {
+      create: jest.fn(),
+      list: jest.fn(),
+      attach: jest.fn(async () => ({
+        instance: {
+          id: 'inst-err',
+          operator: 'tycho',
+          stream: 's-err',
+          startedAt: '2026-07-28T00:00:00.000Z',
+          lastSeq: 0,
+        },
+        earliestSeq: 1,
+        headSeq: 0,
+      })),
+      subscribe: jest.fn((_stream: string, _fromSeq: number, h: SubscriptionHandler) => {
+        handler = h;
+        queueMicrotask(() => h.onStatus('live'));
+        return () => {};
+      }),
+      send: jest.fn(),
+      interrupt: jest.fn(),
+      evict: jest.fn(),
+    };
+    mockApi = fakeApi;
+    mockInstanceId = 'inst-err';
+
+    await render(<SessionScreen />);
+    await waitFor(() => expect(handler).toBeDefined());
+
+    await act(async () => {
+      handler.onEvent({
+        stream: 's-err',
+        id: 's-err:1:abc',
+        seq: 1,
+        ts: '2026-07-28T00:00:00.000Z',
+        actor: { role: 'operator', instance: 'tycho' },
+        type: 'assistant_message',
+        version: 1,
+        data: { text: '', generation: 'gen-1', interrupted: true, error: 'no_api_key' },
+      });
+    });
+
+    expect(await screen.findByText('turn failed: no_api_key')).toBeTruthy();
   });
 
   it('restores the draft text after a rejected send rather than losing it', async () => {
