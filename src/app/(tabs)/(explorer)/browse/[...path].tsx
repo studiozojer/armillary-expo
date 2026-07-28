@@ -185,7 +185,7 @@ export default function Browse() {
     : undefined;
 
   return (
-    <SafeAreaView style={{ flex: 1 }} edges={['bottom']}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: theme.color.bgSolidBase }} edges={['bottom']}>
       <Stack.Screen options={{ title }} />
 
       {state.status === 'loading' ? (
