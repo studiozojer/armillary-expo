@@ -72,4 +72,27 @@ describe('DaemonClient', () => {
     const composition = await clientWith(fetcher).getComposition();
     expect(composition.protocols[0].load).toBe('some-future-timing');
   });
+
+  it('fetches the voicenote index', async () => {
+    const payload = {
+      audio_root: 'local/inbox',
+      transcript_roots: ['zojercommons/voicenotes'],
+      entries: [
+        { audio: 'local/inbox/a.m4a', bytes: 12, state: 'untranscribed' as const },
+      ],
+    };
+    const fetcher = mockFetch(200, payload);
+    const index = await clientWith(fetcher).getVoicenotes();
+
+    expect(fetcher).toHaveBeenCalledWith('http://host:7778/voicenotes', { signal: undefined });
+    expect(index.entries[0].state).toBe('untranscribed');
+  });
+
+  it('surfaces a workspace that does not compose voicenotes as a 404 DaemonError', async () => {
+    // Presence-gating reaches the client as a status, not as an empty list —
+    // "the feature is absent" and "there are no memos" are different sentences
+    // and the UI says different things for each.
+    const fetcher = mockFetch(404, 'not_composed');
+    await expect(clientWith(fetcher).getVoicenotes()).rejects.toBeInstanceOf(DaemonError);
+  });
 });

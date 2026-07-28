@@ -5,6 +5,7 @@ import {
   type FileResponse,
   type HealthResponse,
   type TreeResponse,
+  type VoicenoteIndex,
 } from './types';
 
 /**
@@ -46,5 +47,9 @@ export class DaemonClient {
 
   getFile(path: string, signal?: AbortSignal): Promise<FileResponse> {
     return this.get<FileResponse>(`/file?path=${encodeURIComponent(path)}`, signal);
+  }
+
+  getVoicenotes(signal?: AbortSignal): Promise<VoicenoteIndex> {
+    return this.get<VoicenoteIndex>('/voicenotes', signal);
   }
 }
