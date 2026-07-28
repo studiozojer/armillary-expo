@@ -14,7 +14,7 @@ export default function ExplorerLayout() {
     <Stack screenOptions={{ headerBackButtonDisplayMode: 'minimal' }}>
       <Stack.Screen name="index" options={{ title: 'Armillary' }} />
       <Stack.Screen name="composition" options={{ title: 'Composition' }} />
-      <Stack.Screen name="settings" options={{ title: 'Host', presentation: 'modal' }} />
+      <Stack.Screen name="settings" options={{ title: 'Settings', presentation: 'modal' }} />
       <Stack.Screen name="capture" options={{ title: 'Capture', presentation: 'modal' }} />
       <Stack.Screen name="browse/[...path]" />
       <Stack.Screen name="spike-markdown" options={{ title: 'Markdown spike' }} />

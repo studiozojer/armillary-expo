@@ -8,6 +8,7 @@ import { TreeList } from '@/components/tree-list';
 import { DaemonClient } from '@/lib/daemon/client';
 import { DaemonError, type FileResponse, type TreeResponse } from '@/lib/daemon/types';
 import { useHost } from '@/lib/host-context';
+import { visibleEntries, useShowDotfiles } from '@/lib/preferences';
 import { useLoader } from '@/lib/use-loader';
 import { markedThemeFor, useTheme } from '@/theme';
 
@@ -52,6 +53,7 @@ function detailFor(error: unknown): string | null {
 export default function Browse() {
   const theme = useTheme();
   const { host, ready } = useHost();
+  const { showDotfiles } = useShowDotfiles();
   const params = useLocalSearchParams<{ path?: string | string[] }>();
   const path = Array.isArray(params.path) ? params.path.join('/') : (params.path ?? '');
 
@@ -113,7 +115,7 @@ export default function Browse() {
       ) : state.data.kind === 'dir' ? (
         <TreeList
           base={path}
-          entries={state.data.tree.entries}
+          entries={visibleEntries(state.data.tree.entries, showDotfiles)}
           total={state.data.tree.total}
           truncated={state.data.tree.truncated}
           refreshing={refreshing}

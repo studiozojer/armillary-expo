@@ -9,12 +9,14 @@ import { DaemonClient } from '@/lib/daemon/client';
 import { annotationsFor } from '@/lib/annotations';
 import type { Composition, TreeResponse } from '@/lib/daemon/types';
 import { useHost } from '@/lib/host-context';
+import { visibleEntries, useShowDotfiles } from '@/lib/preferences';
 import { useLoader } from '@/lib/use-loader';
 import { useTheme } from '@/theme';
 
 export default function Explorer() {
   const theme = useTheme();
   const { host, generation, ready } = useHost();
+  const { showDotfiles } = useShowDotfiles();
 
   const load = useCallback(
     async (signal: AbortSignal) => {
@@ -122,7 +124,7 @@ export default function Explorer() {
       />
       <TreeList
         base=""
-        entries={tree.entries}
+        entries={visibleEntries(tree.entries, showDotfiles)}
         total={tree.total}
         truncated={tree.truncated}
         subtitleFor={(name) => annotations[name]}
