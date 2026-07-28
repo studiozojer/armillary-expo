@@ -105,6 +105,15 @@ describe('composed components', () => {
     expect(styleOf(node).fontFamily).toMatch(/^PPFraktionMono/);
   });
 
+  it('paints the page surface behind a section header, so a sticky one is opaque', async () => {
+    // SectionList sticks its headers by default on iOS. Rows used to be
+    // transparent; they are bg/solid/card now, so a transparent header lets
+    // OPERATORS and the rows scrolling under it draw on top of each other.
+    await render(<SectionHeader>operators</SectionHeader>);
+    const root = screen.toJSON() as { props: { style?: unknown } };
+    expect(styleOf(root).backgroundColor).toBe(theme.color.bgSolidBase);
+  });
+
   it('keeps the Callout body verbatim', async () => {
     await render(<Callout title="Not live yet">Fixture data.</Callout>);
     expect(screen.getByText('Not live yet')).toBeTruthy();
