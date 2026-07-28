@@ -2,10 +2,9 @@ import { useRouter } from 'expo-router';
 import { Stack } from 'expo-router/stack';
 import { useCallback } from 'react';
 import { ActivityIndicator } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ModuleList } from '@/components/module-list';
-import { Box, Button, Inline, Text } from '@/components/ui';
+import { Box, Button, Inline, Screen, Text } from '@/components/ui';
 import { DaemonClient } from '@/lib/daemon/client';
 import type { Composition } from '@/lib/daemon/types';
 import { useHost } from '@/lib/host-context';
@@ -32,8 +31,7 @@ export default function CompositionScreen() {
 
   if (state.status === 'error') {
     return (
-      <SafeAreaView
-        style={{ flex: 1, padding: theme.space.lg, backgroundColor: theme.color.bgSolidBase }}>
+      <Screen p="lg">
         <Text variant="heading">Can&apos;t reach the engine</Text>
         {/* Named specifically, because the app is usually where a tailnet or a
             bind problem first becomes visible, and "something went wrong" would
@@ -57,25 +55,20 @@ export default function CompositionScreen() {
             />
           </Inline>
         </Box>
-      </SafeAreaView>
+      </Screen>
     );
   }
 
   if (state.status === 'loading') {
     return (
-      <SafeAreaView
-        style={{
-          flex: 1,
-          justifyContent: 'center',
-          backgroundColor: theme.color.bgSolidBase,
-        }}>
+      <Screen style={{ justifyContent: 'center' }}>
         <ActivityIndicator />
-      </SafeAreaView>
+      </Screen>
     );
   }
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: theme.color.bgSolidBase }} edges={[]}>
+    <Screen edges={[]}>
       {/* No Capture button here any more: this screen used to be the Explorer
           index and carried it, and main split the two apart — the workspace
           listing is the index now and owns that header, so a second Capture
@@ -87,6 +80,6 @@ export default function CompositionScreen() {
         refreshing={refreshing}
         onRefresh={refresh}
       />
-    </SafeAreaView>
+    </Screen>
   );
 }

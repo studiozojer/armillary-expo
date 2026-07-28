@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react-native';
 import { StyleSheet } from 'react-native';
 
-import { Box, Inline, Stack } from '../src/components/ui';
+import { Box, Inline, Screen, Stack } from '../src/components/ui';
 import { themeFor } from '../src/theme';
 
 const theme = themeFor('light');
@@ -50,6 +50,27 @@ describe('layout primitives', () => {
       flexDirection: 'row',
       gap: theme.space.xs,
       justifyContent: 'space-between',
+    });
+  });
+
+  it('gives a Screen the page surface without being asked', async () => {
+    // The default is the whole point. Every route wrote this by hand, and the
+    // Explorer landing screen — which arrived by merge after the others were
+    // converted — did not, so its opaque rows painted onto react-navigation's
+    // stock grey. A screen that has to remember is a screen that will forget.
+    await render(<Screen testID="s" />);
+    expect(styleOf(screen.getByTestId('s'))).toMatchObject({
+      flex: 1,
+      backgroundColor: theme.color.bgSolidBase,
+    });
+  });
+
+  it('lets a Screen take padding from the scale and a caller style last', async () => {
+    await render(<Screen testID="s" p="lg" style={{ justifyContent: 'center' }} />);
+    expect(styleOf(screen.getByTestId('s'))).toMatchObject({
+      padding: theme.space.lg,
+      justifyContent: 'center',
+      backgroundColor: theme.color.bgSolidBase,
     });
   });
 });

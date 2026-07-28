@@ -1,10 +1,10 @@
 import { Stack, useLocalSearchParams } from 'expo-router';
 import { useCallback } from 'react';
 import { ActivityIndicator, RefreshControl, ScrollView, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { MarkdownView } from '@/components/markdown-view';
 import { TreeList } from '@/components/tree-list';
+import { Screen } from '@/components/ui';
 import { isAudioPath, VoicenotePage } from '@/components/voicenote-page';
 import { DaemonClient } from '@/lib/daemon/client';
 import {
@@ -185,7 +185,7 @@ export default function Browse() {
     : undefined;
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: theme.color.bgSolidBase }} edges={['bottom']}>
+    <Screen edges={['bottom']}>
       <Stack.Screen options={{ title }} />
 
       {state.status === 'loading' ? (
@@ -239,6 +239,6 @@ export default function Browse() {
           <MarkdownView source={state.data.file.text} theme={markedThemeFor(theme)} />
         </ScrollView>
       )}
-    </SafeAreaView>
+    </Screen>
   );
 }

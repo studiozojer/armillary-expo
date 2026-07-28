@@ -1,8 +1,8 @@
 import { Stack } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { Screen } from '@/components/ui';
 import { useHost } from '@/lib/host-context';
 import { probe, type Host, type Reachability } from '@/lib/hosts';
 import { useShowDotfiles } from '@/lib/preferences';
@@ -27,7 +27,7 @@ export default function Settings() {
   }, [probeAll]);
 
   return (
-    <SafeAreaView style={{ flex: 1 }} edges={['bottom']}>
+    <Screen edges={['bottom']}>
       <Stack.Screen options={{ title: 'Settings' }} />
       <ScrollView contentContainerStyle={{ padding: theme.space.lg }}>
         <Text style={{ ...theme.type.caption, color: theme.color.txTertiary }}>Files</Text>
@@ -76,7 +76,7 @@ export default function Settings() {
           <Text style={{ ...theme.type.label, color: theme.color.txSecondary }}>Re-check all</Text>
         </Pressable>
       </ScrollView>
-    </SafeAreaView>
+    </Screen>
   );
 }
 

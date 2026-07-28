@@ -1,6 +1,5 @@
-import { SafeAreaView } from 'react-native-safe-area-context';
-
 import { MarkdownView } from '@/components/markdown-view';
+import { Screen } from '@/components/ui';
 import { SAMPLE_MARKDOWN } from '@/lib/fixtures/sample-markdown';
 
 /**
@@ -14,8 +13,8 @@ import { SAMPLE_MARKDOWN } from '@/lib/fixtures/sample-markdown';
  */
 export default function SpikeMarkdown() {
   return (
-    <SafeAreaView style={{ flex: 1 }} edges={['top']}>
+    <Screen edges={['top']}>
       <MarkdownView source={SAMPLE_MARKDOWN} />
-    </SafeAreaView>
+    </Screen>
   );
 }

@@ -2,8 +2,8 @@ import * as DocumentPicker from 'expo-document-picker';
 import { Stack } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { Screen } from '@/components/ui';
 import { useHost } from '@/lib/host-context';
 import { uploadToInbox } from '@/lib/upload';
 import { useTheme } from '@/theme';
@@ -49,7 +49,7 @@ export default function Capture() {
           : status.message;
 
   return (
-    <SafeAreaView style={{ flex: 1 }} edges={['bottom']}>
+    <Screen edges={['bottom']}>
       <Stack.Screen options={{ title: 'Capture' }} />
       <View style={{ flex: 1, padding: theme.space.lg, gap: theme.space.md }}>
         <Text style={{ ...theme.type.body, color: theme.color.txSecondary }}>
@@ -78,6 +78,6 @@ export default function Capture() {
           {message}
         </Text>
       </View>
-    </SafeAreaView>
+    </Screen>
   );
 }
