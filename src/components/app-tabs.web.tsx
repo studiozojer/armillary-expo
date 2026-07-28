@@ -21,10 +21,14 @@ export default function AppTabs() {
       <TabSlot style={{ height: '100%' }} />
       <TabList asChild>
         <CustomTabList>
-          <TabTrigger name="(explorer)" href="/" asChild>
+          {/* Group-qualified on both, because both tab indexes resolve to `/`
+              and only the group segment tells them apart. The instances href
+              moved with the tabs into `(tabs)`; `/(instances)` no longer
+              resolves. */}
+          <TabTrigger name="(explorer)" href="/(tabs)/(explorer)" asChild>
             <TabButton>Explorer</TabButton>
           </TabTrigger>
-          <TabTrigger name="(instances)" href="/(instances)" asChild>
+          <TabTrigger name="(instances)" href="/(tabs)/(instances)" asChild>
             <TabButton>Instances</TabButton>
           </TabTrigger>
         </CustomTabList>
