@@ -47,3 +47,8 @@ example
 
 # Isolated concurrent streams — one branch, one worktree, one window.
 .worktrees/
+
+# Worktree wiring: __tests__ reaches armillary-core's event schema by a relative
+# path that, from a worktree, lands here rather than at the armillary root.
+# Gitignored — machine wiring, not content. See scripts/worktree.sh.
+/repos/
