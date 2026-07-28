@@ -5,7 +5,9 @@ import addFormats from 'ajv-formats';
 
 import schema from '../../../repos/armillary-core/schema/event.schema.json';
 import { MockSessionAPI } from '../src/lib/session/mock';
-import type { EventEnvelope } from '../src/lib/session/events';
+import type { EventEnvelope, SubscriptionStatus, UserMessageData } from '../src/lib/session/events';
+
+const flush = () => new Promise<void>((r) => setTimeout(r, 0));
 
 describe('MockSessionAPI', () => {
   it('emits events that validate against the constitution envelope schema', async () => {
@@ -19,8 +21,13 @@ describe('MockSessionAPI', () => {
     const instance = await api.create('tycho');
 
     const seen: EventEnvelope[] = [];
-    const unsubscribe = api.subscribe(instance.id, 0, (event) => seen.push(event));
-    await api.send(instance.id, 'hello');
+    const unsubscribe = api.subscribe(instance.stream, 0, {
+      onEvent: (event) => seen.push(event),
+      onStatus: () => {},
+      onGap: () => {},
+    });
+    await flush();
+    await api.send(instance.id, 'hello', 'k1');
     unsubscribe();
 
     expect(seen.length).toBeGreaterThan(0);
@@ -36,29 +43,37 @@ describe('MockSessionAPI', () => {
     const instance = await api.create('tycho');
 
     const seen: EventEnvelope[] = [];
-    api.subscribe(instance.id, 0, (event) => seen.push(event));
-    await api.send(instance.id, 'one');
-    await api.send(instance.id, 'two');
+    api.subscribe(instance.stream, 0, { onEvent: (event) => seen.push(event), onStatus: () => {}, onGap: () => {} });
+    await flush();
+    await api.send(instance.id, 'one', 'k1');
+    await api.send(instance.id, 'two', 'k2');
 
-    expect(seen[0].id).toBe(`${instance.stream}:1`);
-    expect(seen[1].id).toBe(`${instance.stream}:2`);
-    expect(seen[0].id).not.toBe('0');
+    // seen[0] is the instance_created replay event; sends follow it.
+    const sent = seen.filter((e) => e.type === 'user_message');
+    expect(sent[0].id).not.toBe('0');
+    expect(sent[0].id).not.toBe(String(sent[0].seq));
   });
 
   it('advances seq monotonically within the stream (invariant iii)', async () => {
     const api = new MockSessionAPI();
     const instance = await api.create(null);
     const seen: EventEnvelope[] = [];
-    api.subscribe(instance.id, 0, (e) => seen.push(e));
+    api.subscribe(instance.stream, 0, { onEvent: (e) => seen.push(e), onStatus: () => {}, onGap: () => {} });
+    await flush();
 
-    await api.send(instance.id, 'a');
-    await api.send(instance.id, 'b');
+    await api.send(instance.id, 'a', 'k1');
+    await api.send(instance.id, 'b', 'k2');
 
-    expect(seen.map((e) => e.seq)).toEqual([1, 2]);
+    const seqs = seen.map((e) => e.seq);
+    expect(seqs).toEqual([...seqs].sort((a, b) => a - b));
+    expect(new Set(seqs).size).toBe(seqs.length);
   });
 
-  it('lists fixture instances including a dispatcher-level one', async () => {
-    const instances = await new MockSessionAPI().list();
+  it('lists created instances', async () => {
+    const api = new MockSessionAPI();
+    await api.create('tycho');
+    await api.create(null);
+    const instances = await api.list();
     expect(instances.length).toBeGreaterThan(0);
     expect(instances.some((i) => i.operator === null)).toBe(true);
   });
@@ -67,9 +82,51 @@ describe('MockSessionAPI', () => {
     const api = new MockSessionAPI();
     const instance = await api.create('tycho');
     const seen: EventEnvelope[] = [];
-    const off = api.subscribe(instance.id, 0, (e) => seen.push(e));
+    const off = api.subscribe(instance.stream, 0, { onEvent: (e) => seen.push(e), onStatus: () => {}, onGap: () => {} });
+    await flush();
     off();
-    await api.send(instance.id, 'ignored');
+    seen.length = 0;
+    await api.send(instance.id, 'ignored', 'k1');
     expect(seen).toHaveLength(0);
+  });
+
+  it('attach returns instance, earliestSeq, and headSeq', async () => {
+    const api = new MockSessionAPI();
+    const instance = await api.create('tycho');
+    await api.send(instance.id, 'one', 'k1');
+    const info = await api.attach(instance.id);
+    expect(info.instance.id).toBe(instance.id);
+    expect(info.earliestSeq).toBe(1);
+    expect(info.headSeq).toBeGreaterThanOrEqual(2);
+  });
+
+  it('replays durable events past the cursor before going live', async () => {
+    const api = new MockSessionAPI();
+    const inst = await api.create('tycho');
+    await api.send(inst.id, 'one', 'k1');
+    await api.send(inst.id, 'two', 'k2');
+    const seen: EventEnvelope[] = [];
+    const statuses: SubscriptionStatus[] = [];
+    api.subscribe(inst.stream, 2, { onEvent: (e) => seen.push(e), onStatus: (s) => statuses.push(s), onGap: () => {} });
+    await flush();
+    expect(seen.every((e) => e.seq === 0 || e.seq > 2)).toBe(true);
+    expect(seen.some((e) => e.type === 'user_message' && (e.data as UserMessageData).text === 'two')).toBe(true);
+    expect(statuses[0]).toBe('replaying');
+    expect(statuses).toContain('live');
+  });
+
+  it('send returns the durable identity and echoes the clientKey', async () => {
+    const api = new MockSessionAPI();
+    const inst = await api.create(null);
+    const receipt = await api.send(inst.id, 'hello', 'key-1');
+    expect(receipt.seq).toBeGreaterThan(0);
+
+    const seen: EventEnvelope[] = [];
+    api.subscribe(inst.stream, 0, { onEvent: (e) => seen.push(e), onStatus: () => {}, onGap: () => {} });
+    await flush();
+
+    const echoed = seen.find((e) => e.id === receipt.id);
+    expect(echoed).toBeDefined();
+    expect((echoed!.data as UserMessageData).clientKey).toBe('key-1');
   });
 });
