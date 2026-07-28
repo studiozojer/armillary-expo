@@ -52,17 +52,5 @@
     "test": "jest",
     "sync-tokens": "node scripts/sync-tokens.mjs"
   },
-  "private": true,
-  "jest": {
-    "preset": "jest-expo",
-    "modulePathIgnorePatterns": [
-      "<rootDir>/.worktrees/"
-    ],
-    "moduleNameMapper": {
-      "^@react-native-async-storage/async-storage$": "@react-native-async-storage/async-storage/jest/async-storage-mock"
-    },
-    "transformIgnorePatterns": [
-      "node_modules/(?!((jest-)?react-native|@react-native(-community)?|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|react-navigation|@react-navigation/.*|@unimodules/.*|unimodules|sentry-expo|native-base|react-native-svg|react-native-marked|marked|github-slugger|standard-navigation))"
-    ]
-  }
+  "private": true
 }

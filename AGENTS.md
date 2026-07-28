@@ -13,3 +13,5 @@ What it wires, and why each is invisible until it breaks:
 - **`.env.local`** — the per-machine inbox token. Absent, Capture uploads fail at runtime with no compile-time signal at all.
 
 **Run jest and metro from the worktree, never from the main checkout.** `modulePathIgnorePatterns` now keeps the main checkout's suite out of `.worktrees/`; before it was added, one worktree silently doubled the suite to 54 tests and five of the duplicates failed on haste collisions — output that reads as five regressions rather than as a misconfigured glob.
+
+**`jest.config.js` extends jest-expo's `transformIgnorePatterns`, never replaces it wholesale.** A prior version of this repo's config set its own array outright, which silently dropped the preset's own entries (`.pnpm`, `@sentry/react-native`, the reanimated-plugin and RN-babel-preset excludes) and cost a debugging day when two of them had to be rediscovered by hand mid-branch. Add a package that needs transforming to `extraTransformedPackages` in `jest.config.js`, not to a fresh standalone pattern.
