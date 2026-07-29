@@ -1,6 +1,7 @@
 export { Box, type BoxProps } from './box';
 export { Button } from './button';
 export { Callout } from './callout';
+export { CircleButton } from './circle-button';
 export { Card } from './card';
 export { Icon, ICONS, type IconName } from './icon';
 export { Inline, Stack } from './stack';
