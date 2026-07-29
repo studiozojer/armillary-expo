@@ -18,13 +18,15 @@ describe('roundelGlyph', () => {
 describe('<Roundel>', () => {
   it('renders the derived glyph', async () => {
     await render(<Roundel name="tycho" />);
-    expect(screen.getByText('t')).toBeTruthy();
+    expect(screen.getByText('t', { includeHiddenElements: true })).toBeTruthy();
   });
 
   it('is decorative: hidden from assistive technology', async () => {
     // The row that contains a roundel carries the operator name as its label;
     // the roundel repeating one letter of it would be announcement noise.
     await render(<Roundel testID="r" name="tycho" />);
-    expect(screen.getByTestId('r').props.accessibilityElementsHidden).toBe(true);
+    expect(
+      screen.getByTestId('r', { includeHiddenElements: true }).props.accessibilityElementsHidden,
+    ).toBe(true);
   });
 });
