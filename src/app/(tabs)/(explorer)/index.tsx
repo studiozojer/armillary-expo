@@ -1,11 +1,11 @@
-import { Link } from 'expo-router';
+import { Link, useRouter } from 'expo-router';
 import { Stack } from 'expo-router/stack';
 import { useCallback } from 'react';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 
-import { SettingsButton } from '@/components/settings-button';
+import { ChromeZone } from '@/components/chrome-zone';
 import { TreeList } from '@/components/tree-list';
-import { Screen } from '@/components/ui';
+import { Box, CircleButton, Screen, Text as UIText } from '@/components/ui';
 import { DaemonClient } from '@/lib/daemon/client';
 import { annotationsFor } from '@/lib/annotations';
 import type { Composition, TreeResponse } from '@/lib/daemon/types';
@@ -39,68 +39,108 @@ export default function Explorer() {
     composition: Composition | null;
   }>(`${host.id}:${generation}`, load, ready);
 
+  const router = useRouter();
+
+  // Mounted once, above the state switch — never per branch (see ChromeZone's
+  // own comment for the scar that rule comes from). This is also where the old
+  // header's two only entry points now live: capture as the live mic button,
+  // and — for the data state — the stats line below as a `Link`.
+  const chrome = (
+    <>
+      <Stack.Screen options={{ headerShown: false }} />
+      <ChromeZone
+        trailing={
+          <>
+            <CircleButton testID="search-stub" icon="search" accessibilityLabel="Search" disabled />
+            <CircleButton
+              testID="capture-button"
+              icon="mic"
+              accessibilityLabel="Capture"
+              onPress={() => router.push('/capture')}
+            />
+            <CircleButton
+              testID="explorer-more-stub"
+              icon="more"
+              accessibilityLabel="More"
+              disabled
+            />
+          </>
+        }
+      />
+    </>
+  );
+
   if (state.status === 'error') {
     return (
-      <Screen p="lg">
-        <Text style={{ ...theme.type.heading, color: theme.color.txPrimary }}>
-          Can&apos;t reach the engine
-        </Text>
-        {/* Named specifically, because the app is usually where a tailnet or a
-            bind problem first becomes visible, and "something went wrong" would
-            send you looking in the wrong place. */}
-        <Text
-          style={{
-            ...theme.type.caption,
-            color: theme.color.txTertiary,
-            paddingTop: theme.space.xs,
-          }}>
-          {host.daemonUrl}
-        </Text>
-        <Text
-          style={{
-            ...theme.type.caption,
-            color: theme.color.txTertiary,
-            paddingTop: theme.space.sm,
-          }}>
-          {state.error instanceof Error ? state.error.message : String(state.error)}
-        </Text>
-
-        <View style={{ flexDirection: 'row', gap: theme.space.sm, marginTop: theme.space.lg }}>
-          <Pressable
-            onPress={retry}
+      <Screen>
+        {chrome}
+        {/* ChromeZone already carries its own px="lg"; this box owns only the
+            error copy's inset, so the chrome above it stays full-bleed and
+            lands at the same spot as every other state (the scar rule). */}
+        <Box p="lg">
+          <Text style={{ ...theme.type.heading, color: theme.color.txPrimary }}>
+            Can&apos;t reach the engine
+          </Text>
+          {/* Named specifically, because the app is usually where a tailnet or a
+              bind problem first becomes visible, and "something went wrong" would
+              send you looking in the wrong place. */}
+          <Text
             style={{
-              paddingVertical: theme.space.sm,
-              paddingHorizontal: theme.space.lg,
-              borderRadius: theme.radius.md,
-              backgroundColor: theme.color.bgAccent,
+              ...theme.type.caption,
+              color: theme.color.txTertiary,
+              paddingTop: theme.space.xs,
             }}>
-            <Text style={{ ...theme.type.label, color: theme.color.txAccent }}>Try again</Text>
-          </Pressable>
-          {/* The switcher belongs here above all: an unreachable host is exactly
-              when you want to try another one. */}
-          <Link href="/settings" asChild>
+            {host.daemonUrl}
+          </Text>
+          <Text
+            style={{
+              ...theme.type.caption,
+              color: theme.color.txTertiary,
+              paddingTop: theme.space.sm,
+            }}>
+            {state.error instanceof Error ? state.error.message : String(state.error)}
+          </Text>
+
+          <View style={{ flexDirection: 'row', gap: theme.space.sm, marginTop: theme.space.lg }}>
             <Pressable
+              onPress={retry}
               style={{
                 paddingVertical: theme.space.sm,
                 paddingHorizontal: theme.space.lg,
                 borderRadius: theme.radius.md,
-                borderWidth: theme.border.thin,
-                borderColor: theme.color.bdPrimary,
+                backgroundColor: theme.color.bgAccent,
               }}>
-              <Text style={{ ...theme.type.label, color: theme.color.txSecondary }}>
-                Change host
-              </Text>
+              <Text style={{ ...theme.type.label, color: theme.color.txAccent }}>Try again</Text>
             </Pressable>
-          </Link>
-        </View>
+            {/* The switcher belongs here above all: an unreachable host is exactly
+                when you want to try another one. */}
+            <Link href="/settings" asChild>
+              <Pressable
+                style={{
+                  paddingVertical: theme.space.sm,
+                  paddingHorizontal: theme.space.lg,
+                  borderRadius: theme.radius.md,
+                  borderWidth: theme.border.thin,
+                  borderColor: theme.color.bdPrimary,
+                }}>
+                <Text style={{ ...theme.type.label, color: theme.color.txSecondary }}>
+                  Change host
+                </Text>
+              </Pressable>
+            </Link>
+          </View>
+        </Box>
       </Screen>
     );
   }
 
   if (state.status === 'loading') {
     return (
-      <Screen style={{ justifyContent: 'center' }}>
-        <ActivityIndicator />
+      <Screen>
+        {chrome}
+        <Box flex={1} style={{ justifyContent: 'center', alignItems: 'center' }}>
+          <ActivityIndicator />
+        </Box>
       </Screen>
     );
   }
@@ -109,26 +149,8 @@ export default function Explorer() {
   const annotations = composition ? annotationsFor(composition) : {};
 
   return (
-    <Screen edges={[]}>
-      <Stack.Screen
-        options={{
-          // Settings had no entry point at all between the old three-section
-          // screen (which reached it by tapping the host label) and here — the
-          // rewrite replaced that header and took the only link with it. Nothing
-          // caught it, because a missing link renders exactly like a screen that
-          // simply has no button.
-          headerLeft: () => <SettingsButton />,
-          // In the header, not floating: an absolutely-positioned button in a
-          // screen that owns no chrome ends up underneath the native tab bar.
-          headerRight: () => (
-            <Link href="/capture" asChild>
-              <Pressable hitSlop={8}>
-                <Text style={{ ...theme.type.label, color: theme.color.txAccent }}>Capture</Text>
-              </Pressable>
-            </Link>
-          ),
-        }}
-      />
+    <Screen edges={['top']}>
+      {chrome}
       <TreeList
         base=""
         entries={visibleEntries(tree.entries, showDotfiles)}
@@ -139,20 +161,23 @@ export default function Explorer() {
         refreshing={refreshing}
         onRefresh={refresh}
         header={
-          <View style={{ paddingTop: theme.space.lg }}>
-            <Text style={{ ...theme.type.title, color: theme.color.txPrimary }}>
-              {host.label}
-            </Text>
+          <Box style={{ paddingTop: theme.space.md, paddingBottom: theme.space.md }}>
+            <UIText variant="display">{host.label}</UIText>
             {/* Where the old three-section view survives: composition summary
                 and protocol load-timings, one tap away rather than gone. */}
             <Link href="/composition" asChild>
-              <Text style={{ ...theme.type.caption, color: theme.color.txAccent }}>
-                {composition
-                  ? `${composition.operators.length} operators · ${composition.commons.length} commons · ${composition.repos.length} repos ›`
-                  : 'composition unavailable ›'}
-              </Text>
+              <Pressable hitSlop={8} accessibilityRole="link" accessibilityLabel="Composition">
+                <UIText
+                  variant="caption"
+                  color="txTertiary"
+                  style={{ paddingTop: theme.space.xs }}>
+                  {composition
+                    ? `${composition.operators.length} operators • ${composition.repos.length} repos • ${composition.commons.length} commons ›`
+                    : 'composition unavailable ›'}
+                </UIText>
+              </Pressable>
             </Link>
-          </View>
+          </Box>
         }
       />
     </Screen>

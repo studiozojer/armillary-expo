@@ -2,26 +2,25 @@ import { useRouter } from 'expo-router';
 
 import type { Instance } from '@/lib/session/events';
 
-import { ListRow } from './ui';
+import { CardRow, Roundel } from './ui';
 
 /**
- * A row in the Instances list: composed on `ListRow` — the house row, not a
- * hand-rolled `Pressable` — but still navigating THIS branch's route.
+ * A row in the Instances list, on CardRow (the spaced-card idiom).
  *
- * `router.push`, not `Link asChild`: `ListRow` derives its own
- * `accessibilityRole` from whether it was given an `onPress` (see its own
- * comment), and a cloned `Link` element hands navigation down as a bare press
- * handler rather than through that prop — `TreeList` made the identical choice
- * for the same reason.
+ * The note line is the honest data: stream · seq. When the engine serves a
+ * topic and token usage, they take over this line — the layout already holds
+ * the slot (design 2026-07-28, § Section 2).
  */
 export function InstanceCard({ instance }: { instance: Instance }) {
   const router = useRouter();
+  const operator = instance.operator ?? 'dispatcher';
 
   return (
-    <ListRow
-      icon="inbox"
-      label={instance.operator ?? 'dispatcher'}
+    <CardRow
+      leading={<Roundel name={operator} />}
+      label={operator}
       note={`${instance.stream} · seq ${instance.lastSeq}`}
+      noteVariant="mono"
       onPress={() => router.push(`/(tabs)/(instances)/${instance.id}`)}
     />
   );

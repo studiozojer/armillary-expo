@@ -7,6 +7,7 @@ export type IconName =
   | 'folder'
   | 'file'
   | 'chevron'
+  | 'chevronDown'
   | 'search'
   | 'more'
   | 'back'
@@ -14,7 +15,9 @@ export type IconName =
   | 'inbox'
   | 'plus'
   | 'send'
-  | 'check';
+  | 'check'
+  | 'eye'
+  | 'mic';
 
 /**
  * The single place platform icon names live.
@@ -31,6 +34,7 @@ export const ICONS: Record<IconName, { ios: SFSymbol; web: AndroidSymbol }> = {
   folder: { ios: 'folder.fill', web: 'folder' },
   file: { ios: 'doc', web: 'description' },
   chevron: { ios: 'chevron.right', web: 'chevron_right' },
+  chevronDown: { ios: 'chevron.down', web: 'keyboard_arrow_down' },
   search: { ios: 'magnifyingglass', web: 'search' },
   more: { ios: 'ellipsis', web: 'more_horiz' },
   back: { ios: 'chevron.left', web: 'chevron_left' },
@@ -39,6 +43,8 @@ export const ICONS: Record<IconName, { ios: SFSymbol; web: AndroidSymbol }> = {
   plus: { ios: 'plus', web: 'add' },
   send: { ios: 'arrow.up', web: 'arrow_upward' },
   check: { ios: 'checkmark', web: 'check' },
+  eye: { ios: 'eye', web: 'visibility' },
+  mic: { ios: 'mic', web: 'mic' },
 };
 
 export function Icon({

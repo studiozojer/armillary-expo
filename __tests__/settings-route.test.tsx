@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 // Every helper comes from expo-router's wrapper, not from the base library.
 // The wrapper reassigns its own `screen` when `renderRouter` mounts, so mixing
 // the two hands a later test a stale view of an earlier render.
-import { cleanup, fireEvent, renderRouter, screen } from 'expo-router/testing-library';
+import { cleanup, fireEvent, renderRouter, screen, waitFor } from 'expo-router/testing-library';
 import { Stack } from 'expo-router/stack';
 
 import Instances from '../src/app/(tabs)/(instances)/index';
@@ -44,8 +44,14 @@ function TabsLayout() {
   return <Stack />;
 }
 
-/** A line only the Settings screen renders. */
-const SETTINGS_MARKER = /Which machine is serving this workspace/;
+/**
+ * A line only the Settings screen renders.
+ *
+ * Query-shape fix (mechanical, Task 8): the render this file exercises no
+ * longer carries the old explanatory caption — the section label is the
+ * marker now. Nothing else in the app renders this exact uppercase string.
+ */
+const SETTINGS_MARKER = 'WORKSPACE';
 
 /**
  * One `renderRouter` per file: the router caches its mock context, so a second
@@ -79,7 +85,21 @@ describe('Settings as a root-level modal', () => {
     }) as unknown as typeof fetch;
   });
 
-  it('is reachable from the Instances tab', async () => {
+  /**
+   * A single test covering the whole journey, not four.
+   *
+   * Structural fix (Task 8, out of scope for a query-shape fix but forced by
+   * the same property the file's header comment already names): the mocked
+   * router's `router-store` is a module-level singleton that outlives
+   * `cleanup()` between tests, so a *second* `renderRouter` call in this file
+   * resumes wherever the previous test's navigation left off rather than
+   * resetting to its own `initialUrl` — confirmed by running each of the
+   * would-be-separate tests in isolation (all pass alone) versus together
+   * (only the first `renderRouter` call finds what it expects). One call,
+   * one test, asserting every kit-rebuild behavior in the order a person
+   * would actually hit them.
+   */
+  it('is reachable from the Instances tab, rebuilt on kit components — Re-sync re-probes, the selected host is marked current, and the api key row is an announced-disabled stub', async () => {
     // The whole reason for the restructure. Settings used to live inside the
     // Explorer group's stack, where a `Link` from the other tab had nothing to
     // push onto — and the two groups cannot each declare `/settings`, because
@@ -87,8 +107,29 @@ describe('Settings as a root-level modal', () => {
     // presentable from both.
     await renderRouter(routes, { initialUrl: '/' });
 
-    fireEvent.press(await screen.findByText('Settings'));
+    fireEvent.press(await screen.findByRole('button', { name: 'Settings' }));
 
     expect(await screen.findByText(SETTINGS_MARKER)).toBeTruthy();
+
+    // Settle the on-mount probe of every known host before counting calls.
+    await screen.findAllByText('/x');
+
+    const healthCalls = () =>
+      (globalThis.fetch as jest.Mock).mock.calls.filter(([url]) => String(url).includes('/health'))
+        .length;
+    const before = healthCalls();
+
+    fireEvent.press(screen.getByRole('button', { name: 'Re-sync' }));
+
+    await waitFor(() => expect(healthCalls()).toBe(before * 2));
+
+    expect(screen.getByText('current')).toBeTruthy();
+    expect(screen.getByTestId('host-benatky').props.accessibilityState).toMatchObject({
+      selected: true,
+    });
+
+    const stub = screen.getByTestId('api-key-stub');
+    expect(stub.props.accessibilityState).toMatchObject({ disabled: true });
+    expect(screen.getByText('Anthropic')).toBeTruthy();
   });
 });

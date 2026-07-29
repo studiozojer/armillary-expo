@@ -39,7 +39,7 @@ export default function AppTabs() {
       </NativeTabs.Trigger>
 
       <NativeTabs.Trigger name="(explorer)">
-        <NativeTabs.Trigger.Icon sf="globe" md="public" />
+        <NativeTabs.Trigger.Icon sf="globe.desk.fill" md="public" />
         <NativeTabs.Trigger.Label>Explorer</NativeTabs.Trigger.Label>
       </NativeTabs.Trigger>
     </NativeTabs>

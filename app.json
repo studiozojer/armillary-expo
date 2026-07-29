@@ -8,7 +8,6 @@
     "scheme": "armillaryexpo",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "./assets/expo.icon",
       "bundleIdentifier": "studio.zojer.armillary",
       "infoPlist": {
         "NSAppTransportSecurity": {
