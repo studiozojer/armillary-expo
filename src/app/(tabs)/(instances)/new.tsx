@@ -1,4 +1,4 @@
-import { Stack, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, View } from 'react-native';
 
@@ -81,23 +81,47 @@ export default function NewInstance() {
   const selectionLabel = selection ?? 'Dispatcher';
 
   return (
-    <Screen edges={['bottom']}>
-      <Stack.Screen options={{ title: 'New instance' }} />
-
+    // The top inset is deliberate padding, not `edges={['top']}`.
+    //
+    // `SafeAreaView` inside a form sheet reports the *window's* insets, not the
+    // sheet's — the sheet is presented below the notch, so adding the window's
+    // top edge here would pad by the status-bar/notch height the sheet already
+    // clears, pushing the card down by roughly a header's worth of nothing.
+    // `edges={['bottom']}` stays: the home-indicator strip is the window's and
+    // the sheet does extend into it.
+    //
+    // It lives on the root rather than on the `Box` below so both states get
+    // it. Before, the padding was on the `Box` and the composition-error
+    // caption rendered above it with its own — so the two branches began at
+    // different heights. That is the same shape as the scar `ChromeZone`
+    // documents: a per-branch inset renders exactly like a correct screen until
+    // you hit the other branch.
+    //
+    // `xl` (20) was settled by measuring the simulator, not by reasoning about
+    // it. Decoding the screenshot down the sheet's centre line (iPhone 17 Pro,
+    // @3x) puts the sheet's top edge at 62.0pt, the grabber at 67.0–72.0pt (5pt
+    // tall, inset 5pt), and the card's top edge at 82.0pt — so this padding
+    // arrives intact at exactly 20pt and leaves 10pt of clearance under the
+    // grabber. That measurement is also what rules `edges={['top']}` out
+    // numerically rather than by argument: the window's top inset here is the
+    // same ~62pt the sheet is already presented at, so consuming that edge
+    // would have put the card near 124pt — three times the inset, all of it
+    // dead space. `md` (12), what the `Box` used to carry, leaves only 2pt
+    // under the grabber.
+    <Screen edges={['bottom']} style={{ paddingTop: theme.space.xl }}>
       {compositionError ? (
         <Text
           variant="caption"
           color="txWarning"
           style={{
             paddingHorizontal: theme.space.lg,
-            paddingTop: theme.space.md,
             paddingBottom: theme.space.xs,
           }}>
           {`Couldn't load operators — ${compositionError}`}
         </Text>
       ) : null}
 
-      <Box px="lg" style={{ paddingTop: theme.space.md }}>
+      <Box px="lg">
         {/* overflow hidden so the ListRow surfaces inside respect the card's corners */}
         <Card p="none" radius="lg" style={{ overflow: 'hidden' }}>
           <Pressable

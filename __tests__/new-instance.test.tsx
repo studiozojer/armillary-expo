@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useLocalSearchParams } from 'expo-router';
 import { cleanup, fireEvent, renderRouter, screen } from 'expo-router/testing-library';
 import { Stack } from 'expo-router/stack';
+import { Children, isValidElement, type ReactElement, type ReactNode } from 'react';
 import { Text } from 'react-native';
 
 import InstancesLayout from '../src/app/(tabs)/(instances)/_layout';
@@ -249,5 +250,58 @@ describe('New instance sheet', () => {
     const stub = screen.getByTestId('model-stub');
     expect(stub.props.accessibilityState).toMatchObject({ disabled: true });
     expect(screen.getByText('engine default')).toBeTruthy();
+  });
+});
+
+/**
+ * Read off the layout element itself rather than through a render.
+ *
+ * Deliberate, and the reason is the whole point of this block: **jest never
+ * renders a native-stack header.** A `screen.queryByText('New instance')`
+ * assertion here passes identically with the header on and with it off — it
+ * was measured, returning 0 matches while the route still asked for a title
+ * and the device still drew the bar over the content. The only thing the
+ * machine tier can actually falsify is what the route *declares*, so that is
+ * what this reads.
+ */
+function screenOptionsFor(layout: () => ReactNode, name: string): Record<string, unknown> {
+  const tree = layout() as ReactElement<{ children?: ReactNode }>;
+  const match = Children.toArray(tree.props.children)
+    .filter(isValidElement)
+    .map((child) => child.props as { name?: string; options?: Record<string, unknown> })
+    .find((props) => props.name === name);
+  if (!match) throw new Error(`no <Stack.Screen name="${name}"> in the layout`);
+  return match.options ?? {};
+}
+
+describe('the new-instance route as a form sheet', () => {
+  /**
+   * The bug this pins, reported on device 2026-07-29: the Operator row sat
+   * underneath the sheet's header bar.
+   *
+   * `formSheet` and a native header are an unsupported combination — the SDK 57
+   * docs are explicit that "native stack headers and nested stack navigators
+   * are not supported inside form sheet screens, so options such as
+   * headerShown, title, and header buttons will not render", and direct the
+   * title into the sheet content instead. What "not supported" meant in
+   * practice was worse than nothing rendering: react-native-screens drew the
+   * bar (themed `bgSolidCard` by `navThemeFor`, so it read as a card) without
+   * insetting the content beneath it, and the first row of the sheet went under
+   * it.
+   *
+   * So the route must declare no header at all. A `title` here is the specific
+   * shape of the original defect — a claim about chrome the presentation cannot
+   * honor — which is why its absence is asserted rather than just
+   * `headerShown`.
+   */
+  it('declares no native header, because a form sheet cannot render one', () => {
+    const options = screenOptionsFor(InstancesLayout, 'new');
+
+    // The premise. If this ever stops being a form sheet the rest of this test
+    // stops being the right rule, and it should fail rather than quietly pass.
+    expect(options.presentation).toBe('formSheet');
+
+    expect(options.headerShown).toBe(false);
+    expect(options.title).toBeUndefined();
   });
 });
