@@ -1,14 +1,14 @@
 export { Box, type BoxProps } from './box';
 export { Button } from './button';
 export { Callout } from './callout';
-export { CircleButton } from './circle-button';
 export { Card } from './card';
 export { CardRow } from './card-row';
+export { CircleButton } from './circle-button';
 export { Icon, ICONS, type IconName } from './icon';
 export { Inline, Stack } from './stack';
 export { ListRow } from './list-row';
-export { ROW_ICON_LANE, Rule } from './rule';
 export { Roundel, roundelGlyph } from './roundel';
+export { ROW_ICON_LANE, Rule } from './rule';
 export { Screen } from './screen';
 export { SectionHeader } from './section-header';
 export { Text, type TextProps } from './text';
