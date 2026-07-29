@@ -1,8 +1,8 @@
 import { Stack, useRouter } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
-import { ActivityIndicator, FlatList } from 'react-native';
+import { ActivityIndicator, Pressable, View } from 'react-native';
 
-import { Box, Button, Icon, ListRow, ROW_ICON_LANE, Rule, Screen, Stack as VStack, Text } from '@/components/ui';
+import { Box, Button, Card, Icon, Inline, ListRow, Rule, Screen, Text } from '@/components/ui';
 import { DaemonClient } from '@/lib/daemon/client';
 import type { Composition } from '@/lib/daemon/types';
 import { useHost } from '@/lib/host-context';
@@ -51,6 +51,7 @@ export default function NewInstance() {
     state.status === 'error' ? (state.error instanceof Error ? state.error.message : String(state.error)) : null;
 
   const [selection, setSelection] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState(false);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
@@ -77,6 +78,8 @@ export default function NewInstance() {
     ...operators.map((op) => ({ key: op.name, label: op.name, note: op.note ?? op.path, value: op.name })),
   ];
 
+  const selectionLabel = selection ?? 'Dispatcher';
+
   return (
     <Screen edges={['bottom']}>
       <Stack.Screen options={{ title: 'New instance' }} />
@@ -94,39 +97,69 @@ export default function NewInstance() {
         </Text>
       ) : null}
 
-      {state.status === 'loading' ? (
-        <ActivityIndicator style={{ marginTop: theme.space.lg }} />
-      ) : (
-        <FlatList
-          data={rows}
-          keyExtractor={(row) => row.key}
-          contentContainerStyle={{ paddingBottom: theme.space.xxxl }}
-          renderItem={({ item, index }) => (
-            <>
-              <ListRow
-                icon="inbox"
-                label={item.label}
-                note={item.note}
-                trailing={selection === item.value ? <Icon name="check" size={18} color="icAccent" /> : null}
-                onPress={() => setSelection(item.value)}
-              />
-              {index < rows.length - 1 ? <Rule inset={ROW_ICON_LANE} /> : null}
-            </>
-          )}
-        />
-      )}
+      <Box px="lg" style={{ paddingTop: theme.space.md }}>
+        {/* overflow hidden so the ListRow surfaces inside respect the card's corners */}
+        <Card p="none" radius="lg" style={{ overflow: 'hidden' }}>
+          <Pressable
+            testID="operator-row"
+            accessibilityRole="button"
+            accessibilityLabel={`Operator, ${selectionLabel}`}
+            onPress={() => setExpanded((e) => !e)}>
+            <Box px="lg" py="md">
+              <Inline justify="space-between">
+                <Text>Operator</Text>
+                <Inline gap="xs">
+                  <Text color="txSecondary">{selectionLabel}</Text>
+                  <Icon name="chevronDown" size={14} color="icSecondary" />
+                </Inline>
+              </Inline>
+            </Box>
+          </Pressable>
 
-      <Box
-        p="lg"
-        style={{ borderTopWidth: theme.border.hairline, borderTopColor: theme.color.bdPrimary }}>
-        <VStack gap="sm">
-          {createError ? (
-            <Text variant="caption" color="txWarning">
-              {`Couldn't create the instance — ${createError}`}
-            </Text>
+          {expanded && state.status === 'loading' ? (
+            <ActivityIndicator style={{ marginVertical: theme.space.lg }} />
           ) : null}
+
+          {expanded && state.status !== 'loading'
+            ? rows.map((item) => (
+                <ListRow
+                  key={item.key}
+                  icon="inbox"
+                  label={item.label}
+                  note={item.note}
+                  trailing={selection === item.value ? <Icon name="check" size={18} color="icAccent" /> : null}
+                  onPress={() => {
+                    setSelection(item.value);
+                    setExpanded(false);
+                  }}
+                />
+              ))
+            : null}
+
+          <Rule />
+
+          <View
+            testID="model-stub"
+            accessible
+            accessibilityState={{ disabled: true }}
+            accessibilityLabel="Model, engine default"
+            style={{ paddingHorizontal: theme.space.lg, paddingVertical: theme.space.md }}>
+            <Inline justify="space-between">
+              <Text color="txDisabled">Model</Text>
+              <Text color="txDisabled">engine default</Text>
+            </Inline>
+          </View>
+        </Card>
+
+        {createError ? (
+          <Text variant="caption" color="txWarning" style={{ paddingTop: theme.space.sm }}>
+            {`Couldn't create the instance — ${createError}`}
+          </Text>
+        ) : null}
+
+        <Inline justify="flex-end" style={{ paddingTop: theme.space.lg }}>
           <Button label={creating ? 'Creating…' : 'Create'} onPress={onCreate} disabled={creating} />
-        </VStack>
+        </Inline>
       </Box>
     </Screen>
   );

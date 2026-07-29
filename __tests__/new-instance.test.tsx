@@ -86,7 +86,7 @@ describe('New instance sheet', () => {
     await AsyncStorage.clear();
   });
 
-  it('renders Dispatcher plus the composed operators, and Create with an operator selected calls create(name) and navigates', async () => {
+  it('renders Dispatcher collapsed, expands to the composed operators on tap, and Create with an operator selected calls create(name) and navigates', async () => {
     mockApi = makeMockApi({ create: jest.fn(async (operator: string | null) => instanceFor('inst-42', operator)) });
     globalThis.fetch = jest.fn((url: string) => {
       if (url.includes('/composition')) {
@@ -108,10 +108,16 @@ describe('New instance sheet', () => {
     await renderRouter(routes, { initialUrl: '/new' });
 
     expect(await screen.findByText('Dispatcher')).toBeTruthy();
+    expect(screen.queryByText('tycho')).toBeNull();
+
+    await fireEvent.press(screen.getByTestId('operator-row'));
     expect(await screen.findByText('tycho')).toBeTruthy();
     expect(screen.getByText('kepler')).toBeTruthy();
 
     await fireEvent.press(screen.getByText('tycho'));
+    // Picking collapses the accordion again — the other option is gone.
+    expect(screen.queryByText('kepler')).toBeNull();
+
     await fireEvent.press(screen.getByText('Create'));
 
     expect(await screen.findByText('session:inst-42')).toBeTruthy();
@@ -219,5 +225,29 @@ describe('New instance sheet', () => {
     await fireEvent.press(await screen.findByLabelText('Create new instance'));
 
     expect(await screen.findByText('Dispatcher')).toBeTruthy();
+  });
+
+  it('the model row is an announced-disabled stub with the honest value', async () => {
+    mockApi = makeMockApi();
+    globalThis.fetch = jest.fn((url: string) => {
+      if (url.includes('/composition')) {
+        return jsonResponse(200, {
+          operators: [],
+          commons: [],
+          repos: [],
+          protocols: [],
+          manifests: [],
+          protocol_sources: [],
+        });
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    }) as unknown as typeof fetch;
+
+    await renderRouter(routes, { initialUrl: '/new' });
+    await screen.findByText('Dispatcher');
+
+    const stub = screen.getByTestId('model-stub');
+    expect(stub.props.accessibilityState).toMatchObject({ disabled: true });
+    expect(screen.getByText('engine default')).toBeTruthy();
   });
 });
