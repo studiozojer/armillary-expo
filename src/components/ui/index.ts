@@ -3,6 +3,7 @@ export { Button } from './button';
 export { Callout } from './callout';
 export { CircleButton } from './circle-button';
 export { Card } from './card';
+export { CardRow } from './card-row';
 export { Icon, ICONS, type IconName } from './icon';
 export { Inline, Stack } from './stack';
 export { ListRow } from './list-row';
