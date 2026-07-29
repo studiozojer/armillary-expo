@@ -1,8 +1,8 @@
 import { Stack } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { Pressable, ScrollView, View } from 'react-native';
 
-import { Screen } from '@/components/ui';
+import { Box, Button, Icon, Inline, Screen, SectionHeader, Stack as UIStack, Text } from '@/components/ui';
 import { useHost } from '@/lib/host-context';
 import { probe, type Host, type Reachability } from '@/lib/hosts';
 import { useShowDotfiles } from '@/lib/preferences';
@@ -29,111 +29,126 @@ export default function Settings() {
   return (
     <Screen edges={['bottom']}>
       <Stack.Screen options={{ title: 'Settings' }} />
-      <ScrollView contentContainerStyle={{ padding: theme.space.lg }}>
-        <Text style={{ ...theme.type.caption, color: theme.color.txTertiary }}>Files</Text>
+      <ScrollView contentContainerStyle={{ paddingBottom: theme.space.xxxl }}>
+        <SectionHeader
+          trailing={<Button label="Re-sync" variant="secondary" onPress={() => void probeAll()} />}>
+          Workspace
+        </SectionHeader>
+
+        <Box px="lg">
+          <UIStack gap="sm">
+            {hosts.map((candidate) => (
+              <HostCard
+                key={candidate.id}
+                testID={`host-${candidate.id}`}
+                host={candidate}
+                selected={candidate.id === host.id}
+                result={results[candidate.id] ?? { state: 'unknown' }}
+                onSelect={() => setHost(candidate)}
+              />
+            ))}
+          </UIStack>
+        </Box>
+
+        <Box style={{ paddingTop: theme.space.lg }}>
+          <SectionHeader>Files</SectionHeader>
+        </Box>
         <Pressable
           onPress={() => setShowDotfiles(!showDotfiles)}
-          style={{
-            flexDirection: 'row',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            paddingVertical: theme.space.md,
-            marginBottom: theme.space.lg,
-          }}>
-          <Text style={{ ...theme.type.body, color: theme.color.txPrimary }}>Show dotfiles</Text>
-          <Text style={{ ...theme.type.label, color: theme.color.txAccent }}>
-            {showDotfiles ? 'On' : 'Off'}
-          </Text>
+          accessibilityRole="button"
+          accessibilityLabel={`Show dotfiles, ${showDotfiles ? 'on' : 'off'}`}>
+          <Box px="lg" py="md">
+            <Inline justify="space-between">
+              <Text>Show dotfiles</Text>
+              <Text variant="label" color="txAccent">
+                {showDotfiles ? 'On' : 'Off'}
+              </Text>
+            </Inline>
+          </Box>
         </Pressable>
 
-        <Text style={{ ...theme.type.caption, color: theme.color.txTertiary }}>
-          Which machine is serving this workspace. Changing it takes effect immediately — no
-          rebuild.
-        </Text>
-
-        <View style={{ height: theme.space.lg }} />
-
-        {hosts.map((candidate) => (
-          <HostRow
-            key={candidate.id}
-            host={candidate}
-            selected={candidate.id === host.id}
-            result={results[candidate.id] ?? { state: 'unknown' }}
-            onSelect={() => setHost(candidate)}
-          />
-        ))}
-
-        <Pressable
-          onPress={probeAll}
-          style={{
-            marginTop: theme.space.lg,
-            alignSelf: 'flex-start',
-            paddingVertical: theme.space.sm,
-            paddingHorizontal: theme.space.lg,
-            borderRadius: theme.radius.md,
-            backgroundColor: theme.color.bgSecondary,
-          }}>
-          <Text style={{ ...theme.type.label, color: theme.color.txSecondary }}>Re-check all</Text>
-        </Pressable>
+        <Box style={{ paddingTop: theme.space.lg }}>
+          <SectionHeader>Api keys</SectionHeader>
+        </Box>
+        {/* The key lives engine-side (~/.config/armillary/anthropic-key); there is
+            nothing real to reveal or edit here. The row goes live when the
+            key-management seam exists (design 2026-07-28, § Section 4 — David's
+            ratified call, requirements deliberately unknown until the instance-loop
+            work). */}
+        <View
+          testID="api-key-stub"
+          accessible
+          accessibilityState={{ disabled: true }}
+          accessibilityLabel="Anthropic API key, managed by the engine"
+          style={{ paddingHorizontal: theme.space.lg, paddingVertical: theme.space.md }}>
+          <Inline justify="space-between">
+            <Text color="txDisabled">Anthropic</Text>
+            <Inline gap="sm">
+              <Icon name="eye" size={18} color="txDisabled" />
+              <Text color="txDisabled">••••••••••</Text>
+            </Inline>
+          </Inline>
+        </View>
       </ScrollView>
     </Screen>
   );
 }
 
-function HostRow({
+function HostCard({
   host,
   selected,
   result,
   onSelect,
+  testID,
 }: {
   host: Host;
   selected: boolean;
   result: Reachability;
   onSelect: () => void;
+  testID?: string;
 }) {
   const theme = useTheme();
 
-  const status =
+  const status: { text: string; color: 'txSuccess' | 'txError' | 'txTertiary' } =
     result.state === 'up'
-      ? { text: result.root, color: theme.color.txSuccess }
+      ? { text: result.root, color: 'txSuccess' }
       : result.state === 'down'
-        ? { text: result.reason, color: theme.color.txError }
+        ? { text: result.reason, color: 'txError' }
         : result.state === 'checking'
-          ? { text: 'checking…', color: theme.color.txTertiary }
-          : { text: '—', color: theme.color.txTertiary };
+          ? { text: 'checking…', color: 'txTertiary' }
+          : { text: '—', color: 'txTertiary' };
 
   return (
     <Pressable
+      testID={testID}
       onPress={onSelect}
-      style={{
-        paddingVertical: theme.space.md,
-        paddingHorizontal: theme.space.md,
-        marginBottom: theme.space.sm,
-        borderRadius: theme.radius.md,
-        borderWidth: selected ? theme.border.medium : theme.border.hairline,
-        borderColor: selected ? theme.color.bdAccent : theme.color.bdPrimary,
-        backgroundColor: selected ? theme.color.bgAccent : 'transparent',
-      }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space.sm }}>
-        <Text
-          style={{
-            ...theme.type.heading,
-            color: selected ? theme.color.txAccent : theme.color.txPrimary,
-          }}>
-          {host.label}
+      accessibilityRole="button"
+      accessibilityState={{ selected }}
+      accessibilityLabel={`${host.label}${selected ? ', current' : ''}. ${host.daemonUrl}. ${status.text}`}
+      style={{ borderRadius: theme.radius.lg }}>
+      <Box
+        p="lg"
+        radius="lg"
+        bg={selected ? 'bgAccent' : 'bgSolidCard'}
+        border={selected ? 'medium' : 'hairline'}
+        borderColor={selected ? 'bdAccent' : 'bdCard'}>
+        <Inline gap="sm">
+          <Text variant="heading">{host.label}</Text>
+          {selected ? (
+            <Text variant="caption" color="txAccent">
+              current
+            </Text>
+          ) : null}
+        </Inline>
+        <Text variant="caption" color="txTertiary" style={{ paddingTop: theme.space.xs }}>
+          {host.daemonUrl}
         </Text>
-        {selected ? (
-          <Text style={{ ...theme.type.caption, color: theme.color.txAccent }}>· current</Text>
-        ) : null}
-      </View>
-
-      <Text style={{ ...theme.type.caption, color: theme.color.txTertiary }}>{host.daemonUrl}</Text>
-
-      {/* The workspace root, not a green dot — two machines both serving is the
-          case this screen exists for, and only the root tells them apart. */}
-      <Text style={{ ...theme.type.caption, color: status.color, paddingTop: theme.space.xxs }}>
-        {status.text}
-      </Text>
+        {/* The workspace root, not a green dot — two machines both serving is
+            the case this screen exists for, and only the root tells them apart. */}
+        <Text variant="caption" color={status.color} style={{ paddingTop: theme.space.xxs }}>
+          {status.text}
+        </Text>
+      </Box>
     </Pressable>
   );
 }
