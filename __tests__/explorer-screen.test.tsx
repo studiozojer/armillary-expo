@@ -105,6 +105,78 @@ describe('Explorer screen', () => {
       { initialUrl: '/' },
     );
 
-    expect(await screen.findByText('Settings')).toBeTruthy();
+    expect(await screen.findByRole('button', { name: 'Settings' })).toBeTruthy();
+  });
+
+  it('capture stays reachable from the chrome', async () => {
+    globalThis.fetch = jest.fn((url: string) => {
+      if (url.includes('/tree')) {
+        return jsonResponse(200, { path: '', total: 0, truncated: false, entries: [] });
+      }
+      if (url.includes('/composition')) return jsonResponse(404, 'not composed');
+      throw new Error(`unexpected fetch: ${url}`);
+    }) as unknown as typeof fetch;
+
+    await renderRouter({ _layout: TestRootLayout, index: Explorer }, { initialUrl: '/' });
+
+    expect(await screen.findByRole('button', { name: 'Capture' })).toBeTruthy();
+  });
+
+  it('search and overflow are announced disabled', async () => {
+    globalThis.fetch = jest.fn((url: string) => {
+      if (url.includes('/tree')) {
+        return jsonResponse(200, { path: '', total: 0, truncated: false, entries: [] });
+      }
+      if (url.includes('/composition')) return jsonResponse(404, 'not composed');
+      throw new Error(`unexpected fetch: ${url}`);
+    }) as unknown as typeof fetch;
+
+    await renderRouter({ _layout: TestRootLayout, index: Explorer }, { initialUrl: '/' });
+    await screen.findByRole('button', { name: 'Capture' });
+
+    expect(screen.getByTestId('search-stub').props.accessibilityState).toMatchObject({
+      disabled: true,
+    });
+    expect(screen.getByTestId('explorer-more-stub').props.accessibilityState).toMatchObject({
+      disabled: true,
+    });
+  });
+
+  it('the identity header names the host and its composition, still linking to /composition', async () => {
+    globalThis.fetch = jest.fn((url: string) => {
+      if (url.includes('/tree')) {
+        return jsonResponse(200, { path: '', total: 0, truncated: false, entries: [] });
+      }
+      if (url.includes('/composition')) {
+        return jsonResponse(200, {
+          operators: Array.from({ length: 4 }, (_, i) => ({
+            name: `operator-${i}`,
+            path: `operators/operator-${i}`,
+          })),
+          repos: Array.from({ length: 15 }, (_, i) => ({ name: `repo-${i}`, path: `repos/repo-${i}` })),
+          commons: Array.from({ length: 2 }, (_, i) => ({
+            name: `commons-${i}`,
+            path: `commons-${i}`,
+          })),
+          protocols: [],
+          manifests: [],
+          protocol_sources: [],
+        });
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    }) as unknown as typeof fetch;
+
+    await renderRouter({ _layout: TestRootLayout, index: Explorer }, { initialUrl: '/' });
+
+    expect(await screen.findByText('benatky')).toBeTruthy();
+    expect(screen.getByText('4 operators • 15 repos • 2 commons ›')).toBeTruthy();
+  });
+
+  it('chrome renders on the error state too', async () => {
+    globalThis.fetch = jest.fn(() => Promise.reject(new Error('network down'))) as unknown as typeof fetch;
+
+    await renderRouter({ _layout: TestRootLayout, index: Explorer }, { initialUrl: '/' });
+
+    expect(await screen.findByRole('button', { name: 'Settings' })).toBeTruthy();
   });
 });
