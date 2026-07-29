@@ -7,6 +7,7 @@ export { Icon, ICONS, type IconName } from './icon';
 export { Inline, Stack } from './stack';
 export { ListRow } from './list-row';
 export { ROW_ICON_LANE, Rule } from './rule';
+export { Roundel, roundelGlyph } from './roundel';
 export { Screen } from './screen';
 export { SectionHeader } from './section-header';
 export { Text, type TextProps } from './text';
