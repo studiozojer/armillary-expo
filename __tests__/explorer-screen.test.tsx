@@ -178,5 +178,6 @@ describe('Explorer screen', () => {
     await renderRouter({ _layout: TestRootLayout, index: Explorer }, { initialUrl: '/' });
 
     expect(await screen.findByRole('button', { name: 'Settings' })).toBeTruthy();
+    expect(await screen.findByRole('button', { name: 'Capture' })).toBeTruthy();
   });
 });

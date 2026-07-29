@@ -135,41 +135,46 @@ export default function Instances() {
 
   if (state.status === 'error') {
     return (
-      <Screen p="lg">
+      <Screen>
         {chrome}
-        {/* Named specifically — an unreachable engine is exactly what a
-            stubbed-looking banner used to paper over. */}
-        <Text style={{ ...theme.type.heading, color: theme.color.txPrimary }}>
-          Can&apos;t reach the engine
-        </Text>
-        <Text
-          style={{
-            ...theme.type.caption,
-            color: theme.color.txTertiary,
-            paddingTop: theme.space.xs,
-          }}>
-          {host.daemonUrl}
-        </Text>
-        <Text
-          style={{
-            ...theme.type.caption,
-            color: theme.color.txTertiary,
-            paddingTop: theme.space.sm,
-          }}>
-          {state.error instanceof Error ? state.error.message : String(state.error)}
-        </Text>
-        <Pressable
-          onPress={retry}
-          style={{
-            marginTop: theme.space.lg,
-            alignSelf: 'flex-start',
-            paddingVertical: theme.space.sm,
-            paddingHorizontal: theme.space.lg,
-            borderRadius: theme.radius.md,
-            backgroundColor: theme.color.bgAccent,
-          }}>
-          <Text style={{ ...theme.type.label, color: theme.color.txAccent }}>Try again</Text>
-        </Pressable>
+        {/* ChromeZone already carries its own px="lg"; this box owns only the
+            error copy's inset, so the chrome above it stays full-bleed and
+            lands at the same spot as every other state (the scar rule). */}
+        <Box p="lg">
+          {/* Named specifically — an unreachable engine is exactly what a
+              stubbed-looking banner used to paper over. */}
+          <Text style={{ ...theme.type.heading, color: theme.color.txPrimary }}>
+            Can&apos;t reach the engine
+          </Text>
+          <Text
+            style={{
+              ...theme.type.caption,
+              color: theme.color.txTertiary,
+              paddingTop: theme.space.xs,
+            }}>
+            {host.daemonUrl}
+          </Text>
+          <Text
+            style={{
+              ...theme.type.caption,
+              color: theme.color.txTertiary,
+              paddingTop: theme.space.sm,
+            }}>
+            {state.error instanceof Error ? state.error.message : String(state.error)}
+          </Text>
+          <Pressable
+            onPress={retry}
+            style={{
+              marginTop: theme.space.lg,
+              alignSelf: 'flex-start',
+              paddingVertical: theme.space.sm,
+              paddingHorizontal: theme.space.lg,
+              borderRadius: theme.radius.md,
+              backgroundColor: theme.color.bgAccent,
+            }}>
+            <Text style={{ ...theme.type.label, color: theme.color.txAccent }}>Try again</Text>
+          </Pressable>
+        </Box>
       </Screen>
     );
   }

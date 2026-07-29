@@ -72,68 +72,75 @@ export default function Explorer() {
 
   if (state.status === 'error') {
     return (
-      <Screen p="lg">
+      <Screen>
         {chrome}
-        <Text style={{ ...theme.type.heading, color: theme.color.txPrimary }}>
-          Can&apos;t reach the engine
-        </Text>
-        {/* Named specifically, because the app is usually where a tailnet or a
-            bind problem first becomes visible, and "something went wrong" would
-            send you looking in the wrong place. */}
-        <Text
-          style={{
-            ...theme.type.caption,
-            color: theme.color.txTertiary,
-            paddingTop: theme.space.xs,
-          }}>
-          {host.daemonUrl}
-        </Text>
-        <Text
-          style={{
-            ...theme.type.caption,
-            color: theme.color.txTertiary,
-            paddingTop: theme.space.sm,
-          }}>
-          {state.error instanceof Error ? state.error.message : String(state.error)}
-        </Text>
-
-        <View style={{ flexDirection: 'row', gap: theme.space.sm, marginTop: theme.space.lg }}>
-          <Pressable
-            onPress={retry}
+        {/* ChromeZone already carries its own px="lg"; this box owns only the
+            error copy's inset, so the chrome above it stays full-bleed and
+            lands at the same spot as every other state (the scar rule). */}
+        <Box p="lg">
+          <Text style={{ ...theme.type.heading, color: theme.color.txPrimary }}>
+            Can&apos;t reach the engine
+          </Text>
+          {/* Named specifically, because the app is usually where a tailnet or a
+              bind problem first becomes visible, and "something went wrong" would
+              send you looking in the wrong place. */}
+          <Text
             style={{
-              paddingVertical: theme.space.sm,
-              paddingHorizontal: theme.space.lg,
-              borderRadius: theme.radius.md,
-              backgroundColor: theme.color.bgAccent,
+              ...theme.type.caption,
+              color: theme.color.txTertiary,
+              paddingTop: theme.space.xs,
             }}>
-            <Text style={{ ...theme.type.label, color: theme.color.txAccent }}>Try again</Text>
-          </Pressable>
-          {/* The switcher belongs here above all: an unreachable host is exactly
-              when you want to try another one. */}
-          <Link href="/settings" asChild>
+            {host.daemonUrl}
+          </Text>
+          <Text
+            style={{
+              ...theme.type.caption,
+              color: theme.color.txTertiary,
+              paddingTop: theme.space.sm,
+            }}>
+            {state.error instanceof Error ? state.error.message : String(state.error)}
+          </Text>
+
+          <View style={{ flexDirection: 'row', gap: theme.space.sm, marginTop: theme.space.lg }}>
             <Pressable
+              onPress={retry}
               style={{
                 paddingVertical: theme.space.sm,
                 paddingHorizontal: theme.space.lg,
                 borderRadius: theme.radius.md,
-                borderWidth: theme.border.thin,
-                borderColor: theme.color.bdPrimary,
+                backgroundColor: theme.color.bgAccent,
               }}>
-              <Text style={{ ...theme.type.label, color: theme.color.txSecondary }}>
-                Change host
-              </Text>
+              <Text style={{ ...theme.type.label, color: theme.color.txAccent }}>Try again</Text>
             </Pressable>
-          </Link>
-        </View>
+            {/* The switcher belongs here above all: an unreachable host is exactly
+                when you want to try another one. */}
+            <Link href="/settings" asChild>
+              <Pressable
+                style={{
+                  paddingVertical: theme.space.sm,
+                  paddingHorizontal: theme.space.lg,
+                  borderRadius: theme.radius.md,
+                  borderWidth: theme.border.thin,
+                  borderColor: theme.color.bdPrimary,
+                }}>
+                <Text style={{ ...theme.type.label, color: theme.color.txSecondary }}>
+                  Change host
+                </Text>
+              </Pressable>
+            </Link>
+          </View>
+        </Box>
       </Screen>
     );
   }
 
   if (state.status === 'loading') {
     return (
-      <Screen style={{ justifyContent: 'center' }}>
+      <Screen>
         {chrome}
-        <ActivityIndicator />
+        <Box flex={1} style={{ justifyContent: 'center', alignItems: 'center' }}>
+          <ActivityIndicator />
+        </Box>
       </Screen>
     );
   }
