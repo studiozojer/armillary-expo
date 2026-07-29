@@ -87,7 +87,7 @@ describe('Settings as a root-level modal', () => {
     // presentable from both.
     await renderRouter(routes, { initialUrl: '/' });
 
-    fireEvent.press(await screen.findByText('Settings'));
+    fireEvent.press(await screen.findByRole('button', { name: 'Settings' }));
 
     expect(await screen.findByText(SETTINGS_MARKER)).toBeTruthy();
   });

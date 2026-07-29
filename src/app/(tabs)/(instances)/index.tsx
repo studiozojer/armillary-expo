@@ -1,11 +1,20 @@
-import { Link, useFocusEffect } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { Stack } from 'expo-router/stack';
 import { useCallback, useMemo, useRef } from 'react';
 import { ActivityIndicator, FlatList, Pressable, Text } from 'react-native';
 
+import { ChromeZone } from '@/components/chrome-zone';
 import { InstanceCard } from '@/components/instance-card';
-import { SettingsButton } from '@/components/settings-button';
-import { Box, Callout, Icon, ROW_ICON_LANE, Rule, Screen } from '@/components/ui';
+import {
+  Box,
+  Callout,
+  CircleButton,
+  Icon,
+  Inline,
+  Screen,
+  SectionHeader,
+  Text as UIText,
+} from '@/components/ui';
 import { useHost } from '@/lib/host-context';
 import type { Instance } from '@/lib/session/events';
 import { sessionAPIFor } from '@/lib/session/instance';
@@ -19,18 +28,53 @@ const MOCK = process.env.EXPO_PUBLIC_SESSION_MOCK === '1';
 
 /**
  * Opens the new-instance sheet. Present on both this screen's states (the
- * list and the "can't reach the engine" error) — the same reasoning as
- * `SettingsButton` living in both: a button missing from one branch renders
- * exactly like a screen with no button, which is how Settings went missing
- * once already.
+ * list and the "can't reach the engine" error) — the same reasoning as the
+ * gear living in both, via `ChromeZone`: a control missing from one branch
+ * renders exactly like a screen with no control, which is how Settings went
+ * missing once already.
  */
-function NewInstanceButton() {
+function CreatePill({ disabled = false }: { disabled?: boolean }) {
+  const router = useRouter();
+  const theme = useTheme();
   return (
-    <Link href="/(tabs)/(instances)/new" asChild>
-      <Pressable hitSlop={8} accessibilityLabel="New instance">
-        <Icon name="plus" size={20} color="icAccent" />
-      </Pressable>
-    </Link>
+    <Pressable
+      testID="create-pill"
+      accessibilityRole="button"
+      accessibilityLabel="Create new instance"
+      accessibilityState={{ disabled }}
+      disabled={disabled}
+      onPress={disabled ? undefined : () => router.push('/(tabs)/(instances)/new')}
+      style={({ pressed }) => ({
+        borderRadius: theme.radius.lg,
+        backgroundColor:
+          pressed && !disabled ? theme.color.bgSolidCardPressed : theme.color.bgSolidCard,
+      })}>
+      <Box py="md">
+        <Inline gap="sm" justify="center">
+          <UIText color={disabled ? 'txDisabled' : 'txPrimary'}>Create new instance</UIText>
+          <Icon name="plus" size={18} color={disabled ? 'txDisabled' : 'icPrimary'} />
+        </Inline>
+      </Box>
+    </Pressable>
+  );
+}
+
+/** The `All ⌄` filter, disabled until filtering is designed (spec § stubs). */
+function FilterStub() {
+  return (
+    <Pressable
+      testID="filter-stub"
+      disabled
+      accessibilityRole="button"
+      accessibilityLabel="Filter instances"
+      accessibilityState={{ disabled: true }}>
+      <Inline gap="xs">
+        <UIText variant="label" color="txDisabled">
+          All
+        </UIText>
+        <Icon name="chevronDown" size={14} color="txDisabled" />
+      </Inline>
+    </Pressable>
   );
 }
 
@@ -74,12 +118,25 @@ export default function Instances() {
     }, [refresh]),
   );
 
+  // The header used to own the gear and the create control; now `ChromeZone`
+  // does, mounted once above the state switch — never per branch (see its
+  // own comment for the scar that rule comes from).
+  const chrome = (
+    <>
+      <Stack.Screen options={{ headerShown: false }} />
+      <ChromeZone
+        trailing={<CircleButton testID="more-stub" icon="more" accessibilityLabel="More" disabled />}
+      />
+      <Box px="lg" style={{ paddingBottom: theme.space.md }}>
+        <CreatePill disabled={state.status === 'error'} />
+      </Box>
+    </>
+  );
+
   if (state.status === 'error') {
     return (
       <Screen p="lg">
-        <Stack.Screen
-          options={{ headerLeft: () => <SettingsButton />, headerRight: () => <NewInstanceButton /> }}
-        />
+        {chrome}
         {/* Named specifically — an unreachable engine is exactly what a
             stubbed-looking banner used to paper over. */}
         <Text style={{ ...theme.type.heading, color: theme.color.txPrimary }}>
@@ -120,13 +177,8 @@ export default function Instances() {
   const instances = state.status === 'ok' ? state.data : [];
 
   return (
-    <Screen edges={[]}>
-      {/* Settings is reachable from both tabs, because it holds the host
-          switcher — and which machine is serving is as load-bearing here as it
-          is in Explorer. */}
-      <Stack.Screen
-        options={{ headerLeft: () => <SettingsButton />, headerRight: () => <NewInstanceButton /> }}
-      />
+    <Screen edges={['top']}>
+      {chrome}
 
       {/* Once this was a permanent "not live yet" banner. The live engine has
           arrived — the honest banner now only exists when the mock is
@@ -140,6 +192,8 @@ export default function Instances() {
         </Box>
       ) : null}
 
+      <SectionHeader trailing={<FilterStub />}>Instances</SectionHeader>
+
       {state.status === 'loading' ? (
         <ActivityIndicator style={{ marginTop: theme.space.xl }} />
       ) : (
@@ -147,18 +201,14 @@ export default function Instances() {
           testID="instances-list"
           data={instances}
           keyExtractor={(instance) => instance.id}
-          // No horizontal padding on the container: rows are full-bleed like
-          // TreeList's (each `ListRow` carries its own inset), so a pressed
-          // row paints edge to edge instead of leaving an unpainted margin.
-          contentContainerStyle={{ paddingBottom: theme.space.xxxl }}
+          contentContainerStyle={{
+            paddingHorizontal: theme.space.lg,
+            paddingBottom: theme.space.xxxl,
+            gap: theme.space.sm,
+          }}
           refreshing={refreshing}
           onRefresh={refresh}
-          renderItem={({ item, index }) => (
-            <>
-              <InstanceCard instance={item} />
-              {index < instances.length - 1 ? <Rule inset={ROW_ICON_LANE} /> : null}
-            </>
-          )}
+          renderItem={({ item }) => <InstanceCard instance={item} />}
         />
       )}
     </Screen>

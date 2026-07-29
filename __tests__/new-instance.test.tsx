@@ -198,7 +198,7 @@ describe('New instance sheet', () => {
     expect(await screen.findByText('session:inst-10')).toBeTruthy();
   });
 
-  it('the + button on Instances opens the new-instance sheet', async () => {
+  it('the create pill on Instances opens the new-instance sheet', async () => {
     mockApi = makeMockApi();
     globalThis.fetch = jest.fn((url: string) => {
       if (url.includes('/composition')) {
@@ -216,7 +216,7 @@ describe('New instance sheet', () => {
 
     await renderRouter(routes, { initialUrl: '/' });
 
-    await fireEvent.press(await screen.findByLabelText('New instance'));
+    await fireEvent.press(await screen.findByLabelText('Create new instance'));
 
     expect(await screen.findByText('Dispatcher')).toBeTruthy();
   });

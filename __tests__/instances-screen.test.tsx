@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { act, renderRouter, screen, fireEvent } from 'expo-router/testing-library';
+import { act, cleanup, renderRouter, screen, fireEvent } from 'expo-router/testing-library';
 import { Stack } from 'expo-router/stack';
 import { Text } from 'react-native';
 
@@ -23,11 +23,13 @@ import type { SessionAPI } from '../src/lib/session/api';
  */
 let focusCallback: (() => void) | undefined;
 const mockUseFocusEffect = jest.fn();
+const mockPush = jest.fn();
 jest.mock('expo-router', () => {
   const actual = jest.requireActual('expo-router');
   const ReactActual = jest.requireActual('react');
   return {
     ...actual,
+    useRouter: () => ({ ...actual.useRouter(), push: mockPush }),
     useFocusEffect: (callback: () => void) => {
       mockUseFocusEffect(callback);
       focusCallback = callback;
@@ -94,6 +96,7 @@ describe('Instances list screen', () => {
     await AsyncStorage.clear();
     focusCallback = undefined;
     mockUseFocusEffect.mockClear();
+    mockPush.mockClear();
   });
 
   it('wires pull-to-refresh to the loader: pulling refetches the list', async () => {
@@ -131,5 +134,81 @@ describe('Instances list screen', () => {
     });
 
     expect(list).toHaveBeenCalledTimes(2);
+  });
+
+  it('the create pill opens the sheet', async () => {
+    const list = jest.fn(async () => [instanceFor('inst-1', 'tycho')]);
+    mockApi = makeMockApi({ list });
+
+    await renderRouter(routes, { initialUrl: '/' });
+    expect(await screen.findByText('tycho')).toBeTruthy();
+
+    fireEvent.press(screen.getByTestId('create-pill'));
+    expect(mockPush).toHaveBeenCalledWith('/(tabs)/(instances)/new');
+  });
+
+  it('the create pill is present but disabled on the error state', async () => {
+    const list = jest.fn(async () => {
+      throw new Error('unreachable');
+    });
+    mockApi = makeMockApi({ list });
+
+    await renderRouter(routes, { initialUrl: '/' });
+    expect(await screen.findByText("Can't reach the engine")).toBeTruthy();
+
+    const pill = screen.getByTestId('create-pill');
+    expect(pill.props.accessibilityState).toMatchObject({ disabled: true });
+    fireEvent.press(pill);
+    expect(mockPush).not.toHaveBeenCalled();
+  });
+
+  it('chrome renders on both states', async () => {
+    const list = jest.fn(async () => [instanceFor('inst-1', 'tycho')]);
+    mockApi = makeMockApi({ list });
+    await renderRouter(routes, { initialUrl: '/' });
+    expect(await screen.findByText('tycho')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Settings' })).toBeTruthy();
+    await act(async () => cleanup());
+
+    const errorList = jest.fn(async () => {
+      throw new Error('unreachable');
+    });
+    mockApi = makeMockApi({ list: errorList });
+    await renderRouter(routes, { initialUrl: '/' });
+    expect(await screen.findByText("Can't reach the engine")).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Settings' })).toBeTruthy();
+  });
+
+  it('the filter and overflow are announced disabled', async () => {
+    const list = jest.fn(async () => [instanceFor('inst-1', 'tycho')]);
+    mockApi = makeMockApi({ list });
+
+    await renderRouter(routes, { initialUrl: '/' });
+    expect(await screen.findByText('tycho')).toBeTruthy();
+
+    expect(screen.getByTestId('filter-stub').props.accessibilityState).toMatchObject({
+      disabled: true,
+    });
+    expect(screen.getByTestId('more-stub').props.accessibilityState).toMatchObject({
+      disabled: true,
+    });
+  });
+
+  it('rows carry the operator roundel and the honest note line', async () => {
+    const instance: Instance = {
+      id: 'inst-1',
+      operator: 'tycho',
+      stream: 'chat',
+      startedAt: new Date().toISOString(),
+      lastSeq: 12,
+    };
+    const list = jest.fn(async () => [instance]);
+    mockApi = makeMockApi({ list });
+
+    await renderRouter(routes, { initialUrl: '/' });
+    expect(await screen.findByText('tycho')).toBeTruthy();
+
+    expect(screen.getByText('t', { includeHiddenElements: true })).toBeTruthy();
+    expect(screen.getByText('chat · seq 12')).toBeTruthy();
   });
 });
