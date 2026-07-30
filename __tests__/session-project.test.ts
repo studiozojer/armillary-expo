@@ -5,6 +5,7 @@ import type {
   Actor,
   AssistantDeltaData,
   AssistantMessageData,
+  CompositionData,
   ContextEvictData,
   DurableType,
   ToolResultData,
@@ -94,6 +95,11 @@ function plausibleDataFor(type: DurableType): object {
       return { child: 'child-1', childStream: 'child-1-stream', operator: 'kepler' };
     case 'return':
       return { child: 'child-1', summary: 'done' };
+    case 'composition':
+      return {
+        manifests: [{ path: 'modules.toml', sha256: 'deadbeef' }],
+        composition: { operators: [{ name: 'tycho' }], commons: [], repos: [], protocols: [] },
+      };
     case 'tool_use':
       return { id: 'toolu_01A', name: 'read_file', input: { path: 'CLAUDE.md' } };
     case 'tool_result':
@@ -138,6 +144,52 @@ describe('projectSession', () => {
       );
       expect(unhandled).toHaveLength(0);
     }
+  });
+
+  describe('the composition event', () => {
+    const composition = (over: Partial<CompositionData['composition']> = {}) =>
+      makeEnvelope(
+        'composition',
+        {
+          manifests: [{ path: 'modules.toml', sha256: 'abc' }],
+          composition: { operators: [], commons: [], repos: [], protocols: [], ...over },
+        },
+        { actor: { role: 'system' } },
+      );
+
+    it('counts what is composed rather than pasting the manifest into a label', () => {
+      const rows = projectSession(
+        [
+          composition({
+            operators: [{ name: 'tycho' }, { name: 'kepler' }],
+            repos: [{ name: 'kairos-engine' }],
+            protocols: [{ name: 'board' }],
+          }),
+        ],
+        new Map(),
+        [],
+      );
+      const label = rows.find(isSystemRow)!.label;
+      expect(label).toContain('2 operators');
+      expect(label).toContain('1 repo');
+      expect(label).toContain('1 protocol');
+      expect(label).not.toContain('tycho');
+    });
+
+    it('says a bare workspace composes nothing rather than rendering an empty label', () => {
+      const rows = projectSession([composition()], new Map(), []);
+      const label = rows.find(isSystemRow)!.label;
+      expect(label.trim().length).toBeGreaterThan(0);
+      expect(label).toContain('nothing');
+    });
+
+    it('does not render as a message from the user', () => {
+      // Engine-authored. It rides in a User-role turn at the model boundary
+      // because the wire has two roles, but the transcript has more room than
+      // that and must not blur who wrote it.
+      const rows = projectSession([composition()], new Map(), []);
+      expect(rows.filter(isMessageRow)).toHaveLength(0);
+    });
   });
 
   describe('a tool round', () => {

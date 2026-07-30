@@ -40,7 +40,7 @@ export type Instance = {
 };
 
 export const DURABLE_TYPES = [
-  'instance_created', 'boot', 'user_message', 'assistant_message',
+  'instance_created', 'boot', 'composition', 'user_message', 'assistant_message',
   'interrupt', 'context_evict', 'dispatch', 'return',
   'tool_use', 'tool_result',
 ] as const;
@@ -85,6 +85,25 @@ export type ToolResultData = {
   status: string;
   content: string;
   isError: boolean;
+};
+/**
+ * **DD-1** — what the engine determined the workspace is composed of, recorded
+ * at instance creation and re-derived when a manifest changes under the
+ * session.
+ *
+ * `manifests` carries the sha256 digests the engine re-checks for drift; they
+ * are not this client's business, but they are part of the event and typing
+ * them as absent would be a lie. `composition` is the parsed manifest — modules
+ * carry more fields than `name`, which is all any label here needs.
+ */
+export type CompositionData = {
+  manifests: { path: string; sha256: string }[];
+  composition: {
+    operators?: { name: string }[];
+    commons?: { name: string }[];
+    repos?: { name: string }[];
+    protocols?: { name: string }[];
+  };
 };
 export type ContextEvictData = { target: string };
 export type DispatchData = { child: string; childStream: string; operator: string | null };
