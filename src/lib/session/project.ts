@@ -12,6 +12,8 @@ import type {
   DispatchData,
   EventEnvelope,
   ReturnData,
+  ToolResultData,
+  ToolUseData,
   UserMessageData,
 } from './events';
 
@@ -45,6 +47,21 @@ function systemRow(e: EventEnvelope, label: string): SessionRow {
   return { kind: 'system', id: e.id, seq: e.seq, label };
 }
 
+/**
+ * The one argument worth a glance on a phone.
+ *
+ * `input` is whatever the model sent and is bounded by nothing, so it is never
+ * dumped into a label. `path` is the argument every read tool shares and the
+ * only one that answers "what did it just look at" — anything else is detail
+ * for a screen that can afford it.
+ */
+function toolArgLabel(input: unknown): string | undefined {
+  if (!input || typeof input !== 'object') return undefined;
+  const path = (input as { path?: unknown }).path;
+  if (typeof path !== 'string' || path.length === 0 || path.length > 120) return undefined;
+  return path;
+}
+
 type MessageRow = Extract<SessionRow, { kind: 'message' }>;
 
 export function projectSession(
@@ -60,8 +77,15 @@ export function projectSession(
   const evictedIds = new Set<string>();
   const durableGenerations = new Set<string>();
   const durableClientKeys = new Set<string>();
+  /** tool_use id → the tool's name, so a result can say what it answered. */
+  const toolNames = new Map<string, string>();
   for (const e of sorted) {
     switch (e.type) {
+      case 'tool_use': {
+        const data = e.data as ToolUseData;
+        toolNames.set(data.id, data.name);
+        break;
+      }
       case 'context_evict':
         evictedIds.add((e.data as ContextEvictData).target);
         break;
@@ -123,6 +147,31 @@ export function projectSession(
       case 'return': {
         const data = e.data as ReturnData;
         rows.push(systemRow(e, `returned from ${data.child}`));
+        break;
+      }
+      case 'tool_use': {
+        const data = e.data as ToolUseData;
+        const arg = toolArgLabel(data.input);
+        rows.push(systemRow(e, arg ? `${data.name}: ${arg}` : data.name));
+        break;
+      }
+      case 'tool_result': {
+        const data = e.data as ToolResultData;
+        // The name comes from the batch's `tool_use`. It can be absent — the
+        // pair may have been split by an eviction, or the log replayed from a
+        // point after the call — so this reads as "a tool" rather than
+        // crashing on a lookup the client cannot guarantee.
+        const name = toolNames.get(data.toolUseId) ?? 'tool';
+        // `status` verbatim, never a paraphrase, and `content` by size only:
+        // one result can be 64 KiB and this label is a glance.
+        rows.push(
+          systemRow(
+            e,
+            data.isError
+              ? `${name} refused: ${data.status}`
+              : `${name} answered (${data.content.length} chars)`,
+          ),
+        );
         break;
       }
       default: {

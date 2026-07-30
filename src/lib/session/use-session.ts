@@ -11,6 +11,7 @@ import type {
   SubscriptionHandler,
   SubscriptionStatus,
 } from './events';
+import { ASSISTANT_DELTA } from './events';
 import type { PendingSend, SessionRow } from './project';
 import { projectSession } from './project';
 
@@ -134,7 +135,18 @@ export function useSession(api: SessionAPI, instanceId: string, enabled = true):
       onEvent: (e) => {
         if (epoch.current !== mine) return;
         if (e.seq === 0) {
-          // Transient assistant_delta: keyed by generation, snapshot semantics (I-4).
+          // Transient: seq 0, never persisted (invariant iii).
+          //
+          // **The type check is not redundant with the seq check.** `seq === 0`
+          // alone meant every transient was cast to a delta, so an unrecognized
+          // one keyed the map under `undefined` and no `assistant_message`
+          // could ever clear it — a permanently frozen streaming bubble from
+          // one event this client was never taught. A transient's scope equals
+          // the durable event it previews; one we cannot name previews nothing,
+          // and dropping it loses no record, because the record is the log.
+          if (e.type !== ASSISTANT_DELTA) return;
+          // Keyed by generation, snapshot semantics (I-4) — data is the text so
+          // far, never a delta to append.
           const data = e.data as AssistantDeltaData;
           setTransients((prev) => {
             const next = new Map(prev);

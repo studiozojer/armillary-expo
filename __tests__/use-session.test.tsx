@@ -259,6 +259,32 @@ describe('useSession', () => {
     expect(subscribeCalls[1].fromSeq).toBe(2);
   });
 
+  it('ignores a transient it does not understand rather than keying a phantom on undefined', async () => {
+    // `seq === 0` meant "assistant_delta" and nothing else, so ANY other
+    // transient was blind-cast: `data.generation` came back `undefined`, keyed
+    // a streaming row under that key, and no `assistant_message` could ever
+    // clear it. A permanent frozen bubble, from one event the client was never
+    // taught. The invariant is D12′'s: a transient's scope equals the durable
+    // event it previews — one it cannot name previews nothing.
+    const { api, resolveAttach, subscribeCalls } = scriptedApi('s1');
+    let current!: UseSessionResult;
+    await render(<Harness api={api} instanceId="inst-1" capture={(r) => (current = r)} />);
+
+    await act(async () => {
+      resolveAttach();
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    const handler = subscribeCalls[0].handler;
+    await act(async () => {
+      handler.onEvent(envelope('some_future_transient', { whatever: true }, 0));
+    });
+
+    expect(current.rows.some((r) => r.kind === 'streaming')).toBe(false);
+  });
+
   it('clears a frozen mid-generation transient on a closed status, and renders the durable finalizer exactly once on reconnect', async () => {
     jest.useFakeTimers();
     const { api, resolveAttach, subscribeCalls } = scriptedApi('s1');

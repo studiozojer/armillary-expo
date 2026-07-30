@@ -42,6 +42,7 @@ export type Instance = {
 export const DURABLE_TYPES = [
   'instance_created', 'boot', 'user_message', 'assistant_message',
   'interrupt', 'context_evict', 'dispatch', 'return',
+  'tool_use', 'tool_result',
 ] as const;
 export type DurableType = (typeof DURABLE_TYPES)[number];
 
@@ -65,6 +66,26 @@ export type AssistantMessageData = {
 };
 export type AssistantDeltaData = { textSoFar: string; generation: string };
 export type BootData = { path: string; sha256: string };
+/** The model asked for a tool. `parent` on the envelope links a whole batch. */
+export type ToolUseData = { id: string; name: string; input: unknown };
+/**
+ * The tool answered. `status` is the machine code and it is **sovereign** —
+ * the engine, this client and conformance all read it, and it is never derived
+ * from `content`. `ok` on success; otherwise the guard's or the tool's own
+ * code (`denied_credential`, `not_openable`, `bound_reached`, …). Same house
+ * rule as `AssistantMessageData.error`: name the refusal verbatim, never
+ * paraphrase it.
+ *
+ * The wire has no slot for `status` inside a `tool_result` block (a `status`
+ * key there is a 400), so at the model boundary it renders into `content`
+ * alongside `isError` — but in the log, and here, it stays typed.
+ */
+export type ToolResultData = {
+  toolUseId: string;
+  status: string;
+  content: string;
+  isError: boolean;
+};
 export type ContextEvictData = { target: string };
 export type DispatchData = { child: string; childStream: string; operator: string | null };
 export type ReturnData = { child: string; summary?: string };
