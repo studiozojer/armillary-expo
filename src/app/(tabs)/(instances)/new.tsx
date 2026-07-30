@@ -66,7 +66,7 @@ export default function NewInstance() {
       // sheet closes as a side effect of leaving, and back from the session
       // lands on the list, never back on the sheet. `push` would leave the
       // sheet in history for exactly that back button to return to.
-      router.replace(`/(tabs)/(instances)/${instance.id}`);
+      router.replace(`/instance/${instance.id}`);
     } catch (error) {
       setCreateError(error instanceof Error ? error.message : String(error));
       setCreating(false);

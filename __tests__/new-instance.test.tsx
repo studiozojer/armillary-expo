@@ -77,7 +77,7 @@ const routes = {
   '(tabs)/(instances)/_layout': InstancesLayout,
   '(tabs)/(instances)/index': Instances,
   '(tabs)/(instances)/new': New,
-  '(tabs)/(instances)/[instanceId]': SessionStub,
+  'instance/[instanceId]': SessionStub,
 };
 
 describe('New instance sheet', () => {

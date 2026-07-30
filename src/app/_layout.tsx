@@ -40,6 +40,12 @@ function NavigationChrome({ children }: { children: ReactNode }) {
  *
  * The tabs screen hides its own header because each group inside it runs its
  * own `Stack` and draws one.
+ *
+ * The instance chat is here too, and for a second reason on top of that one:
+ * a screen registered above the tab bar takes the bar with it when pushed, so
+ * the chat is entered rather than opened over. That makes this stack the home
+ * of both kinds of screen that leave the tabs behind — the shared modal, and
+ * the pushed destination.
  */
 export default function RootLayout() {
   const [fontsLoaded, fontError] = useFonts(fontMap);
@@ -79,6 +85,23 @@ export default function RootLayout() {
               <Stack.Screen
                 name="settings"
                 options={{ title: 'Settings', presentation: 'modal' }}
+              />
+              {/* The chat sits on the ROOT stack, not inside the Instances
+                  group, so the tab bar belongs to the screen it is pushed
+                  from: list and bar translate off together, and the chat comes
+                  in over neither. This is UIKit's `hidesBottomBarWhenPushed`
+                  obtained by structure rather than by a custom transition —
+                  the same reason Settings lives here, one level above the bar.
+
+                  `title` is a FALLBACK, not the header: the screen sets its
+                  own title to `@operator` (or `dispatcher`) once attach()
+                  resolves. Both it and `headerBackButtonDisplayMode` were
+                  inherited from the `(instances)` group layout this route
+                  left, and are re-declared here because nothing else would
+                  supply them. */}
+              <Stack.Screen
+                name="instance/[instanceId]"
+                options={{ title: 'Instance', headerBackButtonDisplayMode: 'minimal' }}
               />
             </Stack>
           </PreferencesProvider>

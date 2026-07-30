@@ -88,7 +88,7 @@ const routes = {
   '(tabs)/(instances)/_layout': InstancesLayout,
   '(tabs)/(instances)/index': Instances,
   '(tabs)/(instances)/new': NewStub,
-  '(tabs)/(instances)/[instanceId]': SessionStub,
+  'instance/[instanceId]': SessionStub,
 };
 
 describe('Instances list screen', () => {
@@ -210,5 +210,30 @@ describe('Instances list screen', () => {
 
     expect(screen.getByText('t', { includeHiddenElements: true })).toBeTruthy();
     expect(screen.getByText('chat · seq 12')).toBeTruthy();
+  });
+
+  it('pushes the chat at its root-level path, above the tab bar', async () => {
+    mockApi = makeMockApi({ list: jest.fn(async () => [instanceFor('inst-7', 'tycho')]) });
+
+    await renderRouter(routes, { initialUrl: '/' });
+
+    // By role, not by text: the card's press target is `CardRow`'s Pressable,
+    // which sets `accessibilityRole="button"` when given an `onPress` and is
+    // handed no testID by `InstanceCard`.
+    //
+    // Matched by regex, not by the bare operator name: CardRow composes its
+    // accessible name as `${label}. ${note}`, so this row announces as
+    // "tycho. inst-7 · seq 0". `name: 'tycho'` compares exactly and finds
+    // nothing. Anchored at the start so it stays about the operator and does
+    // not silently depend on the note line, which is the slot a topic and
+    // token metrics take over once the engine serves them.
+    await fireEvent.press(await screen.findByRole('button', { name: /^tycho\./ }));
+
+    // `/instance/<id>`, not `/(tabs)/(instances)/<id>`: the chat is registered
+    // on the ROOT stack, so the tab bar is part of the outgoing screen and
+    // leaves with the push. A rename that silently reverted this would show up
+    // here and nowhere else — the bar itself is invisible to jest (every suite
+    // stubs `(tabs)/_layout` as a plain `Stack`, because NativeTabs is native).
+    expect(mockPush).toHaveBeenCalledWith('/instance/inst-7');
   });
 });

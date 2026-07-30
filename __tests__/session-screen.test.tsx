@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
-import SessionScreen from '../src/app/(tabs)/(instances)/[instanceId]';
+import SessionScreen from '../src/app/instance/[instanceId]';
 import { MockSessionAPI } from '../src/lib/session/mock';
 import type { SessionAPI } from '../src/lib/session/api';
 import type { SubscriptionHandler } from '../src/lib/session/events';
