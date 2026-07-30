@@ -8,6 +8,7 @@ import type {
   ActorRole,
   AssistantDeltaData,
   AssistantMessageData,
+  CompositionData,
   ContextEvictData,
   DispatchData,
   EventEnvelope,
@@ -129,6 +130,32 @@ export function projectSession(
       }
       case 'boot': {
         rows.push(systemRow(e, 'boot'));
+        break;
+      }
+      case 'composition': {
+        // Counts, never contents. The full composition is kilobytes of JSON —
+        // the same "by size, not by pasting" rule the tool rows follow. What a
+        // glance needs is whether the session was booted into the workspace it
+        // was supposed to be, and the shape answers that.
+        const c = (e.data as CompositionData).composition ?? {};
+        const parts = [
+          [c.operators?.length ?? 0, 'operator'],
+          [c.commons?.length ?? 0, 'commons'],
+          [c.repos?.length ?? 0, 'repo'],
+          [c.protocols?.length ?? 0, 'protocol'],
+        ] as const;
+        const named = parts
+          .filter(([n]) => n > 0)
+          // `commons` is already plural; the others take an -s.
+          .map(([n, noun]) => `${n} ${noun === 'commons' || n === 1 ? noun : `${noun}s`}`);
+        rows.push(
+          systemRow(
+            e,
+            // C-4: a bare clone composes nothing, and saying so is the point.
+            // "composed:" with an empty tail would read as a rendering bug.
+            named.length > 0 ? `composed: ${named.join(', ')}` : 'composed: nothing declared',
+          ),
+        );
         break;
       }
       case 'interrupt': {
