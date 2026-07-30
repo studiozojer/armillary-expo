@@ -5,8 +5,10 @@ import type {
   Actor,
   AssistantDeltaData,
   AssistantMessageData,
+  CompositionData,
   ContextEvictData,
   DurableType,
+  ToolResultData,
   EventEnvelope,
   UserMessageData,
 } from '../src/lib/session/events';
@@ -63,8 +65,19 @@ function contextEvict(opts: { target: string; seq?: number }): EventEnvelope<Con
   return makeEnvelope('context_evict', { target: opts.target }, { seq: opts.seq });
 }
 
-/** Plausible payload per durable type — enough to satisfy each type's data shape. */
-function plausibleDataFor(type: DurableType): unknown {
+/**
+ * Plausible payload per durable type — enough to satisfy each type's data shape.
+ *
+ * **The return type is `object`, not `unknown`, and that is the whole point.**
+ * With `unknown`, a new member of `DURABLE_TYPES` fell through every case and
+ * returned `undefined`, which type-checked; the reducer's default arm then kept
+ * the row count non-zero and this guard passed. Two types were added with no
+ * payload and no reducer arm and neither `tsc` nor jest said a word. Now a
+ * missing case is a compile error here, and the assertion below is a jest
+ * failure there — the two halves of what `handled_types_cover_every_durable_type`
+ * does on the Rust side.
+ */
+function plausibleDataFor(type: DurableType): object {
   switch (type) {
     case 'instance_created':
       return { operator: 'tycho' };
@@ -82,6 +95,15 @@ function plausibleDataFor(type: DurableType): unknown {
       return { child: 'child-1', childStream: 'child-1-stream', operator: 'kepler' };
     case 'return':
       return { child: 'child-1', summary: 'done' };
+    case 'composition':
+      return {
+        manifests: [{ path: 'modules.toml', sha256: 'deadbeef' }],
+        composition: { operators: [{ name: 'tycho' }], commons: [], repos: [], protocols: [] },
+      };
+    case 'tool_use':
+      return { id: 'toolu_01A', name: 'read_file', input: { path: 'CLAUDE.md' } };
+    case 'tool_result':
+      return { toolUseId: 'toolu_01A', status: 'ok', content: '# armillary', isError: false };
   }
 }
 
@@ -108,6 +130,121 @@ describe('projectSession', () => {
       // no durable type may vanish silently — each yields a visible row.
       expect(rows.length).toBeGreaterThan(0);
     }
+  });
+
+  it('has a reducer arm for every type it claims to know', () => {
+    // `DURABLE_TYPES` is this client's hand-copied claim about what it
+    // understands. The default arm's `unhandled event type:` is the honest
+    // degradation for a type from a NEWER engine — reaching it for a type
+    // already on our own list is not degradation, it is the list lying.
+    for (const type of DURABLE_TYPES) {
+      const rows = projectSession([envelopeOf(type)], new Map(), []);
+      const unhandled = rows.filter(
+        (r) => r.kind === 'system' && r.label.startsWith('unhandled event type:'),
+      );
+      expect(unhandled).toHaveLength(0);
+    }
+  });
+
+  describe('the composition event', () => {
+    const composition = (over: Partial<CompositionData['composition']> = {}) =>
+      makeEnvelope(
+        'composition',
+        {
+          manifests: [{ path: 'modules.toml', sha256: 'abc' }],
+          composition: { operators: [], commons: [], repos: [], protocols: [], ...over },
+        },
+        { actor: { role: 'system' } },
+      );
+
+    it('counts what is composed rather than pasting the manifest into a label', () => {
+      const rows = projectSession(
+        [
+          composition({
+            operators: [{ name: 'tycho' }, { name: 'kepler' }],
+            repos: [{ name: 'kairos-engine' }],
+            protocols: [{ name: 'board' }],
+          }),
+        ],
+        new Map(),
+        [],
+      );
+      const label = rows.find(isSystemRow)!.label;
+      expect(label).toContain('2 operators');
+      expect(label).toContain('1 repo');
+      expect(label).toContain('1 protocol');
+      expect(label).not.toContain('tycho');
+    });
+
+    it('says a bare workspace composes nothing rather than rendering an empty label', () => {
+      const rows = projectSession([composition()], new Map(), []);
+      const label = rows.find(isSystemRow)!.label;
+      expect(label.trim().length).toBeGreaterThan(0);
+      expect(label).toContain('nothing');
+    });
+
+    it('does not render as a message from the user', () => {
+      // Engine-authored. It rides in a User-role turn at the model boundary
+      // because the wire has two roles, but the transcript has more room than
+      // that and must not blur who wrote it.
+      const rows = projectSession([composition()], new Map(), []);
+      expect(rows.filter(isMessageRow)).toHaveLength(0);
+    });
+  });
+
+  describe('a tool round', () => {
+    const toolUse = (id: string, name: string, input: unknown) =>
+      makeEnvelope('tool_use', { id, name, input }, { actor: operatorActor });
+    const toolResult = (toolUseId: string, over: Partial<ToolResultData> = {}) =>
+      makeEnvelope(
+        'tool_result',
+        { toolUseId, status: 'ok', content: 'x'.repeat(412), isError: false, ...over },
+        { actor: { role: 'tool' } },
+      );
+
+    it('names the tool and the path it was pointed at', () => {
+      const rows = projectSession(
+        [toolUse('t1', 'read_file', { path: 'notes/board.md' })],
+        new Map(),
+        [],
+      );
+      const row = rows.find(isSystemRow);
+      expect(row?.label).toContain('read_file');
+      expect(row?.label).toContain('notes/board.md');
+    });
+
+    it('reports a result by size, never by pasting it into the label', () => {
+      // A tool result can be 64 KiB. The label is a glance on a phone.
+      const rows = projectSession([toolUse('t1', 'read_file', {}), toolResult('t1')], new Map(), []);
+      const label = rows.filter(isSystemRow)[1].label;
+      expect(label).toContain('read_file');
+      expect(label).toContain('412');
+      expect(label).not.toContain('xxxxxxxxxx');
+    });
+
+    it('names a refusal by its machine code, never a paraphrase', () => {
+      const rows = projectSession(
+        [
+          toolUse('t1', 'read_file', { path: 'repos/app/.env' }),
+          toolResult('t1', { status: 'denied_credential', content: '', isError: true }),
+        ],
+        new Map(),
+        [],
+      );
+      expect(rows.filter(isSystemRow)[1].label).toContain('denied_credential');
+    });
+
+    it('still renders a result whose tool_use was evicted out from under it', () => {
+      // The engine evicts a batch atomically, but a client must not depend on
+      // the engine being right — a lone result renders rather than crashing.
+      const rows = projectSession([toolResult('t-gone')], new Map(), []);
+      expect(rows.filter(isSystemRow)).toHaveLength(1);
+    });
+
+    it('does not put a tool result in the transcript as if the operator said it', () => {
+      const rows = projectSession([toolUse('t1', 'read_file', {}), toolResult('t1')], new Map(), []);
+      expect(rows.filter(isMessageRow)).toHaveLength(0);
+    });
   });
 
   it('replaces a pending bubble when its clientKey echoes back', () => {
