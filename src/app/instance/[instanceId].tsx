@@ -309,24 +309,23 @@ function SessionView({
             gap: theme.space.sm,
             paddingTop: theme.space.md,
             paddingHorizontal: theme.space.md,
-            // The static (keyboard-down) clearance from the native bottom tab
-            // bar. `edges={[]}` on this screen's outer SafeAreaView means no
-            // bottom inset is applied there, so this is the only place that
-            // clearance can live. `insets.bottom` is trusted outright rather
-            // than padded with an extra guessed constant: on a genuine native
-            // tab bar (this app's `NativeTabs`/`Tabs.Host`, a real
-            // UITabBarController) the OS is *supposed* to fold the bar's
-            // footprint into the safe-area inset for any content beneath it —
-            // same mechanism as the home indicator — and there is no
-            // `useBottomTabBarHeight()` equivalent for NativeTabs to
-            // cross-check that against. iOS 26's floating-capsule tab bar is
-            // new enough that whether a *pushed* stack screen like this one
-            // really inherits the tab controller's reduced inset (rather than
-            // just the bare home-indicator value) is something only a device
-            // can confirm — if a device pass shows the composer still
-            // creeping under the capsule, that's the signal this assumption
-            // was wrong, and the fix is an explicit additional pad here, not a
-            // bigger blind guess up front.
+            // The static (keyboard-down) clearance from the home indicator,
+            // and nothing else. This screen is registered on the ROOT stack,
+            // above the tab bar, so no bar sits beneath it and `insets.bottom`
+            // is the bare safe-area value.
+            //
+            // `edges={[]}` on this screen's outer SafeAreaView means no bottom
+            // inset is applied there, so this is still the only place the
+            // clearance can live.
+            //
+            // This replaces a comment that could not settle whether a *pushed*
+            // stack screen inside a tab controller inherits the controller's
+            // reduced inset or just the bare home-indicator value — iOS 26's
+            // floating-capsule tab bar made it a device question, and there is
+            // no `useBottomTabBarHeight()` equivalent for NativeTabs to
+            // cross-check against. Moving the chat above the bar closed that
+            // question rather than answering it: there is no capsule beneath
+            // this screen to be ambiguous about.
             paddingBottom: theme.space.md + insets.bottom,
             borderTopWidth: theme.border.hairline,
             borderTopColor: theme.color.bdPrimary,

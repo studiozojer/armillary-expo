@@ -60,13 +60,24 @@ export default function NewInstance() {
     setCreateError(null);
     try {
       const instance = await api.create(selection);
-      // A single `replace`, not `dismiss()` + `push()`: this screen is the
-      // top entry of the Instances stack (presented as a form sheet), so
-      // replacing it swaps the sheet itself for the session route — the
-      // sheet closes as a side effect of leaving, and back from the session
-      // lands on the list, never back on the sheet. `push` would leave the
-      // sheet in history for exactly that back button to return to.
-      router.replace(`/(tabs)/(instances)/${instance.id}`);
+      // Dismiss the sheet, then push — NOT a single `replace`.
+      //
+      // While the chat lived beside this sheet in the Instances stack, one
+      // `replace` was right: it swapped the sheet for the chat, the sheet left
+      // history as a side effect of being replaced, and back from the chat
+      // landed on the list. The chat moved to the ROOT stack (2026-07-30) so
+      // the tab bar leaves with the push — and that made this navigation cross
+      // navigators.
+      //
+      // What `replace` does across navigators is not "swap the sheet". It
+      // replaces the entry in the stack that owns the destination — the root
+      // one — so the whole `(tabs)` subtree goes out of history with it and
+      // `canGoBack()` is FALSE at the chat. Not a sheet stranded in history:
+      // a chat with no way back to anything, which is how it presents on
+      // device. Measured, not reasoned: `create-then-back.test.tsx` fails on
+      // exactly that assertion if this reverts to a single `replace`.
+      router.dismissTo('/');
+      router.push(`/instance/${instance.id}`);
     } catch (error) {
       setCreateError(error instanceof Error ? error.message : String(error));
       setCreating(false);

@@ -4,16 +4,18 @@ export default function InstancesLayout() {
   return (
     <Stack screenOptions={{ headerBackButtonDisplayMode: 'minimal' }}>
       <Stack.Screen name="index" options={{ title: 'Instances' }} />
-      {/* Required — a route not registered here has nothing to push onto:
-          `NativeTabs.Trigger` is not a navigator, so `Link` to an
-          unregistered screen silently no-ops (the sprint-1 defect documented
-          in (explorer)/_layout.tsx). */}
-      <Stack.Screen name="[instanceId]" options={{ title: 'Instance' }} />
       {/* The `+` sheet. `formSheet`, not `modal`: react-native-screens 4.26 /
           this SDK's native-stack supports it cleanly, and a picker-plus-button
           reads as a sheet, not a full-screen takeover like Capture's `modal`.
-          Registered here for the same reason `[instanceId]` is — an
-          unregistered route has nothing to push onto.
+
+          It must be registered in THIS stack: a `NativeTabs.Trigger` is not a
+          navigator, so a route outside a tab's own stack has nothing to push
+          onto and `Link` to it silently no-ops, with no error and no
+          navigation (the sprint-1 defect documented in
+          (explorer)/_layout.tsx). The chat used to sit beside it here for the
+          same reason; it now lives on the ROOT stack instead — deliberately,
+          so the tab bar leaves with the push — which works because the root
+          stack is an ancestor of both tabs rather than a sibling of one.
 
           `headerShown: false`, and no `title`. A form sheet cannot carry a
           native header — the SDK 57 docs are explicit that "native stack

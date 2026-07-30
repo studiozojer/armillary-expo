@@ -21,7 +21,7 @@ export function InstanceCard({ instance }: { instance: Instance }) {
       label={operator}
       note={`${instance.stream} · seq ${instance.lastSeq}`}
       noteVariant="mono"
-      onPress={() => router.push(`/(tabs)/(instances)/${instance.id}`)}
+      onPress={() => router.push(`/instance/${instance.id}`)}
     />
   );
 }
