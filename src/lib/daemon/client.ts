@@ -10,7 +10,7 @@ import {
 } from './types';
 
 /**
- * Typed reads over the engine's four routes.
+ * Typed client for the engine's routes — reads plus the one sweep-trigger POST.
  *
  * `fetch` is injected rather than imported so tests exercise the client instead
  * of the network.
