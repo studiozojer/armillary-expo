@@ -1,12 +1,12 @@
 import { useRouter } from 'expo-router';
 import { Stack } from 'expo-router/stack';
-import { useCallback } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator } from 'react-native';
 
 import { ModuleList } from '@/components/module-list';
 import { Box, Button, Inline, Screen, Text } from '@/components/ui';
 import { DaemonClient } from '@/lib/daemon/client';
-import type { Composition } from '@/lib/daemon/types';
+import type { Composition, SyncReport } from '@/lib/daemon/types';
 import { useHost } from '@/lib/host-context';
 import { useLoader } from '@/lib/use-loader';
 import { useTheme } from '@/theme';
@@ -28,6 +28,34 @@ export default function CompositionScreen() {
     load,
     ready,
   );
+
+  const [sync, setSync] = useState<SyncReport | undefined>(undefined);
+  const [syncing, setSyncing] = useState(false);
+
+  // Loaded independently of the composition: the list must render without
+  // waiting on a route that spawns two dozen subprocesses. A host that has no
+  // /sync at all (an older engine) simply leaves this undefined.
+  useEffect(() => {
+    if (!ready) return;
+    const controller = new AbortController();
+    new DaemonClient(host.daemonUrl)
+      .getSyncStatus(controller.signal)
+      .then(setSync)
+      .catch(() => setSync(undefined));
+    return () => controller.abort();
+  }, [host.daemonUrl, generation, ready]);
+
+  const runSync = useCallback(async () => {
+    setSyncing(true);
+    try {
+      setSync(await new DaemonClient(host.daemonUrl).runSync());
+    } catch {
+      // A failed sweep leaves the previous statuses in place rather than
+      // blanking them: the last true reading beats no reading.
+    } finally {
+      setSyncing(false);
+    }
+  }, [host.daemonUrl]);
 
   if (state.status === 'error') {
     return (
@@ -79,6 +107,9 @@ export default function CompositionScreen() {
         hostLabel={host.label}
         refreshing={refreshing}
         onRefresh={refresh}
+        sync={sync}
+        syncing={syncing}
+        onSync={runSync}
       />
     </Screen>
   );

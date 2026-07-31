@@ -2,9 +2,9 @@ import { Link, useRouter } from 'expo-router';
 import { Pressable, RefreshControl, SectionList } from 'react-native';
 
 import { useTheme } from '@/theme';
-import type { Composition, Module } from '@/lib/daemon/types';
+import type { Composition, Module, SyncReport, SyncRepo } from '@/lib/daemon/types';
 
-import { Box, ListRow, ROW_ICON_LANE, Rule, SectionHeader, Text } from './ui';
+import { Box, Button, ListRow, ROW_ICON_LANE, Rule, SectionHeader, Text } from './ui';
 
 type Section = { title: string; data: Module[] };
 
@@ -19,20 +19,48 @@ function sections(composition: Composition): Section[] {
   ].filter((section) => section.data.length > 0);
 }
 
+/**
+ * What a row says about itself. Named for what happened, not for the enum —
+ * "no upstream" rather than "no-upstream", "+2" rather than "synced", because
+ * the row is read at a glance and the count is the information.
+ */
+export function syncLabel(repo: SyncRepo): string {
+  switch (repo.status) {
+    case 'synced':
+      return `+${repo.commits ?? 0}`;
+    case 'behind':
+      return `behind ${repo.commits ?? 0}`;
+    case 'current':
+      return 'current';
+    case 'skipped':
+      return repo.reason === 'no-upstream' ? 'no upstream' : (repo.reason ?? 'skipped');
+    case 'error':
+      return 'error';
+  }
+}
+
 export function ModuleList({
   composition,
   hostLabel,
   refreshing = false,
   onRefresh,
+  sync,
+  syncing = false,
+  onSync,
 }: {
   composition: Composition;
   hostLabel: string;
   refreshing?: boolean;
   onRefresh?: () => void;
+  /** Absent until `/sync` answers — the list renders without waiting on it. */
+  sync?: SyncReport;
+  syncing?: boolean;
+  onSync?: () => void;
 }) {
   const theme = useTheme();
   const router = useRouter();
   const data = sections(composition);
+  const byPath = new Map((sync?.repos ?? []).map((r) => [r.path, r]));
 
   return (
     <SectionList
@@ -63,6 +91,21 @@ export function ModuleList({
               </Text>
             </Pressable>
           </Link>
+          {sync && !sync.fetched ? (
+            <Text variant="caption" color="txTertiary" style={{ paddingTop: theme.space.xxs }}>
+              Statuses as of last sync
+            </Text>
+          ) : null}
+          {sync?.enabled && onSync ? (
+            <Box style={{ paddingTop: theme.space.sm }}>
+              <Button
+                testID="sync-action"
+                label={syncing ? 'Syncing…' : 'Sync'}
+                onPress={onSync}
+                disabled={syncing}
+              />
+            </Box>
+          ) : null}
         </Box>
       }
       ListEmptyComponent={
@@ -73,17 +116,59 @@ export function ModuleList({
         </Box>
       }
       renderSectionHeader={({ section }) => <SectionHeader>{section.title}</SectionHeader>}
-      renderItem={({ item, index, section }) => (
-        <>
-          <ListRow
-            icon="folder"
-            label={item.name}
-            note={item.note}
-            onPress={() => router.push(`/browse/${item.path}`)}
-          />
-          {index < section.data.length - 1 ? <Rule inset={ROW_ICON_LANE} /> : null}
-        </>
-      )}
+      renderItem={({ item, index, section }) => {
+        const status = byPath.get(item.path);
+        return (
+          <>
+            <ListRow
+              icon="folder"
+              label={item.name}
+              note={item.note}
+              trailing={
+                status ? (
+                  <Text
+                    variant="caption"
+                    color={
+                      status.status === 'skipped' || status.status === 'error'
+                        ? 'txTertiary'
+                        : 'txSecondary'
+                    }>
+                    {syncLabel(status)}
+                  </Text>
+                ) : undefined
+              }
+              onPress={() => router.push(`/browse/${item.path}`)}
+            />
+            {index < section.data.length - 1 ? <Rule inset={ROW_ICON_LANE} /> : null}
+          </>
+        );
+      }}
+      ListFooterComponent={
+        sync ? (
+          <Box px="lg" style={{ paddingTop: theme.space.lg }}>
+            {sync.not_composed.length > 0 ? (
+              <Text variant="caption" color="txTertiary">
+                {/* The sweep's blind spot, made visible. Skipping an undeclared
+                    checkout in silence reads identically to having nothing to
+                    skip. */}
+                Not composed, and not synced:{' '}
+                {sync.not_composed.map((n) => n.path).join(', ')}
+              </Text>
+            ) : null}
+            {sync.repos.some((r) => r.submodules) ? (
+              <Text
+                variant="caption"
+                color="txTertiary"
+                style={{ paddingTop: theme.space.xxs }}>
+                {/* D5, said out loud: the pointer moved, the checkout did not.
+                    A deliberate limit nobody can see reads as a bug. */}
+                Submodules not updated:{' '}
+                {sync.repos.filter((r) => r.submodules).map((r) => r.name).join(', ')}
+              </Text>
+            ) : null}
+          </Box>
+        ) : null
+      }
     />
   );
 }
