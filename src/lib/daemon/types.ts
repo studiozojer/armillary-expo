@@ -78,3 +78,47 @@ export type VoicenoteIndex = {
   transcript_roots: string[];
   entries: VoicenoteEntry[];
 };
+
+/** `behind` only ever comes from GET; `synced` only ever from POST. */
+export type SyncRepoStatus = 'synced' | 'current' | 'behind' | 'skipped' | 'error';
+
+export type SyncSkipReason =
+  | 'dirty'
+  | 'diverged'
+  | 'no-upstream'
+  | 'detached'
+  | 'timeout'
+  | 'git-error'
+  | 'task-failed';
+
+export type SyncRepo = {
+  name: string;
+  path: string;
+  branch?: string;
+  status: SyncRepoStatus;
+  reason?: SyncSkipReason;
+  commits?: number;
+  /** Committer date of HEAD, strict ISO 8601. Read AFTER any fast-forward. */
+  newest_commit?: string;
+  /**
+   * The repo has submodules, which were fetched but NOT updated (D5) — the
+   * fast-forward moved the pointer and left the submodule checkout behind.
+   * Present only when true, so a limit nobody can see does not read as a bug.
+   */
+  submodules?: boolean;
+  fetch_error?: string;
+};
+
+export type SyncNotComposed = { path: string };
+
+export type SyncReport = {
+  /** Whether the host declares `[router] sync`. False means hide the action. */
+  enabled: boolean;
+  /**
+   * False for a status read. The UI must say "as of last sync" when it is
+   * false — a stale `current` and a fresh one are otherwise the same word.
+   */
+  fetched: boolean;
+  repos: SyncRepo[];
+  not_composed: SyncNotComposed[];
+};

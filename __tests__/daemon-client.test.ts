@@ -96,3 +96,53 @@ describe('DaemonClient', () => {
     await expect(clientWith(fetcher).getVoicenotes()).rejects.toBeInstanceOf(DaemonError);
   });
 });
+
+describe('sync', () => {
+  const report = {
+    enabled: true,
+    fetched: true,
+    repos: [
+      { name: 'zojercommons', path: 'zojercommons', branch: 'main', status: 'synced', commits: 3 },
+    ],
+    not_composed: [],
+  };
+
+  it('reads status with GET', async () => {
+    const fetcher = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ ...report, fetched: false }),
+    });
+    const client = new DaemonClient('http://host:7778', fetcher as unknown as typeof fetch);
+
+    const got = await client.getSyncStatus();
+
+    expect(fetcher).toHaveBeenCalledWith('http://host:7778/sync', { signal: undefined });
+    expect(got.fetched).toBe(false);
+  });
+
+  it('runs a sweep with POST', async () => {
+    const fetcher = jest.fn().mockResolvedValue({ ok: true, json: async () => report });
+    const client = new DaemonClient('http://host:7778', fetcher as unknown as typeof fetch);
+
+    const got = await client.runSync();
+
+    expect(fetcher).toHaveBeenCalledWith('http://host:7778/sync', {
+      method: 'POST',
+      signal: undefined,
+    });
+    expect(got.repos[0].status).toBe('synced');
+  });
+
+  it('surfaces a refused sweep as a 403 the UI can branch on', async () => {
+    // The engine refuses an ungated host with a message naming the key. The
+    // status is what the screen branches on, so it must survive the client.
+    const fetcher = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 403,
+      text: async () => 'this workspace has not granted…',
+    });
+    const client = new DaemonClient('http://host:7778', fetcher as unknown as typeof fetch);
+
+    await expect(client.runSync()).rejects.toMatchObject({ status: 403 });
+  });
+});
