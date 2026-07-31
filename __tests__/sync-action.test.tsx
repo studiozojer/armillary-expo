@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react-native';
+import { render, screen, within } from '@testing-library/react-native';
 
 import { ModuleList, syncLabel } from '@/components/module-list';
 import type { Composition, SyncReport } from '@/lib/daemon/types';
@@ -43,6 +43,33 @@ describe('syncLabel', () => {
     );
     expect(syncLabel({ name: '', path: '', status: 'error' })).toBe('error');
   });
+
+  it('humanizes every skip/error reason on the wire, not just no-upstream', () => {
+    // The five reasons never exercised before are exactly why task-failed
+    // shipped as literal enum text. All seven, named here.
+    expect(syncLabel({ name: '', path: '', status: 'skipped', reason: 'dirty' })).toBe('dirty');
+    expect(syncLabel({ name: '', path: '', status: 'skipped', reason: 'diverged' })).toBe(
+      'diverged',
+    );
+    expect(syncLabel({ name: '', path: '', status: 'skipped', reason: 'no-upstream' })).toBe(
+      'no upstream',
+    );
+    expect(syncLabel({ name: '', path: '', status: 'skipped', reason: 'detached' })).toBe(
+      'detached HEAD',
+    );
+    expect(syncLabel({ name: '', path: '', status: 'skipped', reason: 'timeout' })).toBe(
+      'timed out',
+    );
+    expect(syncLabel({ name: '', path: '', status: 'skipped', reason: 'git-error' })).toBe(
+      'git error',
+    );
+    expect(syncLabel({ name: '', path: '', status: 'skipped', reason: 'task-failed' })).toBe(
+      'failed',
+    );
+    expect(
+      syncLabel({ name: '', path: '', status: 'error', reason: 'timeout' }),
+    ).toBe('timed out');
+  });
 });
 
 describe('ModuleList with a sync report', () => {
@@ -51,6 +78,20 @@ describe('ModuleList with a sync report', () => {
     expect(screen.getByText('+2')).toBeTruthy();
     expect(screen.getByText('current')).toBeTruthy();
     expect(screen.getByText('no upstream')).toBeTruthy();
+  });
+
+  it('puts each repo status on the row it belongs to', async () => {
+    await render(
+      <ModuleList composition={composition} hostLabel="stjerneborg" sync={report()} />,
+    );
+    // Scoped to the row. An unscoped getByText proves only that the string
+    // exists somewhere, which a wrong-row bug satisfies just as well.
+    expect(
+      within(screen.getByTestId('module-row-operators/tycho')).getByText('+2'),
+    ).toBeTruthy();
+    expect(
+      within(screen.getByTestId('module-row-repos/jianyi')).getByText('no upstream'),
+    ).toBeTruthy();
   });
 
   it('renders without a report at all', async () => {
@@ -70,6 +111,14 @@ describe('ModuleList with a sync report', () => {
       />,
     );
     expect(screen.getByText(/as of last sync/i)).toBeTruthy();
+  });
+
+  it('does not claim staleness when the report was actually fetched', async () => {
+    // report() defaults to fetched: true.
+    await render(
+      <ModuleList composition={composition} hostLabel="stjerneborg" sync={report()} />,
+    );
+    expect(screen.queryByText(/as of last sync/i)).toBeNull();
   });
 
   it('shows the Sync action when the host declares the gate', async () => {

@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
 import { Stack } from 'expo-router/stack';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator } from 'react-native';
 
 import { ModuleList } from '@/components/module-list';
@@ -31,24 +31,37 @@ export default function CompositionScreen() {
 
   const [sync, setSync] = useState<SyncReport | undefined>(undefined);
   const [syncing, setSyncing] = useState(false);
+  // Bumped on every host change. `useLoader` carries the same counter and its
+  // doc explains why abort alone is not enough: an aborted request still
+  // rejects, and the rejection can land after the NEW host's read has already
+  // resolved and rendered. The epoch is what makes a superseded write a no-op.
+  const syncEpoch = useRef(0);
 
   // Loaded independently of the composition: the list must render without
   // waiting on a route that spawns two dozen subprocesses. A host that has no
   // /sync at all (an older engine) simply leaves this undefined.
   useEffect(() => {
     if (!ready) return;
+    const epoch = ++syncEpoch.current;
     const controller = new AbortController();
     new DaemonClient(host.daemonUrl)
       .getSyncStatus(controller.signal)
-      .then(setSync)
-      .catch(() => setSync(undefined));
+      .then((report) => {
+        if (epoch === syncEpoch.current) setSync(report);
+      })
+      .catch(() => {
+        if (epoch === syncEpoch.current) setSync(undefined);
+      });
     return () => controller.abort();
   }, [host.daemonUrl, generation, ready]);
 
   const runSync = useCallback(async () => {
+    // Same guard: a sweep is slow, and the host can change while it runs.
+    const epoch = syncEpoch.current;
     setSyncing(true);
     try {
-      setSync(await new DaemonClient(host.daemonUrl).runSync());
+      const report = await new DaemonClient(host.daemonUrl).runSync();
+      if (epoch === syncEpoch.current) setSync(report);
     } catch {
       // A failed sweep leaves the previous statuses in place rather than
       // blanking them: the last true reading beats no reading.

@@ -2,7 +2,7 @@ import { Link, useRouter } from 'expo-router';
 import { Pressable, RefreshControl, SectionList } from 'react-native';
 
 import { useTheme } from '@/theme';
-import type { Composition, Module, SyncReport, SyncRepo } from '@/lib/daemon/types';
+import type { Composition, Module, SyncReport, SyncRepo, SyncSkipReason } from '@/lib/daemon/types';
 
 import { Box, Button, ListRow, ROW_ICON_LANE, Rule, SectionHeader, Text } from './ui';
 
@@ -19,6 +19,20 @@ function sections(composition: Composition): Section[] {
   ].filter((section) => section.data.length > 0);
 }
 
+/** Every skip/error reason the wire can carry, in words rather than enum
+ *  spelling. `Record<SyncSkipReason, string>` on purpose: a new member of the
+ *  union without a label here is a compile error, not a row reading
+ *  `task-failed`. */
+const SKIP_LABELS: Record<SyncSkipReason, string> = {
+  dirty: 'dirty',
+  diverged: 'diverged',
+  detached: 'detached HEAD',
+  timeout: 'timed out',
+  'no-upstream': 'no upstream',
+  'git-error': 'git error',
+  'task-failed': 'failed',
+};
+
 /**
  * What a row says about itself. Named for what happened, not for the enum —
  * "no upstream" rather than "no-upstream", "+2" rather than "synced", because
@@ -33,9 +47,9 @@ export function syncLabel(repo: SyncRepo): string {
     case 'current':
       return 'current';
     case 'skipped':
-      return repo.reason === 'no-upstream' ? 'no upstream' : (repo.reason ?? 'skipped');
+      return repo.reason ? SKIP_LABELS[repo.reason] : 'skipped';
     case 'error':
-      return 'error';
+      return repo.reason ? SKIP_LABELS[repo.reason] : 'error';
   }
 }
 
@@ -124,6 +138,7 @@ export function ModuleList({
               icon="folder"
               label={item.name}
               note={item.note}
+              testID={`module-row-${item.path}`}
               trailing={
                 status ? (
                   <Text
@@ -144,7 +159,7 @@ export function ModuleList({
         );
       }}
       ListFooterComponent={
-        sync ? (
+        sync && (sync.not_composed.length > 0 || sync.repos.some((r) => r.submodules)) ? (
           <Box px="lg" style={{ paddingTop: theme.space.lg }}>
             {sync.not_composed.length > 0 ? (
               <Text variant="caption" color="txTertiary">
