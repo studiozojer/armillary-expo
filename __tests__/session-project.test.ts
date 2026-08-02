@@ -5,6 +5,7 @@ import type {
   Actor,
   AssistantDeltaData,
   AssistantMessageData,
+  BootData,
   CompositionData,
   ContextEvictData,
   DurableType,
@@ -375,6 +376,74 @@ describe('projectSession', () => {
     expect(rows.map((r) => r.kind)).toEqual(['message', 'message', 'streaming', 'pending']);
     const messageRows = rows.filter(isMessageRow);
     expect(messageRows.map((r) => r.seq)).toEqual([3, 5]);
+  });
+
+  describe('the boot row', () => {
+    const boot = (files: BootData['files']) =>
+      makeEnvelope('boot', { files }, { actor: { role: 'system' } });
+
+    it('says how many files an operator booted with', () => {
+      const rows = projectSession(
+        [
+          boot([
+            { path: 'operators/tycho/self.md', sha256: 'a', present: true },
+            { path: 'operators/tycho/voice.md', sha256: 'b', present: true },
+          ]),
+        ],
+        new Map(),
+        [],
+      );
+      expect(rows.find(isSystemRow)!.label).toBe('booted 2 files');
+    });
+
+    it('is loud about a declared file that did not load', () => {
+      // The whole reason `present` is recorded. A boot that quietly loads two
+      // of three files is the failure this flag exists to catch, and a row
+      // reading "booted 2 files" would hide it perfectly.
+      const rows = projectSession(
+        [
+          boot([
+            { path: 'operators/tycho/self.md', sha256: 'a', present: true },
+            { path: 'operators/tycho/voice.md', present: false },
+          ]),
+        ],
+        new Map(),
+        [],
+      );
+      // Asserted whole, not by `toContain`. Mutation-found gap: with only
+      // "contains 1 missing" and "contains voice.md", counting the absent file
+      // as loaded — "booted 2 files · 1 missing: voice.md" — passed cleanly,
+      // and the count is the number a glance actually reads.
+      expect(rows.find(isSystemRow)!.label).toBe(
+        'booted 1 file · 1 missing: operators/tycho/voice.md',
+      );
+    });
+
+    it('names every missing file, not just the first', () => {
+      const rows = projectSession(
+        [
+          boot([
+            { path: 'a.md', present: false },
+            { path: 'b.md', present: false },
+          ]),
+        ],
+        new Map(),
+        [],
+      );
+      const label = rows.find(isSystemRow)!.label;
+      expect(label).toContain('a.md');
+      expect(label).toContain('b.md');
+    });
+
+    it('still renders a boot event written before files existed', () => {
+      // Streams predating B-2 carry `{path, sha256}` and no `files` array.
+      const rows = projectSession(
+        [makeEnvelope('boot', { path: 'getting-started.md', sha256: 'a' })],
+        new Map(),
+        [],
+      );
+      expect(rows.find(isSystemRow)!.label).toBe('booted 1 file');
+    });
   });
 
   it('does not produce gap rows itself', () => {

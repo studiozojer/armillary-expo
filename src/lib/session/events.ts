@@ -65,7 +65,23 @@ export type AssistantMessageData = {
   error?: string;
 };
 export type AssistantDeltaData = { textSoFar: string; generation: string };
-export type BootData = { path: string; sha256: string };
+/**
+ * The files pushed into the session's system prompt at instance creation —
+ * the router's own, plus the summoned operator's declared list (B-2).
+ *
+ * `files` is the current shape; `path`/`sha256` is what streams written before
+ * B-2 carry, and both must render, because a client that cannot read the log's
+ * own history is not reading the log.
+ *
+ * `present: false` means the file was declared and did not load. It is recorded
+ * rather than dropped precisely so it can be SEEN — a boot that quietly loads
+ * two of three identity files is the failure the flag exists to catch.
+ */
+export type BootData = {
+  files?: { path: string; sha256?: string; present: boolean }[];
+  path?: string;
+  sha256?: string;
+};
 /** The model asked for a tool. `parent` on the envelope links a whole batch. */
 export type ToolUseData = { id: string; name: string; input: unknown };
 /**

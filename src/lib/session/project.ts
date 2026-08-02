@@ -8,6 +8,7 @@ import type {
   ActorRole,
   AssistantDeltaData,
   AssistantMessageData,
+  BootData,
   CompositionData,
   ContextEvictData,
   DispatchData,
@@ -129,7 +130,21 @@ export function projectSession(
         break;
       }
       case 'boot': {
-        rows.push(systemRow(e, 'boot'));
+        const data = e.data as BootData;
+        // A pre-B-2 event carries one `path` and no list; it reads as a
+        // one-file boot rather than as a boot of nothing.
+        const files = data.files ?? (data.path ? [{ path: data.path, present: true }] : []);
+        const loaded = files.filter((f) => f.present);
+        const missing = files.filter((f) => !f.present);
+
+        let label = `booted ${loaded.length} file${loaded.length === 1 ? '' : 's'}`;
+        if (missing.length > 0) {
+          // Named, all of them, and never folded into a count. A declared
+          // identity file that did not load changes who the session is, and
+          // the path is the only thing that lets you go and fix it.
+          label += ` · ${missing.length} missing: ${missing.map((f) => f.path).join(', ')}`;
+        }
+        rows.push(systemRow(e, label));
         break;
       }
       case 'composition': {
