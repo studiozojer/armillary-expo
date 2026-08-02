@@ -10,11 +10,13 @@ export function Button({
   onPress,
   variant = 'primary',
   disabled = false,
+  testID,
 }: {
   label: string;
   onPress: () => void;
   variant?: 'primary' | 'secondary';
   disabled?: boolean;
+  testID?: string;
 }) {
   const theme = useTheme();
 
@@ -26,6 +28,7 @@ export function Button({
 
   return (
     <Pressable
+      testID={testID}
       onPress={disabled ? undefined : onPress}
       disabled={disabled}
       accessibilityRole="button"

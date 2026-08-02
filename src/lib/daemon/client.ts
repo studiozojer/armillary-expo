@@ -4,12 +4,13 @@ import {
   type Composition,
   type FileResponse,
   type HealthResponse,
+  type SyncReport,
   type TreeResponse,
   type VoicenoteIndex,
 } from './types';
 
 /**
- * Typed reads over the engine's four routes.
+ * Typed client for the engine's routes — reads plus the one sweep-trigger POST.
  *
  * `fetch` is injected rather than imported so tests exercise the client instead
  * of the network.
@@ -51,5 +52,23 @@ export class DaemonClient {
 
   getVoicenotes(signal?: AbortSignal): Promise<VoicenoteIndex> {
     return this.get<VoicenoteIndex>('/voicenotes', signal);
+  }
+
+  getSyncStatus(signal?: AbortSignal): Promise<SyncReport> {
+    return this.get<SyncReport>('/sync', signal);
+  }
+
+  /**
+   * Trigger the sweep. Separate from `get` because it is the one POST this
+   * client makes, and because a 403 here is meaningful rather than generic:
+   * the host has not declared `[router] sync`, and the screen hides the action
+   * rather than showing an error.
+   */
+  async runSync(signal?: AbortSignal): Promise<SyncReport> {
+    const response = await this.fetcher(`${this.baseUrl}/sync`, { method: 'POST', signal });
+    if (!response.ok) {
+      throw new DaemonError(response.status, await response.text());
+    }
+    return (await response.json()) as SyncReport;
   }
 }

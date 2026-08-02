@@ -96,3 +96,52 @@ describe('DaemonClient', () => {
     await expect(clientWith(fetcher).getVoicenotes()).rejects.toBeInstanceOf(DaemonError);
   });
 });
+
+describe('sync', () => {
+  const report = {
+    enabled: true,
+    fetched: true,
+    repos: [
+      { name: 'zojercommons', path: 'zojercommons', branch: 'main', status: 'synced', commits: 3 },
+    ],
+    not_composed: [],
+  };
+
+  // Uses the file's existing `mockFetch(status, body)` / `clientWith(fetcher)`
+  // helpers rather than hand-rolled mock objects. Amended 2026-07-31: the
+  // original code here rolled its own, which contradicted this plan's own
+  // Global Constraint to follow the existing file's patterns — and the ad hoc
+  // objects were inconsistent with each other (one omitted `status`, another
+  // omitted `json`), which is exactly the drift a shared helper prevents.
+
+  it('reads status with GET', async () => {
+    const fetcher = mockFetch(200, { ...report, fetched: false });
+    const got = await clientWith(fetcher).getSyncStatus();
+
+    // Strict deep-equality: a POST would add a `method` key and fail here.
+    expect(fetcher).toHaveBeenCalledWith('http://host:7778/sync', { signal: undefined });
+    expect(got.fetched).toBe(false);
+  });
+
+  it('runs a sweep with POST', async () => {
+    const fetcher = mockFetch(200, report);
+    const got = await clientWith(fetcher).runSync();
+
+    expect(fetcher).toHaveBeenCalledWith('http://host:7778/sync', {
+      method: 'POST',
+      signal: undefined,
+    });
+    expect(got.repos[0].status).toBe('synced');
+  });
+
+  it('surfaces a refused sweep as a 403 the UI can branch on', async () => {
+    // The engine refuses an ungated host with a message naming the key. The
+    // status is what the screen branches on, so it must survive the client.
+    // Both assertions, matching the file's established pattern: without the
+    // instanceof check this would also pass against a plain `{status: 403}`.
+    const client = clientWith(mockFetch(403, 'this workspace has not granted…'));
+
+    await expect(client.runSync()).rejects.toBeInstanceOf(DaemonError);
+    await expect(client.runSync()).rejects.toMatchObject({ status: 403 });
+  });
+});

@@ -1,12 +1,12 @@
 import { useRouter } from 'expo-router';
 import { Stack } from 'expo-router/stack';
-import { useCallback } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator } from 'react-native';
 
 import { ModuleList } from '@/components/module-list';
 import { Box, Button, Inline, Screen, Text } from '@/components/ui';
 import { DaemonClient } from '@/lib/daemon/client';
-import type { Composition } from '@/lib/daemon/types';
+import { DaemonError, type Composition, type SyncReport } from '@/lib/daemon/types';
 import { useHost } from '@/lib/host-context';
 import { useLoader } from '@/lib/use-loader';
 import { useTheme } from '@/theme';
@@ -28,6 +28,77 @@ export default function CompositionScreen() {
     load,
     ready,
   );
+
+  const [sync, setSync] = useState<SyncReport | undefined>(undefined);
+  const [syncing, setSyncing] = useState(false);
+  const [syncError, setSyncError] = useState<string | undefined>(undefined);
+  // Bumped on every host change. `useLoader` carries the same counter and its
+  // doc explains why abort alone is not enough: an aborted request still
+  // rejects, and the rejection can land after the NEW host's read has already
+  // resolved and rendered. The epoch is what makes a superseded write a no-op.
+  const syncEpoch = useRef(0);
+
+  // Loaded independently of the composition: the list must render without
+  // waiting on a route that spawns two dozen subprocesses. A host that has no
+  // /sync at all (an older engine) simply leaves this undefined. Shared by
+  // the mount effect below and pull-to-refresh, so there's one read path
+  // rather than the epoch/abort dance duplicated in two places.
+  const loadSync = useCallback(
+    (signal?: AbortSignal) => {
+      const epoch = ++syncEpoch.current;
+      return new DaemonClient(host.daemonUrl)
+        .getSyncStatus(signal)
+        .then((report) => {
+          if (epoch === syncEpoch.current) setSync(report);
+        })
+        .catch(() => {
+          if (epoch === syncEpoch.current) setSync(undefined);
+        });
+    },
+    [host.daemonUrl],
+  );
+
+  useEffect(() => {
+    if (!ready) return;
+    const controller = new AbortController();
+    void loadSync(controller.signal);
+    return () => controller.abort();
+  }, [host.daemonUrl, generation, ready, loadSync]);
+
+  // Pull-to-refresh used to drive `useLoader`'s composition reload only, so a
+  // report from one successful sweep kept reading `fetched: true` forever
+  // while its statuses quietly aged. This re-reads both on one gesture.
+  const handleRefresh = useCallback(async () => {
+    await Promise.all([refresh(), loadSync()]);
+  }, [refresh, loadSync]);
+
+  const runSync = useCallback(async () => {
+    // Same guard: a sweep is slow, and the host can change while it runs.
+    const epoch = syncEpoch.current;
+    setSyncing(true);
+    try {
+      const report = await new DaemonClient(host.daemonUrl).runSync();
+      if (epoch === syncEpoch.current) {
+        setSync(report);
+        setSyncError(undefined);
+      }
+    } catch (error) {
+      // The previous statuses stay on screen — the last true reading beats
+      // no reading — but the tap still needs to say it did nothing, and a
+      // 403 specifically means the host hasn't granted the sweep at all.
+      if (epoch === syncEpoch.current) {
+        setSyncError(
+          error instanceof DaemonError
+            ? error.status === 403
+              ? 'This host has not granted the sweep.'
+              : error.message || 'Sync failed.'
+            : 'Sync failed.',
+        );
+      }
+    } finally {
+      setSyncing(false);
+    }
+  }, [host.daemonUrl]);
 
   if (state.status === 'error') {
     return (
@@ -78,7 +149,11 @@ export default function CompositionScreen() {
         composition={state.data}
         hostLabel={host.label}
         refreshing={refreshing}
-        onRefresh={refresh}
+        onRefresh={handleRefresh}
+        sync={sync}
+        syncing={syncing}
+        onSync={runSync}
+        syncError={syncError}
       />
     </Screen>
   );
