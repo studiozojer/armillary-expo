@@ -63,6 +63,21 @@ export const type = {
   body: { fontSize: 16, lineHeight: 24, fontFamily: families.whyte.book },
   label: { fontSize: 14, lineHeight: 20, fontFamily: families.whyte.book },
   caption: { fontSize: 12, lineHeight: 16, fontFamily: families.whyte.book },
+  // The subheader register — the secondary line under a title. Whyte, not
+  // Fraktion: David moved the subheaders across in Figma on 2026-08-03 and made
+  // Figma canonical for type, so the reading register now reaches one step below
+  // the title. Named for the Figma style it mirrors (`whyte/xs` in `☯︎ daoUI`:
+  // ABC Whyte Edu / Book, 13, line-height 16, no tracking) rather than for its
+  // role, deliberately — the correspondence should be checkable, not remembered.
+  //
+  // UNUSED HERE, and knowingly so. This app has no title block with a secondary
+  // line yet: ChromeZone renders no text and SectionHeader is a label, which
+  // stays mono. It is declared only to keep this ramp identical to daoUI's copy
+  // (David's call, same day) so the two do not silently fork — the copies are
+  // the problem, and gap 1 is what actually fixes it. Watch it: an unrendered
+  // token is the `tx/button` shape, correct and invisible, and the bench exists
+  // because that shape hid a 1.65:1 button for weeks.
+  whyteXs: { fontSize: 13, lineHeight: 16, fontFamily: families.whyte.book },
   mono: { fontSize: 13, lineHeight: 20, fontFamily: families.fraktion.book },
   // Section headers in the instrument register: NEW INSTANCE, INSTANCES.
   monoLabel: { fontSize: 12, lineHeight: 16, fontFamily: families.fraktion.book, letterSpacing: 1.2 },
