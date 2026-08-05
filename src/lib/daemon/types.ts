@@ -137,7 +137,15 @@ export type ReposResponse = {
   /** The `push` grant — separate on purpose. */
   push_enabled: boolean;
   repos: RepoState[];
-  not_composed: { path: string }[];
+  /**
+   * Repo-relative paths of git checkouts on disk that no manifest declares —
+   * surfaced so a stray clone is visible, but never swept. Plain strings on
+   * the wire: the engine serializes `Vec<String>`, not a wrapper struct — the
+   * `NotComposed` struct that once backed this field died with `sync.rs`, and
+   * the object shape survived here only because it was inherited from the
+   * retired sync report rather than checked against the new route.
+   */
+  not_composed: string[];
 };
 
 export type Commit = {

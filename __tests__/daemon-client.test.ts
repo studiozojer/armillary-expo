@@ -130,6 +130,24 @@ describe('per-repo git', () => {
     expect(fetcher).toHaveBeenCalledWith('http://host/repos/a%2Fb', { signal: undefined });
   });
 
+  it('carries not_composed as plain strings, matching the engine Vec<String>', async () => {
+    // Regression guard: NotComposed (a {path} wrapper struct) died with
+    // sync.rs, and the new /repos route serializes bare paths. A wrapper
+    // shape here would compile cleanly against a `{}` fixture and only fail
+    // once a real engine response landed, so this asserts against fixture
+    // values shaped like the actual wire, not an empty array.
+    const fetcher = mockFetch(200, {
+      enabled: true,
+      push_enabled: false,
+      repos: [],
+      not_composed: ['scratch/orphan-clone', 'vendor/stray'],
+    });
+    const result = await clientWith(fetcher).getRepos();
+
+    expect(result.not_composed).toEqual(['scratch/orphan-clone', 'vendor/stray']);
+    result.not_composed.forEach((entry) => expect(typeof entry).toBe('string'));
+  });
+
   it('surfaces a refused verb as a 403 the UI can branch on', async () => {
     // Ungated `push` on a host that only granted `sync`: the engine refuses
     // before it ever runs git, and the status is what the screen branches on.
