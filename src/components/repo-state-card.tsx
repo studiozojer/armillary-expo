@@ -56,6 +56,12 @@ export function RepoStateCard({
   const model = stateCard(state, gates, inFlight);
   const busy = model.action === 'busy';
   const blocked = model.action === 'blocked';
+  // Branch switching is deferred past v1 (David's ruling, 2026-08-05) — a
+  // constant, not a computed condition, because there is no state in this
+  // component that could ever turn it on. Named and read twice below (the
+  // Pressable's `disabled` prop and its `accessibilityState`) rather than
+  // written as two separate `true` literals — see the chevron's own comment.
+  const branchPickerDisabled = true;
   const actionTextColor: ColorRole = blocked ? 'txDisabled' : 'txPrimary';
   const freshnessColor: ColorRole = blocked ? 'txDisabled' : 'txTertiary';
   // `busy` recolours the glyph itself to the accent (Figma's own read: the
@@ -110,10 +116,18 @@ export function RepoStateCard({
            */}
           <Pressable
             testID={`${testID}-branch-chevron`}
-            disabled
+            // ONE source of truth, read twice below, rather than two literal
+            // `true`s that happen to agree today. Two independent hardcodes
+            // is exactly the shape review caught: a future edit could give
+            // this control a real `onPress` (branch-picking landing) without
+            // touching a second, easy-to-miss `accessibilityState` literal,
+            // leaving it announced disabled while actually live. Deriving
+            // both from `branchPickerDisabled` makes that drift
+            // unrepresentable rather than merely unlikely.
+            disabled={branchPickerDisabled}
             accessibilityRole="button"
             accessibilityLabel="Switch branch"
-            accessibilityState={{ disabled: true }}
+            accessibilityState={{ disabled: branchPickerDisabled }}
             hitSlop={8}>
             <Icon name="chevronDown" size={14} color="txDisabled" />
           </Pressable>

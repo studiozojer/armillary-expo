@@ -1,3 +1,6 @@
+import { readFileSync } from 'fs';
+import { join } from 'path';
+
 import { fireEvent, render, screen } from '@testing-library/react-native';
 import { StyleSheet } from 'react-native';
 
@@ -82,9 +85,53 @@ describe('<RepoStateCard>', () => {
     const chevron = screen.getByTestId('repo-state-card-branch-chevron');
     expect(chevron.props.accessibilityState).toMatchObject({ disabled: true });
     // Pressing it must not reach the action callback — it is a different
-    // control, not a second way to trigger the same verb.
+    // control, not a second way to trigger the same verb. This alone does
+    // NOT prove nothing else could fire (see the structural test below for
+    // why, and for the check that actually closes that gap).
     fireEvent.press(chevron);
     expect(onAction).not.toHaveBeenCalled();
+  });
+
+  it('the chevron\'s disabled state and its accessibility announcement come from ONE identifier', () => {
+    // Review's own mutation-test found the real gap here, and it is worth
+    // recording precisely: `getByTestId` on a `Pressable` resolves to the
+    // underlying host `View` (confirmed: its rendered `type` is `'View'`,
+    // and its prop keys are `onResponderGrant`/`onResponderRelease`/etc, not
+    // a literal `onPress`) — Pressable never forwards `onPress` to the host
+    // node AT ALL, wired or not, disabled or not. So `chevron.props.onPress`
+    // is `undefined` unconditionally and CANNOT be reddened by any mutation,
+    // including adding a real `onPress` — verified empirically before this
+    // test was written, rather than assumed. Asserting it would be exactly
+    // the kind of claim-with-nothing-behind-it this review thread exists to
+    // catch, so it is not asserted here.
+    //
+    // What actually closes the gap is structural, not behavioral: the two
+    // props that could drift (the real `disabled` gate and the
+    // `accessibilityState` announcement of it) must read the SAME
+    // identifier, not two literals that happen to agree today. A future
+    // `onPress` added to this control (branch-picking landing) does nothing
+    // observable as long as that identifier stays `true` — real React
+    // Native Pressable behavior, not this test's own claim — and the two
+    // values can no longer disagree once there is only one of them to read.
+    const source = readFileSync(
+      join(__dirname, '..', 'src', 'components', 'repo-state-card.tsx'),
+      'utf8',
+    );
+    const chevronBlock = source.slice(
+      source.indexOf('branch-chevron'),
+      source.indexOf('</Pressable>', source.indexOf('branch-chevron')),
+    );
+    const match = chevronBlock.match(
+      /disabled=\{(\w+)\}[\s\S]*?accessibilityState=\{\{\s*disabled:\s*(\w+)\s*\}\}/,
+    );
+    expect(match).not.toBeNull();
+    const [, disabledRef, announcedRef] = match as RegExpMatchArray;
+    // Must be a shared VARIABLE, not two literal `true`s that are merely
+    // textually identical — those would satisfy a naive "same text" check
+    // while still being two independent hardcodes.
+    expect(disabledRef).not.toBe('true');
+    expect(disabledRef).not.toBe('false');
+    expect(disabledRef).toBe(announcedRef);
   });
 
   it('tone none renders no reason row even when blocked-adjacent facts exist', async () => {
