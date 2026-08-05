@@ -119,8 +119,18 @@ function pad2(n: number): string {
  * reaches the composition list at all — D5 puts it on the single-repo route
  * only) are new. No `Intl`: the relative/absolute boundary has to be exact
  * and testable without depending on a locale the test runner may not carry.
+ *
+ * Exported (Task 11) so `repo-state-card.ts`'s `sublabel` can reuse the
+ * same-day/absolute formatting rather than re-deriving it. Its `iso`-absent
+ * wording ("never fetched") is tuned for a compact row and is deliberately
+ * NOT reused there — the state card's freshness line needs "No fetch
+ * recorded" instead (the engine returns `null` both for a repo that has
+ * never been fetched and for one whose last fetch failed, so a caller with
+ * more room to say so should not claim to know which). That divergence is
+ * why the absent-`iso` case stays a one-line guard in each caller rather
+ * than a shared constant.
  */
-function relative(iso: string | undefined, now: Date): string {
+export function relative(iso: string | undefined, now: Date): string {
   if (!iso) return 'never fetched';
   const then = new Date(iso);
   const sameDay =

@@ -17,7 +17,9 @@ export type IconName =
   | 'send'
   | 'check'
   | 'eye'
-  | 'mic';
+  | 'mic'
+  | 'gitBranch'
+  | 'sync';
 
 /**
  * The single place platform icon names live.
@@ -45,6 +47,13 @@ export const ICONS: Record<IconName, { ios: SFSymbol; web: AndroidSymbol }> = {
   check: { ios: 'checkmark', web: 'check' },
   eye: { ios: 'eye', web: 'visibility' },
   mic: { ios: 'mic', web: 'mic' },
+  // The repo state card's two glyphs (Task 11). Confirmed against Figma
+  // (`bbjHiHEBoR3xWWruoprPkH`, node 345:448, "State Card"): the SAME symbol
+  // renders for every Action variant and every verb — there is no
+  // fetch/pull/push-specific icon in this design, so one entry covers all
+  // three.
+  gitBranch: { ios: 'arrow.triangle.branch', web: 'alt_route' },
+  sync: { ios: 'arrow.triangle.2.circlepath', web: 'sync' },
 };
 
 export function Icon({

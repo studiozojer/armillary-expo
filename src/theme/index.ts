@@ -70,13 +70,17 @@ export const type = {
   // ABC Whyte Edu / Book, 13, line-height 16, no tracking) rather than for its
   // role, deliberately — the correspondence should be checkable, not remembered.
   //
-  // UNUSED HERE, and knowingly so. This app has no title block with a secondary
-  // line yet: ChromeZone renders no text and SectionHeader is a label, which
-  // stays mono. It is declared only to keep this ramp identical to daoUI's copy
-  // (David's call, same day) so the two do not silently fork — the copies are
-  // the problem, and gap 1 is what actually fixes it. Watch it: an unrendered
-  // token is the `tx/button` shape, correct and invisible, and the bench exists
-  // because that shape hid a 1.65:1 button for weeks.
+  // First consumer (Task 11): `repo-state-card.tsx`'s reason line, which
+  // Figma's `State Card` component (`bbjHiHEBoR3xWWruoprPkH`, node 345:448)
+  // sets at 13px — the same size this variant was declared at on 2026-08-03,
+  // before anything rendered it. Declared then to keep this ramp identical to
+  // daoUI's copy (David's call, same day) so the two do not silently fork —
+  // the copies are the problem, and gap 1 is what actually fixes it. The risk
+  // that motivated writing this down (an unrendered token is the `tx/button`
+  // shape, correct and invisible, and the bench exists because that shape hid
+  // a 1.65:1 button for weeks) is why it is worth noting, now that it no
+  // longer applies to this token, that it was never actually checked against
+  // a render in the meantime.
   whyteXs: { fontSize: 13, lineHeight: 16, fontFamily: families.whyte.book },
   mono: { fontSize: 13, lineHeight: 20, fontFamily: families.fraktion.book },
   // Section headers in the instrument register: NEW INSTANCE, INSTANCES.
