@@ -1,5 +1,5 @@
 import { DaemonClient } from '../src/lib/daemon/client';
-import { DaemonError } from '../src/lib/daemon/types';
+import { DaemonError, type Position } from '../src/lib/daemon/types';
 
 function mockFetch(status: number, body: unknown) {
   return jest.fn().mockResolvedValue({
@@ -97,51 +97,69 @@ describe('DaemonClient', () => {
   });
 });
 
-describe('sync', () => {
-  const report = {
-    enabled: true,
-    fetched: true,
-    repos: [
-      { name: 'zojercommons', path: 'zojercommons', branch: 'main', status: 'synced', commits: 3 },
-    ],
-    not_composed: [],
-  };
+describe('per-repo git', () => {
+  it('posts to the per-repo verb and returns the new state', async () => {
+    const fetcher = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        name: 'jianyi',
+        path: 'repos/jianyi',
+        head: 'abc',
+        branch: 'main',
+        position: { kind: 'tracking', upstream: 'origin/main', ahead: 0, behind: 0 },
+        dirty_files: 0,
+        worktrees: 0,
+        submodules: false,
+      }),
+    });
+    const client = new DaemonClient('http://host', fetcher as unknown as typeof fetch);
+    const state = await client.pullRepo('jianyi');
 
-  // Uses the file's existing `mockFetch(status, body)` / `clientWith(fetcher)`
-  // helpers rather than hand-rolled mock objects. Amended 2026-07-31: the
-  // original code here rolled its own, which contradicted this plan's own
-  // Global Constraint to follow the existing file's patterns — and the ad hoc
-  // objects were inconsistent with each other (one omitted `status`, another
-  // omitted `json`), which is exactly the drift a shared helper prevents.
-
-  it('reads status with GET', async () => {
-    const fetcher = mockFetch(200, { ...report, fetched: false });
-    const got = await clientWith(fetcher).getSyncStatus();
-
-    // Strict deep-equality: a POST would add a `method` key and fail here.
-    expect(fetcher).toHaveBeenCalledWith('http://host:7778/sync', { signal: undefined });
-    expect(got.fetched).toBe(false);
-  });
-
-  it('runs a sweep with POST', async () => {
-    const fetcher = mockFetch(200, report);
-    const got = await clientWith(fetcher).runSync();
-
-    expect(fetcher).toHaveBeenCalledWith('http://host:7778/sync', {
+    // Strict deep-equality: a GET would drop `method` and fail here.
+    expect(fetcher).toHaveBeenCalledWith('http://host/repos/jianyi/pull', {
       method: 'POST',
       signal: undefined,
     });
-    expect(got.repos[0].status).toBe('synced');
+    expect(state.position.kind).toBe('tracking');
   });
 
-  it('surfaces a refused sweep as a 403 the UI can branch on', async () => {
-    // The engine refuses an ungated host with a message naming the key. The
-    // status is what the screen branches on, so it must survive the client.
-    // Both assertions, matching the file's established pattern: without the
-    // instanceof check this would also pass against a plain `{status: 403}`.
-    const client = clientWith(mockFetch(403, 'this workspace has not granted…'));
+  it('encodes the repo name rather than interpolating it raw', async () => {
+    const fetcher = jest.fn().mockResolvedValue({ ok: true, json: async () => ({}) });
+    const client = new DaemonClient('http://host', fetcher as unknown as typeof fetch);
+    await client.getRepo('a/b');
+    expect(fetcher).toHaveBeenCalledWith('http://host/repos/a%2Fb', { signal: undefined });
+  });
 
-    await expect(client.runSync()).rejects.toBeInstanceOf(DaemonError);
-    await expect(client.runSync()).rejects.toMatchObject({ status: 403 });
+  it('surfaces a refused verb as a 403 the UI can branch on', async () => {
+    // Ungated `push` on a host that only granted `sync`: the engine refuses
+    // before it ever runs git, and the status is what the screen branches on.
+    const client = clientWith(mockFetch(403, 'this workspace has not granted push'));
+
+    await expect(client.pushRepo('jianyi')).rejects.toBeInstanceOf(DaemonError);
+    await expect(client.pushRepo('jianyi')).rejects.toMatchObject({ status: 403 });
+  });
+});
+
+/**
+ * `Record<Position['kind'], string>` on purpose, the same shape `SKIP_LABELS`
+ * guards in `module-list.tsx`: a `Position` variant added without a label
+ * here is a compile error, not a row rendering the enum spelling at runtime.
+ * This is a type-level guard, so the meaningful proof is `tsc`, not `jest` —
+ * adding a fifth `Position` member without extending this map fails
+ * `tsc --noEmit` on this line before it fails anything at runtime.
+ */
+const POSITION_LABELS: Record<Position['kind'], string> = {
+  tracking: 'tracking',
+  'upstream-gone': 'upstream gone',
+  'no-upstream': 'no upstream',
+  detached: 'detached',
+};
+
+describe('Position exhaustiveness', () => {
+  it('has a label for every kind the wire can send', () => {
+    const kinds: Position['kind'][] = ['tracking', 'upstream-gone', 'no-upstream', 'detached'];
+    for (const kind of kinds) {
+      expect(POSITION_LABELS[kind]).toEqual(expect.any(String));
+    }
   });
 });
