@@ -19,7 +19,13 @@ export type IconName =
   | 'eye'
   | 'mic'
   | 'gitBranch'
-  | 'sync';
+  | 'sync'
+  | 'arrowUp'
+  | 'squareDot'
+  | 'squarePlus'
+  | 'squareMinus'
+  | 'squareRenamed'
+  | 'square';
 
 /**
  * The single place platform icon names live.
@@ -54,6 +60,28 @@ export const ICONS: Record<IconName, { ios: SFSymbol; web: AndroidSymbol }> = {
   // three.
   gitBranch: { ios: 'arrow.triangle.branch', web: 'alt_route' },
   sync: { ios: 'arrow.triangle.2.circlepath', web: 'sync' },
+  // Task 12 (repo page tabs). The unpushed marker on a History row (Figma
+  // `354:625`, node `364:5280`) — a commit `Commit.unpushed` is true for.
+  arrowUp: { ios: 'arrow.up', web: 'arrow_upward' },
+  // The Changes row trailing glyph, one per `ChangedFile.change` bucket
+  // (Figma `358:646`). `change` is a plain `string` on the wire (see
+  // `git.rs`'s doc comment on `ChangedFile` — five buckets collapsed from
+  // git's finer XY vocabulary, closed in practice but not in the type), so
+  // `repo-tabs.tsx` falls back to `square` for anything it doesn't
+  // recognise rather than indexing this table unsafely.
+  squareDot: { ios: 'dot.square', web: 'square_dot' }, // modified
+  squarePlus: { ios: 'plus.square', web: 'add_box' }, // added
+  squareMinus: { ios: 'minus.square', web: 'indeterminate_check_box' }, // deleted
+  // `renamed` has no sampled Figma row — none of the four rows on `358:646`
+  // is a rename — so this glyph is chosen, not read off the file. Rejected:
+  // reusing `square` (already `untracked`'s glyph, and a rename is not "no
+  // state"); an arrow glyph (already `arrowUp`'s meaning, unpushed, and
+  // reusing it here would make one glyph mean two unrelated things). `r
+  // .square` reads as "renamed" the same way `plus.square`/`minus.square`
+  // read as added/deleted — a letter standing for the word, in the same
+  // square family.
+  squareRenamed: { ios: 'r.square', web: 'drive_file_rename_outline' }, // renamed
+  square: { ios: 'square', web: 'square' }, // untracked
 };
 
 export function Icon({
