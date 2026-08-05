@@ -32,6 +32,29 @@ function truncate(text: string, max = 80): string {
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
 
+/**
+ * "3 of 24 could not fetch." A count derived from whichever `RepoState[]`
+ * the `repos` prop currently holds — which is deliberate, not an
+ * approximation of something better. Per `armillary-core`'s `read_one`,
+ * `action_error` is populated ONLY by the write verbs (`fetch`/`pull`/
+ * `push`, and the `fetch`-all sweep); `GET /repos` always answers with
+ * `action_error: None` on every repo, because a read performs no action to
+ * fail. So this is undefined immediately after every load — cold start,
+ * host switch, pull-to-refresh — and only reads non-zero on the one render
+ * right after `POST /repos/fetch` returns and its response is folded into
+ * `repos`. That is exactly the shape wanted: a stale failure count
+ * surviving past the next load, silently implying the CURRENT state is
+ * still bad, would be the same "confidently wrong" failure this whole
+ * feature exists to end. There is no separate piece of state mirroring
+ * this — a second copy is a second place for it to drift from `repos`,
+ * which is the bug shape being avoided, not merely relocated.
+ */
+export function fetchFailureSummary(repos: RepoState[] | undefined): string | undefined {
+  if (!repos || repos.length === 0) return undefined;
+  const failed = repos.filter((r) => r.action_error).length;
+  return failed > 0 ? `${failed} of ${repos.length} could not fetch` : undefined;
+}
+
 export function ModuleList({
   composition,
   hostLabel,
@@ -83,6 +106,7 @@ export function ModuleList({
   // one so a future stray checkout surfaces here too.
   const orphans = (repos ?? []).filter((r) => !composedNames.has(r.name));
   const submoduleRepos = (repos ?? []).filter((r) => r.submodules);
+  const failureSummary = fetchFailureSummary(repos);
 
   return (
     <SectionList
@@ -113,6 +137,13 @@ export function ModuleList({
               </Text>
             </Pressable>
           </Link>
+          {failureSummary ? (
+            <Text variant="caption" color="txError" style={{ paddingTop: theme.space.xxs }}>
+              {/* Only ever populated right after a sweep — see the doc on
+                  `fetchFailureSummary` for why a cold load can't carry this. */}
+              {failureSummary}
+            </Text>
+          ) : null}
           {reposEnabled && onFetchAll ? (
             <Box style={{ paddingTop: theme.space.sm }}>
               <Button

@@ -1,7 +1,8 @@
 import { render, screen, within } from '@testing-library/react-native';
 
-import { ModuleList } from '@/components/module-list';
+import { fetchFailureSummary, ModuleList } from '@/components/module-list';
 import type { Composition, RepoState } from '@/lib/daemon/types';
+import { themeFor } from '@/theme';
 
 const composition: Composition = {
   operators: [{ name: 'tycho', path: 'operators/tycho' }],
@@ -162,5 +163,69 @@ describe('ModuleList with a repo state', () => {
       />,
     );
     expect(screen.queryByText(/Also swept/)).toBeNull();
+  });
+
+  // --- action_error reaches the row, not just rowLabel's own unit tests ---
+
+  it('renders a failed action on the row it belongs to, in the error tone', async () => {
+    // `repo-label.test.ts` covers `rowLabel`'s own branch selection in
+    // isolation; nothing before this asserted the WIRING — lookup by name,
+    // `TONE_COLOR` mapping, scoped render — actually reaches a real row.
+    const theme = themeFor('light');
+    await render(
+      <ModuleList
+        composition={composition}
+        hostLabel="stjerneborg"
+        repos={[
+          repo({
+            name: 'jianyi',
+            path: 'repos/jianyi',
+            action_error: { kind: 'transport', message: 'could not reach origin' },
+          }),
+        ]}
+      />,
+    );
+    const label = within(screen.getByTestId('module-row-repos/jianyi')).getByText('fetch failed');
+    expect(label).toBeTruthy();
+    expect(label.props.style).toEqual(
+      expect.arrayContaining([expect.objectContaining({ color: theme.color.txError })]),
+    );
+  });
+});
+
+describe('fetchFailureSummary', () => {
+  it('counts only the repos an action_error was set on', () => {
+    expect(
+      fetchFailureSummary([
+        repo({ name: 'a', path: 'a' }),
+        repo({ name: 'b', path: 'b', action_error: { kind: 'timeout', message: 'x' } }),
+        repo({ name: 'c', path: 'c' }),
+      ]),
+    ).toBe('1 of 3 could not fetch');
+  });
+
+  it('is undefined when nothing failed, when the list is empty, and when there is no list', () => {
+    expect(fetchFailureSummary([repo({ name: 'a', path: 'a' })])).toBeUndefined();
+    expect(fetchFailureSummary([])).toBeUndefined();
+    expect(fetchFailureSummary(undefined)).toBeUndefined();
+  });
+
+  it('surfaces the count on the composition screen header', async () => {
+    await render(
+      <ModuleList
+        composition={composition}
+        hostLabel="stjerneborg"
+        repos={[
+          repo({ name: 'tycho', path: 'operators/tycho' }),
+          repo({
+            name: 'zojercommons',
+            path: 'zojercommons',
+            action_error: { kind: 'transport', message: 'x' },
+          }),
+          repo({ name: 'jianyi', path: 'repos/jianyi' }),
+        ]}
+      />,
+    );
+    expect(screen.getByText('1 of 3 could not fetch')).toBeTruthy();
   });
 });
