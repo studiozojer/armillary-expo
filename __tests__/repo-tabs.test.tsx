@@ -92,14 +92,41 @@ describe('<RepoTabs> — the unpushed marker', () => {
 });
 
 describe('<RepoTabs> — Changes rows are read-only', () => {
+  // A `role`-based query (the shape this test used to take) does NOT catch a
+  // bare `<Pressable onPress={...}>` wrapping a row's content: RN's
+  // `Pressable` sets no `accessibilityRole` at all unless one is passed, so
+  // a `queryAllByRole('button')` count of `0` stays `0` even after that
+  // affordance is added — reviewer-confirmed by mutation test. What DOES
+  // appear on the underlying host node whenever ANY `Pressable` wraps
+  // something, role or no role, is its set of responder handlers
+  // (`onStartShouldSetResponder`, `onResponderGrant`, `onResponderRelease`,
+  // `onClick`) — the same fact `repo-state-card-render.test.tsx`'s own
+  // comment names for exactly this reason. This walks each row's subtree
+  // for that, not for a role.
+  function hasResponderHandlers(root: ReturnType<typeof screen.getByTestId>): boolean {
+    return (
+      root.queryAll(
+        (node) => typeof node.props?.onStartShouldSetResponder === 'function',
+        { includeSelf: true },
+      ).length > 0
+    );
+  }
+
   it('offers no button anywhere — no checkbox, no selection, no commit affordance', async () => {
-    await render(<RepoTabs commits={[]} changes={CHANGES} />);
-    // The two tabs are the only interactive elements this component ever
-    // draws. `role="tab"`, not `"button"` — so a `button`-role query catches
-    // an affordance accidentally added to a row without also catching the
-    // tabs themselves.
-    expect(screen.queryAllByRole('button')).toHaveLength(0);
-    expect(screen.queryAllByRole('tab')).toHaveLength(2);
+    // History is the default tab (a separate rule, covered above) — switch
+    // to Changes first so its rows actually exist to inspect.
+    await render(<RepoTabs commits={[commit()]} changes={CHANGES} />);
+    await fireEvent.press(screen.getByTestId('repo-tabs-changes-tab'));
+    expect(hasResponderHandlers(screen.getByTestId('repo-tabs-change-0'))).toBe(false);
+    expect(hasResponderHandlers(screen.getByTestId('repo-tabs-change-1'))).toBe(false);
+
+    await fireEvent.press(screen.getByTestId('repo-tabs-history-tab'));
+    expect(hasResponderHandlers(screen.getByTestId('repo-tabs-history-0'))).toBe(false);
+
+    // The two tabs remain the only interactive elements this component ever
+    // draws.
+    expect(hasResponderHandlers(screen.getByTestId('repo-tabs-changes-tab'))).toBe(true);
+    expect(hasResponderHandlers(screen.getByTestId('repo-tabs-history-tab'))).toBe(true);
   });
 });
 

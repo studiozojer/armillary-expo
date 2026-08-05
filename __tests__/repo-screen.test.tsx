@@ -7,7 +7,10 @@ import { fireEvent, renderRouter, screen, waitFor } from 'expo-router/testing-li
 import { Stack } from 'expo-router/stack';
 
 import RepoScreen from '../src/app/(tabs)/(explorer)/repo/[name]';
+import { DaemonClient } from '../src/lib/daemon/client';
+import { __clearReposCacheForTests, getCachedRepos } from '../src/lib/daemon/repos-cache';
 import { HostProvider } from '../src/lib/host-context';
+import { KNOWN_HOSTS } from '../src/lib/hosts';
 import type { ChangedFile, Commit, RepoState } from '../src/lib/daemon/types';
 
 function jsonResponse(status: number, body: unknown) {
@@ -88,6 +91,12 @@ function mockFetch(opts: {
 describe('Repo screen — unreadable', () => {
   beforeEach(async () => {
     await AsyncStorage.clear();
+    // repos-cache.ts is module-level state, shared across every `it` in this
+    // file (and with composition.tsx, in the real app). Without this, the
+    // SECOND test's `GET /repos` mock is never actually hit — it silently
+    // reads the FIRST test's cached gates instead, because both share the
+    // same host id + generation (0, the default before any host switch).
+    __clearReposCacheForTests();
   });
 
   it('renders the header and the State Card and NOTHING ELSE — no tabs, no lists, no empty copy', async () => {
@@ -114,6 +123,12 @@ describe('Repo screen — unreadable', () => {
 describe('Repo screen — the happy path', () => {
   beforeEach(async () => {
     await AsyncStorage.clear();
+    // repos-cache.ts is module-level state, shared across every `it` in this
+    // file (and with composition.tsx, in the real app). Without this, the
+    // SECOND test's `GET /repos` mock is never actually hit — it silently
+    // reads the FIRST test's cached gates instead, because both share the
+    // same host id + generation (0, the default before any host switch).
+    __clearReposCacheForTests();
   });
 
   it('loads the card and the tabs from GET /repos/{name}, /log, /changes and /repos', async () => {
@@ -147,7 +162,7 @@ describe('Repo screen — the happy path', () => {
   });
 
   it('wires the action button to the matching verb, and folds the RETURNED state back in without a re-read', async () => {
-    const updated = repo({ last_fetch: new Date().toISOString() });
+    const updated = repo({ last_fetch: new Date(2026, 7, 5, 14, 22).toISOString() });
     const fetcher = mockFetch({
       state: repo(),
       commits: [],
@@ -160,9 +175,19 @@ describe('Repo screen — the happy path', () => {
     globalThis.fetch = fetcher;
 
     await renderRouter(context, { initialUrl: '/repo/tycho' });
+    await screen.findByTestId('repo-state-card-action');
 
-    const action = await screen.findByTestId('repo-state-card-action');
-    await fireEvent.press(action);
+    // One `GET /repos/tycho` from the initial load, and none since — the
+    // baseline the negative assertion below is checked against.
+    const repoReads = () =>
+      (fetcher as jest.Mock).mock.calls.filter(
+        ([url, init]: [string, RequestInit?]) =>
+          /\/repos\/tycho$/.test(url) && init?.method !== 'POST',
+      ).length;
+    const readsBeforeAction = repoReads();
+    expect(readsBeforeAction).toBe(1);
+
+    await fireEvent.press(screen.getByTestId('repo-state-card-action'));
 
     await waitFor(() =>
       expect(
@@ -172,5 +197,41 @@ describe('Repo screen — the happy path', () => {
         ),
       ).toBe(true),
     );
+
+    // The card reflects the RETURNED state (`updated`'s `last_fetch`) —
+    // proof the fold-in actually happened, not just that the POST fired.
+    await waitFor(() => expect(screen.getByText('fetched 14:22 today')).toBeTruthy());
+
+    // And the negative half of `client.ts`'s "never re-read" guarantee:
+    // folding the response in must not ALSO trigger a second
+    // `GET /repos/tycho`. A regression that quietly re-fetched and
+    // re-rendered the identical data would pass every assertion above this
+    // one; this is the one that would have caught it.
+    expect(repoReads()).toBe(readsBeforeAction);
+  });
+
+  it('reuses a warm GET /repos cache instead of re-paying the sweep — the Important-1 fix', async () => {
+    // Simulates the ordinary path: `composition.tsx` already loaded `GET
+    // /repos` (a git-status fork PER COMPOSED REPO on the engine) for its
+    // own row list, and the user then taps into a repo page. Pre-warm the
+    // SAME cache `getCachedRepos` in `repo/[name].tsx` reads, at the SAME
+    // host id + generation the route will use (`benatky`, `0` — the default
+    // before any host switch), by calling it directly rather than through
+    // `composition.tsx`, which is exercised by its own screen.
+    const fetcher = mockFetch({ state: repo(), commits: [], changes: [] });
+    globalThis.fetch = fetcher;
+    await getCachedRepos(new DaemonClient(KNOWN_HOSTS[0].daemonUrl), KNOWN_HOSTS[0].id, 0);
+    expect((fetcher as jest.Mock).mock.calls.filter(([url]) => (url as string).endsWith('/repos')))
+      .toHaveLength(1);
+
+    await renderRouter(context, { initialUrl: '/repo/tycho' });
+    expect(await screen.findByTestId('repo-state-card')).toBeTruthy();
+
+    // The pre-warm call above is still the ONLY call to the bare `/repos`
+    // sweep — the route's own `getCachedRepos` call was served from cache,
+    // not the network. Before this fix, this count would be 2.
+    expect(
+      (fetcher as jest.Mock).mock.calls.filter(([url]) => (url as string).endsWith('/repos')),
+    ).toHaveLength(1);
   });
 });

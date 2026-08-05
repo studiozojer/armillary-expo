@@ -6,6 +6,7 @@ import { ActivityIndicator } from 'react-native';
 import { ModuleList } from '@/components/module-list';
 import { Box, Button, Inline, Screen, Text } from '@/components/ui';
 import { DaemonClient } from '@/lib/daemon/client';
+import { getCachedRepos } from '@/lib/daemon/repos-cache';
 import { DaemonError, type Composition, type ReposResponse } from '@/lib/daemon/types';
 import { useHost } from '@/lib/host-context';
 import { useLoader } from '@/lib/use-loader';
@@ -44,11 +45,20 @@ export default function CompositionScreen() {
   // with no /repos at all, an older engine, simply leaves this undefined).
   // Shared by the mount effect below and pull-to-refresh, so there's one read
   // path rather than the epoch/abort dance duplicated in two places.
+  //
+  // Goes through `getCachedRepos` (`repos-cache.ts`) rather than calling
+  // `DaemonClient.getRepos` directly — this screen is one of TWO readers of
+  // the same host-scoped cache, the repo page being the other. See that
+  // module's doc for why a cache exists here at all (the sweep this screen
+  // needs is exactly the request the repo page used to re-pay for two
+  // booleans) and why it carries a TTL rather than none.
   const loadRepos = useCallback(
-    (signal?: AbortSignal) => {
+    (signal?: AbortSignal, force = false) => {
       const epoch = ++reposEpoch.current;
-      return new DaemonClient(host.daemonUrl)
-        .getRepos(signal)
+      return getCachedRepos(new DaemonClient(host.daemonUrl), host.id, generation, {
+        signal,
+        force,
+      })
         .then((response) => {
           if (epoch === reposEpoch.current) setRepos(response);
         })
@@ -56,7 +66,7 @@ export default function CompositionScreen() {
           if (epoch === reposEpoch.current) setRepos(undefined);
         });
     },
-    [host.daemonUrl],
+    [host.daemonUrl, host.id, generation],
   );
 
   useEffect(() => {
@@ -68,9 +78,12 @@ export default function CompositionScreen() {
 
   // Pull-to-refresh used to drive `useLoader`'s composition reload only, so a
   // report from one successful sweep kept reading stale statuses forever.
-  // This re-reads both on one gesture.
+  // This re-reads both on one gesture. `force: true` bypasses the cache
+  // deliberately — a pull IS the user asking for a fresh read, and serving
+  // one still inside the TTL window would make the gesture silently do
+  // nothing for up to 30 seconds.
   const handleRefresh = useCallback(async () => {
-    await Promise.all([refresh(), loadRepos()]);
+    await Promise.all([refresh(), loadRepos(undefined, true)]);
   }, [refresh, loadRepos]);
 
   // v1's group action is fetch-all, not sync — pull and push stay per-repo,

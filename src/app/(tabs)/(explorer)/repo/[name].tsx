@@ -6,6 +6,7 @@ import { RepoStateCard } from '@/components/repo-state-card';
 import { RepoTabs } from '@/components/repo-tabs';
 import { Box, Screen, Text } from '@/components/ui';
 import { DaemonClient } from '@/lib/daemon/client';
+import { getCachedRepos } from '@/lib/daemon/repos-cache';
 import { DaemonError, type ChangedFile, type Commit, type RepoState } from '@/lib/daemon/types';
 import { useHost } from '@/lib/host-context';
 import { useTheme } from '@/theme';
@@ -32,16 +33,27 @@ type ScreenState =
  * **Where the gates come from.** `RepoStateCard.gates` (the `sync`/`push`
  * grants) is `ReposResponse.enabled`/`push_enabled` — a field of the SAME
  * `GET /repos` response `composition.tsx` already reads for its own
- * `reposEnabled`. This route calls `getRepos()` itself rather than receiving
- * the grant as a navigation param: `router.push` in `module-list.tsx` carries
- * only the repo name (a string in the URL), and a grant is host-level state,
- * not something this specific navigation produced — threading it through
- * params would make the repo page's authority depend on which screen happened
- * to push it here, which breaks the moment this page is reached any other
- * way (a deep link, a future board reference). Reading it directly here is
- * the same choice `composition.tsx` already made for the identical field, so
- * there is exactly one place in the app that decides what `GET /repos`
- * means — not a second one that copies it into a route param.
+ * `reposEnabled`. This route calls `getCachedRepos()` itself rather than
+ * receiving the grant as a navigation param: `router.push` in
+ * `module-list.tsx` carries only the repo name (a string in the URL), and a
+ * grant is host-level state, not something this specific navigation
+ * produced — threading it through params would make the repo page's
+ * authority depend on which screen happened to push it here, which breaks
+ * the moment this page is reached any other way (a deep link, a future
+ * board reference). Reading it directly here is the same choice
+ * `composition.tsx` already made for the identical field, so there is
+ * exactly one place in the app that decides what `GET /repos` means — not a
+ * second one that copies it into a route param.
+ *
+ * **Why `getCachedRepos`, not `client.getRepos` directly.** `GET /repos`
+ * runs one `git status` fork per composed repo on the engine (~24 here) —
+ * this page only ever needs two booleans off it. Calling it plain would pay
+ * the full sweep on every visit to every repo page, which is exactly the
+ * "N forks for one repo's read" cost this whole feature exists to avoid.
+ * `repos-cache.ts` shares a short-TTL, host-scoped cache with
+ * `composition.tsx`, so a repo page reached shortly after the composition
+ * screen loaded (the common path — you tap a row) pays nothing extra, and
+ * a cold visit pays the sweep once, not once per repo page opened after it.
  */
 export default function RepoScreen() {
   const theme = useTheme();
@@ -68,7 +80,7 @@ export default function RepoScreen() {
       const client = new DaemonClient(host.daemonUrl);
       const [repo, repos] = await Promise.all([
         client.getRepo(name, signal),
-        client.getRepos(signal),
+        getCachedRepos(client, host.id, generation, { signal }),
       ]);
       const gates = { enabled: repos.enabled, pushEnabled: repos.push_enabled };
       // `read_error` is a 200-with-a-field, not a thrown `DaemonError` (see
@@ -88,7 +100,7 @@ export default function RepoScreen() {
       ]);
       return { repo, commits, changes, gates };
     },
-    [host.daemonUrl, name],
+    [host.daemonUrl, host.id, generation, name],
   );
 
   useEffect(() => {
