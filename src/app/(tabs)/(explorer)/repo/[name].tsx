@@ -7,7 +7,8 @@ import { RepoTabs } from '@/components/repo-tabs';
 import { Box, Screen, Text } from '@/components/ui';
 import { DaemonClient } from '@/lib/daemon/client';
 import { getCachedRepos, invalidateReposCache } from '@/lib/daemon/repos-cache';
-import { DaemonError, type ChangedFile, type Commit, type RepoState } from '@/lib/daemon/types';
+import { type GateState } from '@/lib/repo-state-card';
+import { DaemonError, type ChangedFile, type Commit, type ReposResponse, type RepoState } from '@/lib/daemon/types';
 import { useHost } from '@/lib/host-context';
 import { useTheme } from '@/theme';
 
@@ -18,13 +19,28 @@ function sectionOf(path: string): string {
   return idx === -1 ? path : path.slice(0, idx);
 }
 
+/**
+ * `repos` is `undefined` exactly when `GET /repos` FAILED (see `load`
+ * below's `.catch(() => undefined)`) — a fact distinct from the host having
+ * REFUSED the grant, which is what `repos.enabled`/`repos.push_enabled ===
+ * false` actually means. Collapsing the two (N1 of the whole-branch
+ * re-review) made a failed read assert "this host has not granted..." — a
+ * specific remedy for a refusal nobody actually read. `granted`/`refused`
+ * mirror the wire booleans; `unknown` is the read-failed case, with its own
+ * reason in `repo-state-card.ts`.
+ */
+function gateState(repos: ReposResponse | undefined, granted: boolean | undefined): GateState {
+  if (repos === undefined) return 'unknown';
+  return granted ? 'granted' : 'refused';
+}
+
 type Verb = 'fetch' | 'pull' | 'push';
 
 type Loaded = {
   repo: RepoState;
   commits: Commit[];
   changes: ChangedFile[];
-  gates: { enabled: boolean; pushEnabled: boolean };
+  gates: { enabled: GateState; pushEnabled: GateState };
 };
 
 type ScreenState =
@@ -101,7 +117,7 @@ export default function RepoScreen() {
         client.getRepo(name, signal),
         getCachedRepos(client, host.id, generation, { signal, force }).catch(() => undefined),
       ]);
-      const gates = { enabled: repos?.enabled ?? false, pushEnabled: repos?.push_enabled ?? false };
+      const gates = { enabled: gateState(repos, repos?.enabled), pushEnabled: gateState(repos, repos?.push_enabled) };
       // `read_error` is a 200-with-a-field, not a thrown `DaemonError` (see
       // `types.ts`'s doc on `RepoState.read_error`), so `repo` above always
       // resolves for a name the manifest knows. An unreadable repo has
@@ -205,7 +221,10 @@ export default function RepoScreen() {
                       status: 'ok',
                       data: {
                         ...prev.data,
-                        gates: { enabled: repos.enabled, pushEnabled: repos.push_enabled },
+                        gates: {
+                          enabled: gateState(repos, repos.enabled),
+                          pushEnabled: gateState(repos, repos.push_enabled),
+                        },
                       },
                     }
                   : prev,
@@ -221,7 +240,17 @@ export default function RepoScreen() {
             : 'The request failed.',
         );
       } finally {
-        if (epoch.current === mine) setInFlight(undefined);
+        // UNCONDITIONAL, unlike the writes above — the epoch guard's job is
+        // "don't write a stale repo into a screen that has moved on," never
+        // "don't stop the spinner." An epoch bump mid-action (a pull-to-
+        // refresh, a host switch) used to leave `inFlight` set forever,
+        // because this line matched the writes' own guard: the request had
+        // already returned, but the card kept claiming one was running —
+        // busy, disabled, progress bar and all — until the screen unmounted.
+        // Stopping the spinner is correct regardless of which epoch is
+        // current, so it is the one write in this function that isn't
+        // gated on `mine`.
+        setInFlight(undefined);
       }
     },
     [host.daemonUrl, host.id, generation, name],

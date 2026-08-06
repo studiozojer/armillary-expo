@@ -4,6 +4,20 @@ import { relative } from './repo-label';
 export type CardAction = 'ready' | 'blocked' | 'busy';
 export type CardTone = 'none' | 'neutral' | 'warn' | 'error';
 
+/**
+ * A grant's state as read off `GET /repos` — or the fact that it couldn't be
+ * read at all. `'unknown'` is a DIFFERENT claim from `'refused'`: the host
+ * refusing a grant is a fact about the host; a failed gates read is a fact
+ * about the network, and says nothing about what the host actually granted.
+ * Collapsing both into one boolean (N1 of the whole-branch re-review) made a
+ * failed `GET /repos` render as "Push is not granted on this host... Ask the
+ * host to enable it" — a specific remedy prescribed for a specific refusal
+ * that was never read, sending someone to edit a manifest that may already
+ * be correct. `'unknown'` gets its own reason instead of borrowing
+ * `'refused'`'s.
+ */
+export type GateState = 'granted' | 'refused' | 'unknown';
+
 export type CardModel = {
   action: CardAction;
   tone: CardTone;
@@ -37,7 +51,6 @@ function commitCount(n: number): string {
  * without it, an unrecognised kind indexes past the table to `undefined`,
  * and reading `.tone` off `undefined` throws, white-screening the repo page.
  *
-
  * This is its OWN table rather than a re-export of `repo-label.ts`'s
  * `ACTION_ERROR`, even though the two overlap in spirit. Two reasons: (1)
  * `repo-label.ts`'s `Tone` is `'error' | 'warn' | 'muted'` — this card's
@@ -91,13 +104,34 @@ const IN_FLIGHT_LABEL: Record<'fetch' | 'pull' | 'push', string> = {
   push: 'Pushing…',
 };
 
-/** Shown when a verb would otherwise run but the host has not granted `sync`. */
+/** Shown when a verb would otherwise run but the host has REFUSED `sync`. */
 const SYNC_NOT_GRANTED =
   'This host has not granted git authority (the "sync" grant). Ask the host to enable it.';
 
-/** Shown when push specifically would otherwise run but `push` is not granted. */
+/** Shown when a verb would otherwise run but the `sync` grant could not be
+ *  READ at all — a failed `GET /repos`, not a refusal. A different fact from
+ *  `SYNC_NOT_GRANTED` (N1): nobody has actually said no here, so there is
+ *  nothing to ask the host to change — the fix is a fresh read, not a
+ *  manifest edit. */
+const SYNC_UNKNOWN =
+  'Couldn’t read this host’s grants, so git actions are held closed. Pull to refresh.';
+
+/** Shown when push specifically would otherwise run but the host has REFUSED `push`. */
 const PUSH_NOT_GRANTED =
   'Push is not granted on this host (a separate "push" grant from "sync"). Ask the host to enable it.';
+
+/** Push's counterpart to `SYNC_UNKNOWN` — the `push` grant could not be read. */
+const PUSH_UNKNOWN =
+  'Couldn’t read this host’s grants, so push is held closed. Pull to refresh.';
+
+/** `gates.enabled`/`gates.pushEnabled` are `GateState`, not `boolean` — this
+ *  is where the two blocked reasons (and their tones) fork on WHY the grant
+ *  reads as unavailable. `'unknown'` reads `warn`, not `neutral`: a refusal
+ *  is the host's deliberate policy (the quietest tone this card has), but a
+ *  failed read is an anomaly worth flagging, not a calm "no." */
+function gateBlocked(gate: GateState, refused: string, unknown: string): { tone: CardTone; reason: string } {
+  return gate === 'unknown' ? { tone: 'warn', reason: unknown } : { tone: 'neutral', reason: refused };
+}
 
 /**
  * David's decomposition of the repo page's centrepiece (Figma
@@ -152,7 +186,7 @@ const PUSH_NOT_GRANTED =
  */
 export function stateCard(
   s: RepoState,
-  gates: { enabled: boolean; pushEnabled: boolean },
+  gates: { enabled: GateState; pushEnabled: GateState },
   inFlight?: 'fetch' | 'pull' | 'push',
 ): CardModel {
   const sublabel = s.last_fetch ? relative(s.last_fetch, new Date()) : 'No fetch recorded';
@@ -185,7 +219,12 @@ export function stateCard(
     const ae = ACTION_ERROR_CARD[s.action_error.kind] ?? {
       label: 'Action failed',
       tone: 'error' as const,
-      reason: s.action_error.message,
+      // A written sentence FIRST, same discipline as the `read_error` reason
+      // above — this fallback existed only to stop a throw, and shipping the
+      // raw engine message with nothing in front of it is the exact defect
+      // that fix closed three commits earlier, just relocated to a path
+      // nothing exercised until now.
+      reason: `This app doesn’t recognize this failure yet. ${s.action_error.message}`,
     };
     return { action: 'blocked', tone: ae.tone, label: ae.label, sublabel, reason: ae.reason, verb: null };
   }
@@ -251,15 +290,9 @@ export function stateCard(
       }
 
       if (behind > 0) {
-        if (!gates.enabled) {
-          return {
-            action: 'blocked',
-            tone: 'neutral',
-            label: `Pull ${commitCount(behind)}`,
-            sublabel,
-            reason: SYNC_NOT_GRANTED,
-            verb: null,
-          };
+        if (gates.enabled !== 'granted') {
+          const { tone, reason } = gateBlocked(gates.enabled, SYNC_NOT_GRANTED, SYNC_UNKNOWN);
+          return { action: 'blocked', tone, label: `Pull ${commitCount(behind)}`, sublabel, reason, verb: null };
         }
         return { action: 'ready', tone: 'none', label: `Pull ${commitCount(behind)}`, sublabel, verb: 'pull' };
       }
@@ -267,28 +300,16 @@ export function stateCard(
       if (ahead > 0) {
         // Dirty does NOT block this branch (rule 10's doc comment above) —
         // pushing moves a remote ref and never touches the working tree.
-        if (!gates.pushEnabled) {
-          return {
-            action: 'blocked',
-            tone: 'neutral',
-            label: `Push ${commitCount(ahead)}`,
-            sublabel,
-            reason: PUSH_NOT_GRANTED,
-            verb: null,
-          };
+        if (gates.pushEnabled !== 'granted') {
+          const { tone, reason } = gateBlocked(gates.pushEnabled, PUSH_NOT_GRANTED, PUSH_UNKNOWN);
+          return { action: 'blocked', tone, label: `Push ${commitCount(ahead)}`, sublabel, reason, verb: null };
         }
         return { action: 'ready', tone: 'none', label: `Push ${commitCount(ahead)}`, sublabel, verb: 'push' };
       }
 
-      if (!gates.enabled) {
-        return {
-          action: 'blocked',
-          tone: 'neutral',
-          label: 'Fetch origin',
-          sublabel,
-          reason: SYNC_NOT_GRANTED,
-          verb: null,
-        };
+      if (gates.enabled !== 'granted') {
+        const { tone, reason } = gateBlocked(gates.enabled, SYNC_NOT_GRANTED, SYNC_UNKNOWN);
+        return { action: 'blocked', tone, label: 'Fetch origin', sublabel, reason, verb: null };
       }
       return { action: 'ready', tone: 'none', label: 'Fetch origin', sublabel, verb: 'fetch' };
     }

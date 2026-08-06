@@ -254,10 +254,10 @@ describe('Repo screen — whole-branch review IMPORTANT 1: a failed GET /repos m
     __clearReposCacheForTests();
   });
 
-  it('renders successfully with gates failed CLOSED when GET /repos alone fails', async () => {
+  it('renders successfully with gates held CLOSED (not asserted REFUSED) when GET /repos alone fails', async () => {
     // `/repos/{name}`, `/log` and `/changes` all 200 — only the bare `/repos`
-    // sweep fails. Before the fix, `Promise.all` rejected the instant that
-    // one call did, and the page showed "Can't reach the engine" having
+    // sweep fails. Before the I1 fix, `Promise.all` rejected the instant
+    // that one call did, and the page showed "Can't reach the engine" having
     // reached it three times.
     globalThis.fetch = jest.fn((url: string) => {
       if (url.endsWith('/repos')) return jsonResponse(500, 'sweep failed');
@@ -272,13 +272,16 @@ describe('Repo screen — whole-branch review IMPORTANT 1: a failed GET /repos m
     expect(await screen.findByTestId('repo-state-card')).toBeTruthy();
     expect(screen.queryByText("Can't reach the engine")).toBeNull();
 
-    // Fail CLOSED: `gates.enabled` defaults to `false` when the gates read
-    // never arrives, so a plain ready-to-fetch repo reads as not-granted
-    // rather than silently offering an action gated on a boolean nobody
-    // measured.
+    // Held closed, not asserted refused (N1 of the whole-branch re-review):
+    // `gates.enabled` reads `'unknown'`, not `'refused'`, when the gates
+    // read never arrived — a plain ready-to-fetch repo blocks, but the
+    // reason says the read failed, not that the host said no. The original
+    // I1 fix defaulted straight to `false`/refused wording here, which
+    // asserted a specific refusal nobody had actually read.
     const action = screen.getByTestId('repo-state-card-action');
     expect(action.props.accessibilityState).toMatchObject({ disabled: true });
-    expect(screen.getByText(/has not granted git authority/i)).toBeTruthy();
+    expect(screen.getByText(/held closed/i)).toBeTruthy();
+    expect(screen.queryByText(/has not granted git authority/i)).toBeNull();
   });
 });
 
@@ -395,5 +398,87 @@ describe('Repo screen — 403 invalidation', () => {
       (url as string).endsWith('/repos'),
     ).length;
     expect(reposReadsSoFar).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe('Repo screen — N3 (whole-branch re-review): an epoch bump mid-action must not strand the spinner', () => {
+  beforeEach(async () => {
+    await AsyncStorage.clear();
+    __clearReposCacheForTests();
+  });
+
+  it('a pull-to-refresh started while a verb is in flight still clears busy once the verb settles', async () => {
+    // `handleRefresh` bumps `epoch.current` (the same guard `onAction`
+    // reads). Before the fix, `onAction`'s `finally` only cleared `inFlight`
+    // `if (epoch.current === mine)` — so an epoch bump mid-action (a pull,
+    // or a host switch) left the spinner running forever: the button stayed
+    // `{busy: true, disabled: true}` even after the POST had resolved,
+    // because nothing on this screen instance could ever pass that guard
+    // again.
+    let resolvePost: () => void = () => {};
+    const pending = new Promise<void>((resolve) => {
+      resolvePost = resolve;
+    });
+    const fetcher = jest.fn((url: string, init?: RequestInit) => {
+      if (init?.method === 'POST') return pending.then(() => jsonResponse(200, repo()));
+      if (url.endsWith('/repos')) {
+        return jsonResponse(200, { enabled: true, push_enabled: true, repos: [repo()], not_composed: [] });
+      }
+      if (url.includes('/log')) return jsonResponse(200, COMMITS);
+      if (url.includes('/changes')) return jsonResponse(200, CHANGES);
+      if (/\/repos\/[^/]+$/.test(url)) return jsonResponse(200, repo());
+      throw new Error(`unexpected fetch: ${url}`);
+    }) as unknown as typeof fetch;
+    globalThis.fetch = fetcher;
+
+    await renderRouter(context, { initialUrl: '/repo/tycho' });
+    await screen.findByTestId('repo-state-card-action');
+
+    // NOT awaited, deliberately — `fireEvent.press` in this
+    // `@testing-library/react-native` version wraps the async `onPress` in
+    // `act()` and its returned promise only resolves once that ENTIRE
+    // handler settles (`ui-composed.test.tsx`'s own doc on this). `onAction`
+    // does not settle until the POST below resolves, and this test needs to
+    // observe the screen WHILE that POST is still pending — awaiting here
+    // would deadlock on the exact promise this test is about to hold open.
+    fireEvent.press(screen.getByTestId('repo-state-card-action'));
+    await waitFor(() => expect(screen.getByText('Fetching…')).toBeTruthy());
+
+    // Bump the epoch MID-FLIGHT, before the POST resolves — the exact shape
+    // N3 named ("tap Fetch, pull down while it spins"). `handleRefresh`
+    // bumps `epoch.current` SYNCHRONOUSLY on call, which is all this proof
+    // needs — no need to wait for the refresh's own reload to finish before
+    // moving on (and `inFlight` from the original action still outranks it
+    // in the card's own ladder until the POST below settles, so waiting for
+    // any text change here would hang on the very bug this test exists to
+    // catch).
+    act(() => {
+      screen.getByTestId('repo-screen-scroll').props.refreshControl.props.onRefresh();
+    });
+
+    // Now let the original action settle. The POST's mocked response chain
+    // has several more hops after `pending` itself resolves (the fetch
+    // mock's own `.then`, `DaemonClient.post`'s `await response.json()`,
+    // `onAction`'s own continuation) — `waitFor` below polls across real
+    // macrotasks, which is what actually drains all of them, not this
+    // single `await`.
+    await act(async () => {
+      resolvePost();
+      // A real macrotask boundary, not another microtask hop off the same
+      // already-resolved `pending` — the mocked response has several more
+      // hops after `pending` settles (the fetch mock's own `.then`,
+      // `DaemonClient.post`'s `await response.json()`, `onAction`'s own
+      // continuation), and a `setTimeout(0)` is what actually guarantees
+      // the WHOLE microtask queue drains before this resolves, not just one
+      // more turn of it.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    // The card must not still claim a request is running.
+    await waitFor(() => expect(screen.queryByText('Fetching…')).toBeNull(), { timeout: 3000 });
+    expect(screen.queryByTestId('repo-state-card-progress')).toBeNull();
+    expect(screen.getByTestId('repo-state-card-action').props.accessibilityState).toMatchObject({
+      disabled: false,
+    });
   });
 });

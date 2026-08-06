@@ -21,8 +21,8 @@ function repo(overrides: Partial<RepoState> = {}): RepoState {
   };
 }
 
-const OPEN = { enabled: true, pushEnabled: true };
-const CLOSED = { enabled: false, pushEnabled: false };
+const OPEN = { enabled: 'granted' as const, pushEnabled: 'granted' as const };
+const CLOSED = { enabled: 'refused' as const, pushEnabled: 'refused' as const };
 
 describe('<RepoStateCard>', () => {
   it('shows the branch label and name', async () => {

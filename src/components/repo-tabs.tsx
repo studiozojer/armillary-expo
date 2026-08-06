@@ -54,12 +54,12 @@ function changeGlyph(change: string): { icon: IconName; color: ColorRole } {
  * A commit's age in the History row's author line ("2 min ago", "yesterday",
  * Figma `342:5002`'s "history list"). Deliberately NOT `repo-label.ts`'s
  * exported `relative()`: that function's whole job is FRESHNESS ("fetched
- * 14:22 today" / "fetched Jul 29" / "never fetched") for the State Card's
- * sublabel and the list row's fallback reading, and every one of its strings
- * carries the word "fetched" — wrong on a commit, which was never fetched,
- * it was made. Renaming or parameterising that word onto a second caller
- * would couple two concepts (staleness-of-a-read vs. age-of-a-commit) that
- * only look alike because both happen to be relative-time strings.
+ * 14:22 today" / "fetched Jul 29" / "no fetch recorded") for the State
+ * Card's sublabel and the list row's fallback reading, and every one of its
+ * strings carries "fetch" — wrong on a commit, which was never fetched, it
+ * was made. Renaming or parameterising that word onto a second caller would
+ * couple two concepts (staleness-of-a-read vs. age-of-a-commit) that only
+ * look alike because both happen to be relative-time strings.
  *
  * No `Intl`, for the same reason `relative()` avoids it: the day-boundary
  * arithmetic below has to be exact and independent of the test runner's

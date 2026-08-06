@@ -10,9 +10,13 @@ const base: RepoState = {
   submodules: false,
 };
 
-const OPEN = { enabled: true, pushEnabled: true };
-const SYNC_ONLY = { enabled: true, pushEnabled: false };
-const CLOSED = { enabled: false, pushEnabled: false };
+const OPEN = { enabled: 'granted' as const, pushEnabled: 'granted' as const };
+const SYNC_ONLY = { enabled: 'granted' as const, pushEnabled: 'refused' as const };
+const CLOSED = { enabled: 'refused' as const, pushEnabled: 'refused' as const };
+// N1 (whole-branch re-review): a failed GATES READ is a different fact from
+// a REFUSED grant, and must read differently — see the "gate reads as
+// unknown" describe block below.
+const GATES_UNKNOWN = { enabled: 'unknown' as const, pushEnabled: 'unknown' as const };
 
 /** Same trick `repo-label.test.ts` uses: build the ISO string from LOCAL
  *  components so the assertion is independent of the test runner's TZ. */
@@ -192,6 +196,44 @@ describe('stateCard — sublabel: freshness, read once, reused everywhere', () =
   });
 });
 
+describe('stateCard — N1 (whole-branch re-review): an unread gate is not the same claim as a refused one', () => {
+  // A failed `GET /repos` and a host that said no are different facts —
+  // collapsing them made the card assert a specific refusal ("this host has
+  // not granted...") nobody actually read, prescribing a manifest edit for a
+  // condition that may not exist.
+  const behind3: RepoState = { ...base, position: { kind: 'tracking', upstream: 'origin/main', ahead: 0, behind: 3 } };
+  const ahead2: RepoState = { ...base, position: { kind: 'tracking', upstream: 'origin/main', ahead: 2, behind: 0 } };
+
+  it('an unknown sync gate reads "held closed" — never "has not granted" — for a pull', () => {
+    const model = stateCard(behind3, GATES_UNKNOWN);
+    expect(model).toMatchObject({ action: 'blocked', label: 'Pull 3 commits', verb: null });
+    expect(model.reason).toMatch(/held closed/i);
+    expect(model.reason).not.toMatch(/has not granted/i);
+  });
+
+  it('an unknown sync gate reads "held closed" for a plain fetch too', () => {
+    const model = stateCard(base, GATES_UNKNOWN);
+    expect(model).toMatchObject({ action: 'blocked', label: 'Fetch origin', verb: null });
+    expect(model.reason).toMatch(/held closed/i);
+    expect(model.reason).not.toMatch(/has not granted/i);
+  });
+
+  it('an unknown push gate reads "held closed" — never "is not granted" — for a push', () => {
+    const model = stateCard(ahead2, { enabled: 'granted', pushEnabled: 'unknown' });
+    expect(model).toMatchObject({ action: 'blocked', label: 'Push 2 commits', verb: null });
+    expect(model.reason).toMatch(/held closed/i);
+    expect(model.reason).not.toMatch(/is not granted/i);
+  });
+
+  it('reads DIFFERENTLY (tone) from a genuine refusal — a refusal is the host\'s policy, an unknown read is an anomaly', () => {
+    const refused = stateCard(behind3, CLOSED);
+    const unknown = stateCard(behind3, GATES_UNKNOWN);
+    expect(refused.tone).toBe('neutral');
+    expect(unknown.tone).toBe('warn');
+    expect(refused.reason).not.toBe(unknown.reason);
+  });
+});
+
 describe('stateCard — pluralization: one-ahead/one-behind is the common case', () => {
   it('says "1 commit", not "1 commits", when pulling', () => {
     const s: RepoState = { ...base, position: { kind: 'tracking', upstream: 'origin/main', ahead: 0, behind: 1 } };
@@ -223,13 +265,13 @@ describe('stateCard — degrades on a wire value this client does not recognise,
       action_error: { kind: 'sixth-kind', message: 'the engine said something new' } as unknown as RepoState['action_error'],
     };
     expect(() => stateCard(s, OPEN)).not.toThrow();
-    expect(stateCard(s, OPEN)).toMatchObject({
-      action: 'blocked',
-      tone: 'error',
-      label: 'Action failed',
-      reason: 'the engine said something new',
-      verb: null,
-    });
+    const model = stateCard(s, OPEN);
+    expect(model).toMatchObject({ action: 'blocked', tone: 'error', label: 'Action failed', verb: null });
+    // A written sentence FIRST, same discipline as the read_error fix — this
+    // fallback exists to stop a throw, not to ship the raw engine message
+    // with nothing in front of it.
+    expect(model.reason).toMatch(/^This app doesn.t recognize this failure yet\./);
+    expect(model.reason).toContain('the engine said something new');
   });
 
   it('an unrecognised Position.kind blocks with a neutral "unknown state" card instead of throwing', () => {
