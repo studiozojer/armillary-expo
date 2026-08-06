@@ -238,8 +238,11 @@ export function RepoTabs({
 }: {
   commits: Commit[];
   changes: ChangedFile[];
-  /** Clock injection for `commitAge` — same idiom `rowLabel`/`stateCard` use
-   *  so a test can pin "now" without depending on wall-clock time. */
+  /** Clock injection for `commitAge` — same idiom `rowLabel` uses so a test
+   *  can pin "now" without depending on wall-clock time. (`stateCard` does
+   *  NOT take this itself — it calls `new Date()` inline; an injectable
+   *  clock there would be nicer, but claiming it already has one here would
+   *  just be a second false claim standing in for the fix.) */
   now?: Date;
   testID?: string;
 }) {
