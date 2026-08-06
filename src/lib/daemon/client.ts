@@ -1,16 +1,19 @@
 import { DAEMON_BASE_URL } from '../config';
 import {
   DaemonError,
+  type ChangedFile,
+  type Commit,
   type Composition,
   type FileResponse,
   type HealthResponse,
-  type SyncReport,
+  type RepoState,
+  type ReposResponse,
   type TreeResponse,
   type VoicenoteIndex,
 } from './types';
 
 /**
- * Typed client for the engine's routes — reads plus the one sweep-trigger POST.
+ * Typed client for the engine's routes — reads plus the per-repo git verbs.
  *
  * `fetch` is injected rather than imported so tests exercise the client instead
  * of the network.
@@ -29,6 +32,20 @@ export class DaemonClient {
     if (!response.ok) {
       // The status is what the UI branches on — a 415 on a .png should read as
       // "can't open this file type", not as a generic failure.
+      throw new DaemonError(response.status, await response.text());
+    }
+    return (await response.json()) as T;
+  }
+
+  /**
+   * The per-repo git verbs are POSTs with no body — the name is in the path
+   * and there is nothing else to say. A 403 here is meaningful rather than
+   * generic: the host has not granted the `sync` or `push` gate, and the
+   * screen hides the action rather than showing an error.
+   */
+  private async post<T>(path: string, signal?: AbortSignal): Promise<T> {
+    const response = await this.fetcher(`${this.baseUrl}${path}`, { method: 'POST', signal });
+    if (!response.ok) {
       throw new DaemonError(response.status, await response.text());
     }
     return (await response.json()) as T;
@@ -54,21 +71,53 @@ export class DaemonClient {
     return this.get<VoicenoteIndex>('/voicenotes', signal);
   }
 
-  getSyncStatus(signal?: AbortSignal): Promise<SyncReport> {
-    return this.get<SyncReport>('/sync', signal);
+  /** Every repo the workspace composes, plus the gates governing what can be done to them. */
+  getRepos(signal?: AbortSignal): Promise<ReposResponse> {
+    return this.get<ReposResponse>('/repos', signal);
   }
 
   /**
-   * Trigger the sweep. Separate from `get` because it is the one POST this
-   * client makes, and because a 403 here is meaningful rather than generic:
-   * the host has not declared `[router] sync`, and the screen hides the action
-   * rather than showing an error.
+   * A name is a key into the engine's manifest, not a filesystem path — but it
+   * still goes through `encodeURIComponent`. The engine 404s a miss without
+   * ever constructing a path from it, so this is defence in depth rather than
+   * the only guard: a name containing a slash must not silently address a
+   * different route.
    */
-  async runSync(signal?: AbortSignal): Promise<SyncReport> {
-    const response = await this.fetcher(`${this.baseUrl}/sync`, { method: 'POST', signal });
-    if (!response.ok) {
-      throw new DaemonError(response.status, await response.text());
-    }
-    return (await response.json()) as SyncReport;
+  getRepo(name: string, signal?: AbortSignal): Promise<RepoState> {
+    return this.get<RepoState>(`/repos/${encodeURIComponent(name)}`, signal);
+  }
+
+  getLog(name: string, limit?: number, signal?: AbortSignal): Promise<Commit[]> {
+    const query = limit === undefined ? '' : `?limit=${limit}`;
+    return this.get<Commit[]>(`/repos/${encodeURIComponent(name)}/log${query}`, signal);
+  }
+
+  getChanges(name: string, signal?: AbortSignal): Promise<ChangedFile[]> {
+    return this.get<ChangedFile[]>(`/repos/${encodeURIComponent(name)}/changes`, signal);
+  }
+
+  /**
+   * Every mutation below returns the repo's new state rather than an ack, so
+   * a caller never has to re-read after acting on it — and a refused action
+   * (dirty tree, diverged history…) still comes back as a 200 carrying
+   * `action_error`, not as a thrown `DaemonError`. A `DaemonError` here means
+   * the request itself failed (403 ungated, 404 unknown name), not that git
+   * declined.
+   */
+  fetchRepo(name: string, signal?: AbortSignal): Promise<RepoState> {
+    return this.post<RepoState>(`/repos/${encodeURIComponent(name)}/fetch`, signal);
+  }
+
+  pullRepo(name: string, signal?: AbortSignal): Promise<RepoState> {
+    return this.post<RepoState>(`/repos/${encodeURIComponent(name)}/pull`, signal);
+  }
+
+  pushRepo(name: string, signal?: AbortSignal): Promise<RepoState> {
+    return this.post<RepoState>(`/repos/${encodeURIComponent(name)}/push`, signal);
+  }
+
+  /** Fetches every composed repo in one round trip; returns each repo's new state. */
+  fetchAll(signal?: AbortSignal): Promise<RepoState[]> {
+    return this.post<RepoState[]>('/repos/fetch', signal);
   }
 }

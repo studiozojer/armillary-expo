@@ -79,46 +79,82 @@ export type VoicenoteIndex = {
   entries: VoicenoteEntry[];
 };
 
-/** `behind` only ever comes from GET; `synced` only ever from POST. */
-export type SyncRepoStatus = 'synced' | 'current' | 'behind' | 'skipped' | 'error';
+/**
+ * A repo's relationship to its upstream. A union rather than a status string
+ * plus optional fields: `ahead`/`behind`/`upstream` only ever coexist under
+ * `tracking`, so a type that let them float free of each other could
+ * represent states (e.g. `behind` with no `upstream`) the engine never sends.
+ */
+export type Position =
+  | { kind: 'tracking'; upstream: string; ahead: number; behind: number }
+  | { kind: 'upstream-gone'; upstream: string }
+  | { kind: 'no-upstream' }
+  | { kind: 'detached' };
 
-export type SyncSkipReason =
-  | 'dirty'
-  | 'diverged'
-  | 'no-upstream'
-  | 'detached'
-  | 'timeout'
-  | 'git-error'
-  | 'task-failed';
+/**
+ * What `kind` a failed action reports. Closed vocabulary — the engine never
+ * sends anything else, and code branches on this rather than on `message`,
+ * which is display-only.
+ */
+export type ActionErrorKind =
+  | 'dirty' // refused: the working tree has uncommitted changes
+  | 'not-fast-forwardable' // refused: history diverged
+  | 'refused-by-remote' // the remote deliberately declined (protected branch, pre-receive hook)
+  | 'transport' // could not reach the remote
+  | 'timeout';
 
-export type SyncRepo = {
+export type ActionError = { kind: ActionErrorKind; message: string };
+
+export type RepoState = {
   name: string;
   path: string;
+  head?: string;
   branch?: string;
-  status: SyncRepoStatus;
-  reason?: SyncSkipReason;
-  commits?: number;
-  /** Committer date of HEAD, strict ISO 8601. Read AFTER any fast-forward. */
+  position: Position;
+  dirty_files: number;
+  last_fetch?: string;
+  /** Single-repo routes only. Always absent from `GET /repos`. */
   newest_commit?: string;
+  worktrees: number;
+  submodules: boolean;
   /**
-   * The repo has submodules, which were fetched but NOT updated (D5) — the
-   * fast-forward moved the pointer and left the submodule checkout behind.
-   * Present only when true, so a limit nobody can see does not read as a bug.
+   * The last action this request performed failed. Present on a 200 — a
+   * failed verb is a populated state, not an HTTP error.
    */
-  submodules?: boolean;
-  fetch_error?: string;
+  action_error?: ActionError;
+  /**
+   * The repo could not be read at all. When set, `head`/`branch`/`position`/
+   * `dirty_files` are type defaults rather than measurements — branch on this
+   * before rendering anything else. `last_fetch`, `worktrees` and
+   * `submodules` ARE real measurements even here.
+   */
+  read_error?: string;
 };
 
-export type SyncNotComposed = { path: string };
-
-export type SyncReport = {
-  /** Whether the host declares `[router] sync`. False means hide the action. */
+export type ReposResponse = {
+  /** The `sync` grant — fetch and pull. */
   enabled: boolean;
+  /** The `push` grant — separate on purpose. */
+  push_enabled: boolean;
+  repos: RepoState[];
   /**
-   * False for a status read. The UI must say "as of last sync" when it is
-   * false — a stale `current` and a fresh one are otherwise the same word.
+   * Repo-relative paths of git checkouts on disk that no manifest declares —
+   * surfaced so a stray clone is visible, but never swept. Plain strings on
+   * the wire: the engine serializes `Vec<String>`, not a wrapper struct — the
+   * `NotComposed` struct that once backed this field died with `sync.rs`, and
+   * the object shape survived here only because it was inherited from the
+   * retired sync report rather than checked against the new route.
    */
-  fetched: boolean;
-  repos: SyncRepo[];
-  not_composed: SyncNotComposed[];
+  not_composed: string[];
 };
+
+export type Commit = {
+  sha: string;
+  subject: string;
+  author: string;
+  date: string;
+  /** Not yet on the upstream ref. */
+  unpushed: boolean;
+};
+
+export type ChangedFile = { path: string; change: string; staged: boolean };
