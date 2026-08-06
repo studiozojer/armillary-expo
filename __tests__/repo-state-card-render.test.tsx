@@ -41,6 +41,24 @@ describe('<RepoStateCard>', () => {
     expect(screen.getByText('(detached)')).toBeTruthy();
   });
 
+  it('reads the branch cell as an em dash on read_error, never "(detached)" — C1', async () => {
+    // `branch` is `undefined` here for the SAME reason it is for a real
+    // detached HEAD (`read_error` sets it as a type default before
+    // `status_v2` ever runs) — a card reading the raw field cannot tell the
+    // two apart and asserts a detached HEAD the engine never measured. The
+    // regression this guards: reverting to `state.branch ?? '(detached)'`
+    // makes "(detached)" reappear here, next to "Repo unreadable".
+    await render(
+      <RepoStateCard
+        state={repo({ branch: undefined, position: { kind: 'detached' }, read_error: 'not a git repository' })}
+        gates={OPEN}
+      />,
+    );
+    expect(screen.getByText('—')).toBeTruthy();
+    expect(screen.queryByText('(detached)')).toBeNull();
+    expect(screen.getByText('Repo unreadable')).toBeTruthy();
+  });
+
   it('a ready action is enabled and calls back with its verb', async () => {
     const onAction = jest.fn();
     await render(<RepoStateCard state={repo()} gates={OPEN} onAction={onAction} />);

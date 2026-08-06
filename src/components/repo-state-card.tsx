@@ -98,7 +98,18 @@ export function RepoStateCard({
             <Text variant="caption" color="txTertiary" numberOfLines={1}>
               Current branch
             </Text>
-            <Text numberOfLines={1}>{state.branch ?? '(detached)'}</Text>
+            {/* `branch` is `undefined` for two different reasons: a real
+                detached HEAD, and `read_error` — where the engine sets
+                `branch: None`/`position: Detached` as TYPE DEFAULTS before
+                `status_v2` ever runs (see `types.ts`'s doc on
+                `RepoState.read_error`). Reading the raw field here would
+                assert a detached HEAD the engine never measured. Figma
+                `372:748` draws an em dash for this state — not a branch
+                name, not "(detached)", because neither claim is true when
+                the repo could not be read at all. */}
+            <Text numberOfLines={1}>
+              {state.read_error ? '—' : (state.branch ?? '(detached)')}
+            </Text>
           </Stack>
           {/*
            * STUBBED — David's ruling, 2026-08-05: branch switching is
