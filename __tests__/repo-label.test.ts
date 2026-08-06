@@ -77,8 +77,12 @@ describe('rowLabel — the ladder', () => {
     });
   });
 
-  it('reports never-fetched distinctly from a stale timestamp', () => {
-    expect(rowLabel({ ...base }).text).toBe('never fetched');
+  it('reports "no fetch recorded" — never claims "never fetched", since a failed fetch reads null too', () => {
+    // The engine returns `last_fetch: null` both for a repo that has never
+    // been fetched and for one whose last fetch FAILED (FETCH_HEAD truncates
+    // to zero bytes on failure) — a reload after a failed sweep must not
+    // claim to know which, and "never fetched" is a claim.
+    expect(rowLabel({ ...base }).text).toBe('no fetch recorded');
   });
 });
 
@@ -138,5 +142,38 @@ describe('rowLabel — relative(last_fetch)', () => {
     expect(rowLabel({ ...base, last_fetch: localIso(2026, 6, 29, 9, 5) }, now).text).toBe(
       'fetched Jul 29',
     );
+  });
+});
+
+describe('rowLabel — degrades on a wire value this client does not recognise, rather than throwing or lying', () => {
+  // `ActionErrorKind` and `Position['kind']` are CLOSED unions on this
+  // client, but the wire is a bare string on both — a sixth kind, or a fifth
+  // `Position`, is representable by the engine before it is representable
+  // here. The `never`-typed defaults only guard THIS FILE's own type from
+  // silently growing a case; they cannot see a value the engine adds that
+  // this file's types don't describe yet.
+  it('an unrecognised action_error.kind degrades to a generic label instead of returning undefined', () => {
+    const s: RepoState = {
+      ...base,
+      action_error: { kind: 'sixth-kind', message: 'x' } as unknown as RepoState['action_error'],
+    };
+    expect(rowLabel(s)).toEqual({ text: 'action failed', tone: 'error' });
+  });
+
+  it('an unrecognised Position.kind falls through to the last-fetch reading instead of rendering the raw wire object', () => {
+    const s: RepoState = {
+      ...base,
+      position: { kind: 'renamed-someday' } as unknown as RepoState['position'],
+      last_fetch: new Date().toISOString(),
+    };
+    // Before the fix, `positionLabel`'s `never` default returned the raw
+    // `{ kind: 'renamed-someday' }` object AS a `Label` — `label.text` would
+    // be `undefined` and `label.tone` would be `undefined`, garbage reaching
+    // the renderer rather than a real fallback. Falling through to
+    // `relative()` means an unknown position reads as "how stale is this,"
+    // which is honest: this client cannot say anything more specific about a
+    // position kind it has never seen.
+    expect(rowLabel(s).tone).toBe('muted');
+    expect(typeof rowLabel(s).text).toBe('string');
   });
 });

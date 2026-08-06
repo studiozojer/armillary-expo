@@ -28,7 +28,18 @@ export type Label = { text: string; tone: Tone };
  */
 export function rowLabel(s: RepoState, now: Date = new Date()): Label {
   if (s.read_error) return { text: 'unreadable', tone: 'error' };
-  if (s.action_error) return ACTION_ERROR[s.action_error.kind];
+  // `?? FALLBACK`, not a bare index — `ACTION_ERROR` is a `Record` typed over
+  // THIS client's closed `ActionErrorKind`, but the wire's `kind` is a bare
+  // `&'static str` on the engine side (`types.ts`'s own doc on
+  // `ActionErrorKind`), so a sixth kind is representable on the wire before
+  // it is representable here. The `Record` type still buys real value — a
+  // kind ADDED TO THIS FILE'S OWN UNION without a label is a compile error —
+  // but it cannot see a kind the ENGINE adds that this file doesn't know
+  // about yet, and that is exactly where new kinds come from. Without the
+  // fallback, an unrecognised kind indexes past the table and this function
+  // returns `undefined` at runtime despite its `Label` return type, and the
+  // row silently loses its label.
+  if (s.action_error) return ACTION_ERROR[s.action_error.kind] ?? { text: 'action failed', tone: 'error' };
   if (s.dirty_files > 0) return { text: `${s.dirty_files} changed`, tone: 'warn' };
 
   const positional = positionLabel(s.position);
@@ -40,9 +51,15 @@ export function rowLabel(s: RepoState, now: Date = new Date()): Label {
 /**
  * What `kind` a failed action reports, in words. `Record<ActionErrorKind,
  * Label>` on purpose — the same idiom `module-list.tsx`'s retired
- * `SKIP_LABELS` carried for the old sync report: a sixth kind added to the
- * engine's closed vocabulary without a label here is a compile error, not a
- * row rendering its enum spelling.
+ * `SKIP_LABELS` carried for the old sync report: a sixth kind added to
+ * THIS FILE's own `ActionErrorKind` union without a label here is a compile
+ * error. That guard is compile-time only, though, and only covers a variant
+ * added to this client's type — it says nothing about one the ENGINE adds,
+ * since `ActionError.kind` is a bare `&'static str` on the wire (`types.ts`'s
+ * own doc), representable there before it is representable here. `rowLabel`
+ * reads this table with `?? { text: 'action failed', tone: 'error' }` for
+ * exactly that case — a runtime fallback, since TypeScript cannot see a value
+ * that hasn't shipped yet.
  *
  * A refusal reads quieter than a failure. `dirty`, `not-fast-forwardable`,
  * and `refused-by-remote` are git (or the remote) declining ON PURPOSE —
@@ -66,9 +83,15 @@ const ACTION_ERROR: Record<ActionErrorKind, Label> = {
  * — does not fit here: three of the four variants are a constant label, but
  * `tracking`'s carries `ahead`/`behind`, which a `Record`'s value type
  * cannot see. A `switch` with a `never`-typed default preserves the same
- * guarantee a `Record` would (a fifth `Position` variant fails to compile,
- * it does not fall through silently) without forcing a shape the data
- * doesn't have.
+ * COMPILE-TIME guarantee a `Record` would — a fifth variant added to THIS
+ * FILE's own `Position` union fails to compile. It is still only a
+ * compile-time guard, though: `Position` is a client-side type description
+ * of a wire shape the engine controls, so a fifth variant the ENGINE starts
+ * sending is not caught by anything above — TypeScript has no visibility
+ * into a value this file's own types don't yet describe. The default branch
+ * below returns `undefined` rather than the raw wire object for that case,
+ * so an unrecognised `Position` falls through to the ladder's last-fetch
+ * reading instead of a caller rendering that object as if it were a `Label`.
  */
 function positionLabel(p: Position): Label | undefined {
   switch (p.kind) {
@@ -86,8 +109,14 @@ function positionLabel(p: Position): Label | undefined {
       // alone is exactly that case, and it now reads as `↑N ↓0`.
       return p.ahead || p.behind ? { text: `↑${p.ahead} ↓${p.behind}`, tone: 'warn' } : undefined;
     default: {
+      // The binding still does its compile-time job (see the doc comment
+      // above) — but `return exhaustive` would return the raw wire object,
+      // untyped-as-Label, for a `Position` kind this client doesn't
+      // recognise. `undefined` is the neutral degrade: the ladder in
+      // `rowLabel` falls through to the last-fetch reading instead.
       const exhaustive: never = p;
-      return exhaustive;
+      void exhaustive;
+      return undefined;
     }
   }
 }
@@ -122,16 +151,23 @@ function pad2(n: number): string {
  *
  * Exported (Task 11) so `repo-state-card.ts`'s `sublabel` can reuse the
  * same-day/absolute formatting rather than re-deriving it. Its `iso`-absent
- * wording ("never fetched") is tuned for a compact row and is deliberately
- * NOT reused there — the state card's freshness line needs "No fetch
- * recorded" instead (the engine returns `null` both for a repo that has
- * never been fetched and for one whose last fetch failed, so a caller with
- * more room to say so should not claim to know which). That divergence is
- * why the absent-`iso` case stays a one-line guard in each caller rather
- * than a shared constant.
+ * wording used to read "never fetched" here and "No fetch recorded" on the
+ * state card, on the theory that the row's compact register earned a
+ * shorter, more definite phrase. That theory did not survive contact with
+ * the engine: `last_fetch` is `null` for BOTH a repo that has genuinely
+ * never been fetched AND one whose last fetch FAILED (git truncates
+ * `FETCH_HEAD` to zero bytes on failure), so "never fetched" is a false
+ * historical claim exactly whenever the second case is true — a repo
+ * fetched successfully yesterday, then hit by a failed sweep, reads as if
+ * it had never been touched, in `muted` (this ladder's own signal for
+ * nothing-to-act-on). The row now says the same true thing the card does,
+ * just cased for its context: lowercase to match every other row label
+ * (`detached`, `no upstream`), where the card's is a full sentence. The
+ * absent-`iso` case still stays a one-line guard in each caller rather than
+ * a shared constant, because that's genuinely the only difference left.
  */
 export function relative(iso: string | undefined, now: Date): string {
-  if (!iso) return 'never fetched';
+  if (!iso) return 'no fetch recorded';
   const then = new Date(iso);
   const sameDay =
     then.getFullYear() === now.getFullYear() &&
