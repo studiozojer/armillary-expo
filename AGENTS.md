@@ -2,6 +2,16 @@
 
 Read the exact versioned docs at https://docs.expo.dev/versions/v57.0.0/ before writing any code.
 
+## After pulling: the install ritual
+
+**A pull that touches `package.json` obligates `npm install` — and if the new dependency carries native code, the NEXT build must re-run pods.** Nothing in the pull tells you either. The failure ladder, walked end-to-end on 2026-08-06 (the expo-clipboard merge):
+
+1. Pull without `npm install` → Metro fails at the first import the manifest promises but disk can't serve. Loud, cheap, obvious.
+2. Build once in that state, THEN `npm install`, then build again → **the second build may skip pod install**, because the first one ran pods while `node_modules` lacked the module — autolinking scans `node_modules`, honestly recorded "nothing to link", and the re-run trusts that result. You now ship a JS bundle importing a native module the binary doesn't contain.
+3. That crash hides until navigation: expo-router evaluates route files **lazily**, so the app launches clean and dies the moment you open the screen whose import needs the missing native module — and a Release build gives you no red box, just the exit.
+
+The check when a screen crashes on open after a dependency landed: `grep <ModuleName> ios/Podfile.lock`. Zero hits means the pods layer is behind — `cd ios && pod install`, rebuild. The general shape, for recognition: *manifest outrunning disk*, each layer caching the shortfall of the one above it.
+
 ## Worktrees & isolation
 
 This repo is **path-coupled** — a bare `git worktree add` gives you a tree that fails typecheck three ways, one missing sibling at a time. Use `./scripts/worktree.sh new <topic>` (and `rm <topic>` to tear down); it wires and then *verifies* by running `tsc`, so a tree that reports ready actually is one.
