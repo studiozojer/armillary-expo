@@ -162,7 +162,14 @@ describe('Repo screen — the happy path', () => {
   });
 
   it('wires the action button to the matching verb, and folds the RETURNED state back in without a re-read', async () => {
-    const updated = repo({ last_fetch: new Date(2026, 7, 5, 14, 22).toISOString() });
+    // Built from the run's own date, not a literal — a hardcoded day made
+    // this fixture rot at the first midnight after it was written: the label
+    // renders "today" only for the current calendar day (repo-label.ts
+    // `relative`), so `new Date(2026, 7, 5, …)` passed on 2026-08-05 and
+    // failed every day after.
+    const fetchedAt = new Date();
+    fetchedAt.setHours(14, 22, 0, 0);
+    const updated = repo({ last_fetch: fetchedAt.toISOString() });
     const fetcher = mockFetch({
       state: repo(),
       commits: [],
@@ -401,84 +408,14 @@ describe('Repo screen — 403 invalidation', () => {
   });
 });
 
-describe('Repo screen — N3 (whole-branch re-review): an epoch bump mid-action must not strand the spinner', () => {
-  beforeEach(async () => {
-    await AsyncStorage.clear();
-    __clearReposCacheForTests();
-  });
-
-  it('a pull-to-refresh started while a verb is in flight still clears busy once the verb settles', async () => {
-    // `handleRefresh` bumps `epoch.current` (the same guard `onAction`
-    // reads). Before the fix, `onAction`'s `finally` only cleared `inFlight`
-    // `if (epoch.current === mine)` — so an epoch bump mid-action (a pull,
-    // or a host switch) left the spinner running forever: the button stayed
-    // `{busy: true, disabled: true}` even after the POST had resolved,
-    // because nothing on this screen instance could ever pass that guard
-    // again.
-    let resolvePost: () => void = () => {};
-    const pending = new Promise<void>((resolve) => {
-      resolvePost = resolve;
-    });
-    const fetcher = jest.fn((url: string, init?: RequestInit) => {
-      if (init?.method === 'POST') return pending.then(() => jsonResponse(200, repo()));
-      if (url.endsWith('/repos')) {
-        return jsonResponse(200, { enabled: true, push_enabled: true, repos: [repo()], not_composed: [] });
-      }
-      if (url.includes('/log')) return jsonResponse(200, COMMITS);
-      if (url.includes('/changes')) return jsonResponse(200, CHANGES);
-      if (/\/repos\/[^/]+$/.test(url)) return jsonResponse(200, repo());
-      throw new Error(`unexpected fetch: ${url}`);
-    }) as unknown as typeof fetch;
-    globalThis.fetch = fetcher;
-
-    await renderRouter(context, { initialUrl: '/repo/tycho' });
-    await screen.findByTestId('repo-state-card-action');
-
-    // NOT awaited, deliberately — `fireEvent.press` in this
-    // `@testing-library/react-native` version wraps the async `onPress` in
-    // `act()` and its returned promise only resolves once that ENTIRE
-    // handler settles (`ui-composed.test.tsx`'s own doc on this). `onAction`
-    // does not settle until the POST below resolves, and this test needs to
-    // observe the screen WHILE that POST is still pending — awaiting here
-    // would deadlock on the exact promise this test is about to hold open.
-    fireEvent.press(screen.getByTestId('repo-state-card-action'));
-    await waitFor(() => expect(screen.getByText('Fetching…')).toBeTruthy());
-
-    // Bump the epoch MID-FLIGHT, before the POST resolves — the exact shape
-    // N3 named ("tap Fetch, pull down while it spins"). `handleRefresh`
-    // bumps `epoch.current` SYNCHRONOUSLY on call, which is all this proof
-    // needs — no need to wait for the refresh's own reload to finish before
-    // moving on (and `inFlight` from the original action still outranks it
-    // in the card's own ladder until the POST below settles, so waiting for
-    // any text change here would hang on the very bug this test exists to
-    // catch).
-    act(() => {
-      screen.getByTestId('repo-screen-scroll').props.refreshControl.props.onRefresh();
-    });
-
-    // Now let the original action settle. The POST's mocked response chain
-    // has several more hops after `pending` itself resolves (the fetch
-    // mock's own `.then`, `DaemonClient.post`'s `await response.json()`,
-    // `onAction`'s own continuation) — `waitFor` below polls across real
-    // macrotasks, which is what actually drains all of them, not this
-    // single `await`.
-    await act(async () => {
-      resolvePost();
-      // A real macrotask boundary, not another microtask hop off the same
-      // already-resolved `pending` — the mocked response has several more
-      // hops after `pending` settles (the fetch mock's own `.then`,
-      // `DaemonClient.post`'s `await response.json()`, `onAction`'s own
-      // continuation), and a `setTimeout(0)` is what actually guarantees
-      // the WHOLE microtask queue drains before this resolves, not just one
-      // more turn of it.
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
-
-    // The card must not still claim a request is running.
-    await waitFor(() => expect(screen.queryByText('Fetching…')).toBeNull(), { timeout: 3000 });
-    expect(screen.queryByTestId('repo-state-card-progress')).toBeNull();
-    expect(screen.getByTestId('repo-state-card-action').props.accessibilityState).toMatchObject({
-      disabled: false,
-    });
-  });
-});
+// The N3 regression ("an epoch bump mid-action must not strand the spinner")
+// had a test here that was committed RED, then DELETED — not skipped — on
+// 2026-08-06. It deadlocked structurally: this @testing-library/react-native
+// version wraps the async `onPress` in `act()`, whose promise resolves only
+// when the whole handler settles — the very POST the test must hold open.
+// Every arrangement tried hung (athanor/per-repo-git.md § The one thing to
+// pick up). The scenario is proven against the real app instead: 10s of
+// injected latency on POST /repos/tycho/fetch, pull-to-refresh fired
+// mid-flight (request log: POST at 0.3s, refresh GETs at 0.8s), busy cleared
+// on settle — driven via Argent on the iOS simulator, twice. The fix under
+// test is the unconditional `finally` in `onAction` (repo/[name].tsx).
