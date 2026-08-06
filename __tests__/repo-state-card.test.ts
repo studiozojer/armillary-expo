@@ -34,18 +34,21 @@ describe('stateCard — rule 1: inFlight', () => {
 });
 
 describe('stateCard — rule 2: read_error outranks everything else', () => {
-  it('blocks with the raw message as the reason, no verb', () => {
+  it('blocks with a written sentence LEADING the raw message, no verb', () => {
     const s: RepoState = {
       ...base,
       dirty_files: 9,
       action_error: { kind: 'timeout', message: 'x' },
       read_error: 'not a git repository',
     };
+    // Figma `372:748` draws a sentence, not a bare git message — the raw
+    // string stays appended (still the most specific fact available), but a
+    // person-written sentence has to lead it.
     expect(stateCard(s, OPEN)).toMatchObject({
       action: 'blocked',
       tone: 'error',
       label: 'Repo unreadable',
-      reason: 'not a git repository',
+      reason: 'Could not read this repository on the host. not a git repository',
       verb: null,
     });
   });
@@ -186,5 +189,59 @@ describe('stateCard — sublabel: freshness, read once, reused everywhere', () =
   it('reuses repo-label.ts\'s relative() formatting when last_fetch is present', () => {
     const s = { ...base, last_fetch: localIso(2020, 2, 14) };
     expect(stateCard(s, OPEN).sublabel).toBe('fetched Mar 14');
+  });
+});
+
+describe('stateCard — pluralization: one-ahead/one-behind is the common case', () => {
+  it('says "1 commit", not "1 commits", when pulling', () => {
+    const s: RepoState = { ...base, position: { kind: 'tracking', upstream: 'origin/main', ahead: 0, behind: 1 } };
+    expect(stateCard(s, OPEN).label).toBe('Pull 1 commit');
+  });
+
+  it('says "1 commit", not "1 commits", when pushing', () => {
+    const s: RepoState = { ...base, position: { kind: 'tracking', upstream: 'origin/main', ahead: 1, behind: 0 } };
+    expect(stateCard(s, OPEN).label).toBe('Push 1 commit');
+  });
+
+  it('still pluralizes for more than one', () => {
+    const s: RepoState = { ...base, position: { kind: 'tracking', upstream: 'origin/main', ahead: 0, behind: 2 } };
+    expect(stateCard(s, OPEN).label).toBe('Pull 2 commits');
+  });
+});
+
+describe('stateCard — degrades on a wire value this client does not recognise, rather than throwing', () => {
+  // The `never`-typed defaults below are compile-time guards over THIS
+  // FILE's own closed types; they say nothing about a value the ENGINE
+  // sends that this file's types don't describe yet. Before the fix: an
+  // unrecognised `action_error.kind` indexed `ACTION_ERROR_CARD` to
+  // `undefined`, and reading `.tone` off it threw — the repo page
+  // white-screened. An unrecognised `Position.kind` returned the raw wire
+  // object as a `CardModel` — `TONE_BG[undefined]`, garbage as the reason.
+  it('an unrecognised action_error.kind blocks with a generic message instead of throwing', () => {
+    const s: RepoState = {
+      ...base,
+      action_error: { kind: 'sixth-kind', message: 'the engine said something new' } as unknown as RepoState['action_error'],
+    };
+    expect(() => stateCard(s, OPEN)).not.toThrow();
+    expect(stateCard(s, OPEN)).toMatchObject({
+      action: 'blocked',
+      tone: 'error',
+      label: 'Action failed',
+      reason: 'the engine said something new',
+      verb: null,
+    });
+  });
+
+  it('an unrecognised Position.kind blocks with a neutral "unknown state" card instead of throwing', () => {
+    const s: RepoState = {
+      ...base,
+      position: { kind: 'renamed-someday' } as unknown as RepoState['position'],
+    };
+    expect(() => stateCard(s, OPEN)).not.toThrow();
+    const model = stateCard(s, OPEN);
+    expect(model.action).toBe('blocked');
+    expect(model.verb).toBeNull();
+    expect(typeof model.label).toBe('string');
+    expect(typeof model.reason).toBe('string');
   });
 });

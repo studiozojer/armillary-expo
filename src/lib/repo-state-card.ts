@@ -17,13 +17,27 @@ export type CardModel = {
   verb: 'fetch' | 'pull' | 'push' | null;
 };
 
+/** "1 commit", "3 commits" — one-ahead/one-behind is the most common
+ *  non-clean state, and "Push 1 commits" reads as broken English on exactly
+ *  the case a user hits most often. */
+function commitCount(n: number): string {
+  return `${n} commit${n === 1 ? '' : 's'}`;
+}
+
 /**
  * Copy for a failed write verb, one row per `ActionErrorKind`.
  *
  * `Record<ActionErrorKind, …>` on purpose — the same idiom `repo-label.ts`'s
- * `ACTION_ERROR` uses, for the same reason: a sixth kind the engine starts
- * sending is a compile error here, not a card silently rendering nothing.
+ * `ACTION_ERROR` uses, for the same reason: a sixth kind added to THIS
+ * FILE's own `ActionErrorKind` union without a row here is a compile error.
+ * That is a compile-time guard only, and only over this file's type — the
+ * engine's `ActionError.kind` is a bare `&'static str` on the wire, so a
+ * sixth kind is representable there before it is representable here.
+ * `stateCard` reads this table with a `?? fallback` for exactly that gap —
+ * without it, an unrecognised kind indexes past the table to `undefined`,
+ * and reading `.tone` off `undefined` throws, white-screening the repo page.
  *
+
  * This is its OWN table rather than a re-export of `repo-label.ts`'s
  * `ACTION_ERROR`, even though the two overlap in spirit. Two reasons: (1)
  * `repo-label.ts`'s `Tone` is `'error' | 'warn' | 'muted'` — this card's
@@ -153,13 +167,26 @@ export function stateCard(
       tone: 'error',
       label: 'Repo unreadable',
       sublabel,
-      reason: s.read_error,
+      // A written sentence FIRST, then the raw git message — every other
+      // reason on this card is a sentence a person wrote, and a bare `fatal:
+      // not a git repository` reads like a crash report dropped into a
+      // product surface. Figma `372:748` draws the sentence; the raw string
+      // stays appended rather than dropped, since it is still the most
+      // specific fact available about WHY the read failed.
+      reason: `Could not read this repository on the host. ${s.read_error}`,
       verb: null,
     };
   }
 
   if (s.action_error) {
-    const ae = ACTION_ERROR_CARD[s.action_error.kind];
+    // `?? fallback` — see the doc comment on `ACTION_ERROR_CARD` above. An
+    // `ActionErrorKind` this table doesn't have a row for would otherwise
+    // make `ae` `undefined` and `ae.tone` throw, white-screening this page.
+    const ae = ACTION_ERROR_CARD[s.action_error.kind] ?? {
+      label: 'Action failed',
+      tone: 'error' as const,
+      reason: s.action_error.message,
+    };
     return { action: 'blocked', tone: ae.tone, label: ae.label, sublabel, reason: ae.reason, verb: null };
   }
 
@@ -216,7 +243,7 @@ export function stateCard(
         return {
           action: 'blocked',
           tone: 'warn',
-          label: `Pull ${behind} commits`,
+          label: `Pull ${commitCount(behind)}`,
           sublabel,
           reason: `${s.dirty_files} uncommitted file(s) on the host. Commit or stash there before pulling.`,
           verb: null,
@@ -228,13 +255,13 @@ export function stateCard(
           return {
             action: 'blocked',
             tone: 'neutral',
-            label: `Pull ${behind} commits`,
+            label: `Pull ${commitCount(behind)}`,
             sublabel,
             reason: SYNC_NOT_GRANTED,
             verb: null,
           };
         }
-        return { action: 'ready', tone: 'none', label: `Pull ${behind} commits`, sublabel, verb: 'pull' };
+        return { action: 'ready', tone: 'none', label: `Pull ${commitCount(behind)}`, sublabel, verb: 'pull' };
       }
 
       if (ahead > 0) {
@@ -244,13 +271,13 @@ export function stateCard(
           return {
             action: 'blocked',
             tone: 'neutral',
-            label: `Push ${ahead} commits`,
+            label: `Push ${commitCount(ahead)}`,
             sublabel,
             reason: PUSH_NOT_GRANTED,
             verb: null,
           };
         }
-        return { action: 'ready', tone: 'none', label: `Push ${ahead} commits`, sublabel, verb: 'push' };
+        return { action: 'ready', tone: 'none', label: `Push ${commitCount(ahead)}`, sublabel, verb: 'push' };
       }
 
       if (!gates.enabled) {
@@ -267,8 +294,25 @@ export function stateCard(
     }
 
     default: {
+      // The binding still does its compile-time job — a fifth `Position`
+      // variant added to THIS FILE's own union fails to compile here. It is
+      // only a compile-time guard, though: it cannot see a variant the
+      // ENGINE starts sending that this file's types don't describe yet.
+      // `return exhaustive` would return the raw wire object as if it were a
+      // `CardModel` — `TONE_BG[undefined]`, garbage rendered as the reason.
+      // A real, neutral `CardModel` is the honest degrade: this app doesn't
+      // recognise the state, so it says that, rather than guessing or
+      // crashing.
       const exhaustive: never = s.position;
-      return exhaustive;
+      void exhaustive;
+      return {
+        action: 'blocked',
+        tone: 'neutral',
+        label: 'Unknown state',
+        sublabel,
+        reason: 'This app doesn’t recognize this repository’s state yet. Update the app to see git actions here.',
+        verb: null,
+      };
     }
   }
 }
