@@ -56,17 +56,30 @@ export function getCachedRepos(
   options: { signal?: AbortSignal; force?: boolean } = {},
 ): Promise<ReposResponse> {
   const key = `${hostId}:${generation}`;
-  const now = Date.now();
 
   if (!options.force) {
     const hit = cache.get(key);
-    if (hit && now - hit.fetchedAt < TTL_MS) {
+    if (hit && Date.now() - hit.fetchedAt < TTL_MS) {
       return Promise.resolve(hit.response);
     }
   }
 
   return client.getRepos(options.signal).then((response) => {
-    cache.set(key, { response, fetchedAt: now });
+    // Stamped on ARRIVAL, not on call — a slow sweep stamped at call time
+    // would already read partway-stale the moment it lands, and with no
+    // in-flight dedup (a known, documented gap — see `repos-cache.test.ts`)
+    // two overlapping calls could otherwise land last-writer-wins with the
+    // OLDER body's timestamp winning over the newer body it overwrote.
+    const fetchedAt = Date.now();
+    // One entry per HOST, not one per host+generation ever seen — a
+    // generation the caller no longer holds can never be served again (the
+    // TTL check above only matches TODAY's key), so keeping its entry around
+    // is pure growth with no reachable read. Delete every other entry for
+    // this host before writing the new one.
+    for (const existingKey of cache.keys()) {
+      if (existingKey !== key && existingKey.startsWith(`${hostId}:`)) cache.delete(existingKey);
+    }
+    cache.set(key, { response, fetchedAt });
     return response;
   });
 }
@@ -77,4 +90,20 @@ export function getCachedRepos(
  *  mocked response. */
 export function __clearReposCacheForTests(): void {
   cache.clear();
+}
+
+/** Test-only: proves the cache stays bounded — see the eviction above. */
+export function __reposCacheSizeForTests(): number {
+  return cache.size;
+}
+
+/**
+ * A 403 on a write verb is proof the cached grant was wrong, not a reason to
+ * keep serving it for up to `TTL_MS` more. Callers that catch a 403 from
+ * `fetchRepo`/`pullRepo`/`pushRepo` call this before re-reading the gates, so
+ * the next read is a real network call rather than the same stale `enabled`/
+ * `push_enabled` that just got refused.
+ */
+export function invalidateReposCache(hostId: string, generation: number): void {
+  cache.delete(`${hostId}:${generation}`);
 }

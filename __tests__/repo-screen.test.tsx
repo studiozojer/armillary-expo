@@ -3,7 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 // comes from `expo-router/testing-library`, never mixed with the base
 // `@testing-library/react-native` exports, because `renderRouter` reassigns
 // its own `screen`.
-import { fireEvent, renderRouter, screen, waitFor } from 'expo-router/testing-library';
+import { act, fireEvent, renderRouter, screen, waitFor } from 'expo-router/testing-library';
 import { Stack } from 'expo-router/stack';
 
 import RepoScreen from '../src/app/(tabs)/(explorer)/repo/[name]';
@@ -233,5 +233,167 @@ describe('Repo screen — the happy path', () => {
     expect(
       (fetcher as jest.Mock).mock.calls.filter(([url]) => (url as string).endsWith('/repos')),
     ).toHaveLength(1);
+  });
+
+  it('shows the host in a subtitle beneath the title — whole-branch review IMPORTANT 5', async () => {
+    // All six Figma frames for this page draw a two-line header ("tycho"
+    // over "stjerneborg / operators"); `module-list.tsx` already argues why
+    // a host label belongs on screen ("only the host tells them apart"),
+    // and that argument is strictly stronger here — this page pushes under
+    // the host user's credential, with no undo. `repo()`'s fixture path is
+    // `operators/tycho`, so the section is `operators`.
+    globalThis.fetch = mockFetch({ state: repo(), commits: COMMITS, changes: CHANGES });
+    await renderRouter(context, { initialUrl: '/repo/tycho' });
+    expect(await screen.findByText('benatky / operators')).toBeTruthy();
+  });
+});
+
+describe('Repo screen — whole-branch review IMPORTANT 1: a failed GET /repos must not sink the page', () => {
+  beforeEach(async () => {
+    await AsyncStorage.clear();
+    __clearReposCacheForTests();
+  });
+
+  it('renders successfully with gates failed CLOSED when GET /repos alone fails', async () => {
+    // `/repos/{name}`, `/log` and `/changes` all 200 — only the bare `/repos`
+    // sweep fails. Before the fix, `Promise.all` rejected the instant that
+    // one call did, and the page showed "Can't reach the engine" having
+    // reached it three times.
+    globalThis.fetch = jest.fn((url: string) => {
+      if (url.endsWith('/repos')) return jsonResponse(500, 'sweep failed');
+      if (url.includes('/log')) return jsonResponse(200, COMMITS);
+      if (url.includes('/changes')) return jsonResponse(200, CHANGES);
+      if (/\/repos\/[^/]+$/.test(url)) return jsonResponse(200, repo());
+      throw new Error(`unexpected fetch: ${url}`);
+    }) as unknown as typeof fetch;
+
+    await renderRouter(context, { initialUrl: '/repo/tycho' });
+
+    expect(await screen.findByTestId('repo-state-card')).toBeTruthy();
+    expect(screen.queryByText("Can't reach the engine")).toBeNull();
+
+    // Fail CLOSED: `gates.enabled` defaults to `false` when the gates read
+    // never arrives, so a plain ready-to-fetch repo reads as not-granted
+    // rather than silently offering an action gated on a boolean nobody
+    // measured.
+    const action = screen.getByTestId('repo-state-card-action');
+    expect(action.props.accessibilityState).toMatchObject({ disabled: true });
+    expect(screen.getByText(/has not granted git authority/i)).toBeTruthy();
+  });
+});
+
+describe('Repo screen — whole-branch review IMPORTANT 3: pull-to-refresh', () => {
+  beforeEach(async () => {
+    await AsyncStorage.clear();
+    __clearReposCacheForTests();
+  });
+
+  it('clears a stale action_error by re-reading, and re-enables the button', async () => {
+    // Rule 3 (`repo-state-card.ts`) sets `verb: null` on `action_error` —
+    // right, as a model rule: someone who just watched a fetch fail should
+    // not see "ready to fetch." But the ONLY way that ever clears is a fresh
+    // `GET /repos/{name}` (the engine's own `read_one` NEVER carries
+    // `action_error` — only a write verb's own response does), and before
+    // this fix nothing on this screen instance ever fired one again.
+    const fetcher = mockFetch({
+      state: repo(),
+      commits: COMMITS,
+      changes: CHANGES,
+      onAction: () => repo({ action_error: { kind: 'transport', message: 'could not reach origin' } }),
+    });
+    globalThis.fetch = fetcher;
+
+    await renderRouter(context, { initialUrl: '/repo/tycho' });
+    await screen.findByTestId('repo-state-card-action');
+    expect(screen.getByText('Fetch origin')).toBeTruthy();
+
+    await fireEvent.press(screen.getByTestId('repo-state-card-action'));
+    await waitFor(() => expect(screen.getByText('Fetch failed')).toBeTruthy());
+    expect(screen.getByTestId('repo-state-card-action').props.accessibilityState).toMatchObject({
+      disabled: true,
+    });
+
+    // `fireEvent(el, 'refresh')` targets a component with its OWN `onRefresh`
+    // prop (FlatList); a plain `ScrollView` has no such prop — `refreshControl`
+    // is a whole React element it renders as a child, so pulling the callback
+    // off `scrollView.props.refreshControl.props.onRefresh` and calling it
+    // directly is the real prop RN itself would invoke on a physical pull.
+    await act(async () => {
+      screen.getByTestId('repo-screen-scroll').props.refreshControl.props.onRefresh();
+    });
+
+    await waitFor(() => expect(screen.getByText('Fetch origin')).toBeTruthy());
+    expect(screen.getByTestId('repo-state-card-action').props.accessibilityState).toMatchObject({
+      disabled: false,
+    });
+  });
+
+  it('is the error state\'s only way out — reaching the engine again on the same screen instance', async () => {
+    // Before this fix, `state.status === 'error'` had no `RefreshControl` and
+    // no retry — the only recovery was leaving the screen and tapping the
+    // row again. This proves the SAME screen instance can recover.
+    let failing = true;
+    globalThis.fetch = jest.fn((url: string) => {
+      if (failing) return jsonResponse(500, 'down');
+      return mockFetch({ state: repo(), commits: COMMITS, changes: CHANGES })(url, {});
+    }) as unknown as typeof fetch;
+
+    await renderRouter(context, { initialUrl: '/repo/tycho' });
+    expect(await screen.findByText("Can't reach the engine")).toBeTruthy();
+
+    failing = false;
+    await act(async () => {
+      screen.getByTestId('repo-screen-error-scroll').props.refreshControl.props.onRefresh();
+    });
+
+    expect(await screen.findByTestId('repo-state-card')).toBeTruthy();
+    expect(screen.queryByText("Can't reach the engine")).toBeNull();
+  });
+});
+
+describe('Repo screen — 403 invalidation', () => {
+  beforeEach(async () => {
+    await AsyncStorage.clear();
+    __clearReposCacheForTests();
+  });
+
+  it('a 403 on a write verb invalidates the cached grant and re-reads it, rather than leaving a refused button offered indefinitely', async () => {
+    // A 403 IS proof the cached `enabled`/`push_enabled` was wrong. Before
+    // this fix, the cache and the card's gates were left untouched, so the
+    // card kept offering the same refused action until the TTL happened to
+    // expire on its own.
+    let sync = true;
+    const fetcher = jest.fn((url: string, init?: RequestInit) => {
+      if (init?.method === 'POST') {
+        return sync ? jsonResponse(403, 'nope') : jsonResponse(200, repo());
+      }
+      if (url.endsWith('/repos')) return jsonResponse(200, { enabled: sync, push_enabled: true, repos: [repo()], not_composed: [] });
+      if (url.includes('/log')) return jsonResponse(200, COMMITS);
+      if (url.includes('/changes')) return jsonResponse(200, CHANGES);
+      if (/\/repos\/[^/]+$/.test(url)) return jsonResponse(200, repo());
+      throw new Error(`unexpected fetch: ${url}`);
+    }) as unknown as typeof fetch;
+    globalThis.fetch = fetcher;
+
+    await renderRouter(context, { initialUrl: '/repo/tycho' });
+    await screen.findByTestId('repo-state-card-action');
+    expect(screen.getByTestId('repo-state-card-action').props.accessibilityState).toMatchObject({
+      disabled: false,
+    });
+
+    await fireEvent.press(screen.getByTestId('repo-state-card-action'));
+    await waitFor(() =>
+      expect(screen.getByText('This host has not granted that action.')).toBeTruthy(),
+    );
+
+    // The host actually granted it in the meantime (this test's stand-in for
+    // "David flipped the manifest"). Nothing on screen has re-fetched the
+    // gates yet UNLESS the 403 path invalidated the cache — so a second
+    // gates read must have already gone out.
+    sync = false;
+    const reposReadsSoFar = (fetcher as jest.Mock).mock.calls.filter(([url]) =>
+      (url as string).endsWith('/repos'),
+    ).length;
+    expect(reposReadsSoFar).toBeGreaterThanOrEqual(2);
   });
 });

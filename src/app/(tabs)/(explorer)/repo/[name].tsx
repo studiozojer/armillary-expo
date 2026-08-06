@@ -1,15 +1,22 @@
 import { Stack, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, ScrollView } from 'react-native';
+import { ActivityIndicator, RefreshControl, ScrollView } from 'react-native';
 
 import { RepoStateCard } from '@/components/repo-state-card';
 import { RepoTabs } from '@/components/repo-tabs';
 import { Box, Screen, Text } from '@/components/ui';
 import { DaemonClient } from '@/lib/daemon/client';
-import { getCachedRepos } from '@/lib/daemon/repos-cache';
+import { getCachedRepos, invalidateReposCache } from '@/lib/daemon/repos-cache';
 import { DaemonError, type ChangedFile, type Commit, type RepoState } from '@/lib/daemon/types';
 import { useHost } from '@/lib/host-context';
 import { useTheme } from '@/theme';
+
+/** The manifest section a repo lives under — the first path segment
+ *  (`operators/tycho` -> `operators`). */
+function sectionOf(path: string): string {
+  const idx = path.indexOf('/');
+  return idx === -1 ? path : path.slice(0, idx);
+}
 
 type Verb = 'fetch' | 'pull' | 'push';
 
@@ -64,6 +71,7 @@ export default function RepoScreen() {
   const [state, setState] = useState<ScreenState>({ status: 'loading' });
   const [inFlight, setInFlight] = useState<Verb | undefined>(undefined);
   const [actionError, setActionError] = useState<string | undefined>(undefined);
+  const [refreshing, setRefreshing] = useState(false);
 
   // Bumped on every load this screen starts. Same reasoning as
   // `composition.tsx`'s `reposEpoch`: an aborted request can still resolve
@@ -76,13 +84,24 @@ export default function RepoScreen() {
   const epoch = useRef(0);
 
   const load = useCallback(
-    async (signal: AbortSignal): Promise<Loaded> => {
+    async (signal: AbortSignal, force = false): Promise<Loaded> => {
       const client = new DaemonClient(host.daemonUrl);
+      // `getRepo` and `getCachedRepos` are two INDEPENDENT reads, joined only
+      // by this `Promise.all` — and `Promise.all` rejects the instant either
+      // one does. Before this fix, a `GET /repos` failure (the sweep this
+      // page never even needs beyond two booleans) sank a page that had
+      // already reached the engine successfully for `getRepo` and was about
+      // to for `/log` and `/changes`. `.catch(() => undefined)` below turns
+      // that failure into "no grant available" rather than "no repo page at
+      // all" — fail CLOSED (every verb reads as not-granted), which matches
+      // the engine's own reading of an absent/malformed `GET /repos`
+      // (`composition.tsx`'s doc: "an older engine... simply leaves this
+      // undefined").
       const [repo, repos] = await Promise.all([
         client.getRepo(name, signal),
-        getCachedRepos(client, host.id, generation, { signal }),
+        getCachedRepos(client, host.id, generation, { signal, force }).catch(() => undefined),
       ]);
-      const gates = { enabled: repos.enabled, pushEnabled: repos.push_enabled };
+      const gates = { enabled: repos?.enabled ?? false, pushEnabled: repos?.push_enabled ?? false };
       // `read_error` is a 200-with-a-field, not a thrown `DaemonError` (see
       // `types.ts`'s doc on `RepoState.read_error`), so `repo` above always
       // resolves for a name the manifest knows. An unreadable repo has
@@ -120,6 +139,34 @@ export default function RepoScreen() {
     return () => controller.abort();
   }, [host.daemonUrl, generation, ready, name, load]);
 
+  // Pull-to-refresh. Two independent things need it: (1) it is the only way
+  // off a stale `action_error` (rule 3 sets `verb: null` on purpose — someone
+  // who just watched a push fail should not see "ready to push" — but that is
+  // "blocked because the last attempt failed," not "blocked because HEAD is
+  // detached," and only the first obviously wants a retry with nothing else
+  // on screen offering one); (2) it is IMPORTANT-1's way out of the error
+  // state, which otherwise has none. `force: true` bypasses the gates cache
+  // deliberately, the same reasoning `composition.tsx`'s own pull-to-refresh
+  // gives for `loadRepos(undefined, true)` — a pull IS the user asking for a
+  // fresh read.
+  const handleRefresh = useCallback(() => {
+    const mine = ++epoch.current;
+    setRefreshing(true);
+    load(new AbortController().signal, true)
+      .then((data) => {
+        if (epoch.current === mine) {
+          setState({ status: 'ok', data });
+          setActionError(undefined);
+        }
+      })
+      .catch((error) => {
+        if (epoch.current === mine) setState({ status: 'error', error });
+      })
+      .finally(() => {
+        if (epoch.current === mine) setRefreshing(false);
+      });
+  }, [load]);
+
   const onAction = useCallback(
     async (verb: Verb) => {
       const mine = epoch.current;
@@ -143,6 +190,29 @@ export default function RepoScreen() {
         );
       } catch (error) {
         if (epoch.current !== mine) return;
+        if (error instanceof DaemonError && error.status === 403) {
+          // A 403 here is PROOF the cached grant was wrong — not a reason to
+          // keep offering a button the engine just refused. Clear the cache
+          // key and re-read the gates, so the card reflects reality on the
+          // very next render rather than for up to `TTL_MS` more.
+          invalidateReposCache(host.id, generation);
+          getCachedRepos(new DaemonClient(host.daemonUrl), host.id, generation, { force: true })
+            .then((repos) => {
+              if (epoch.current !== mine) return;
+              setState((prev) =>
+                prev.status === 'ok'
+                  ? {
+                      status: 'ok',
+                      data: {
+                        ...prev.data,
+                        gates: { enabled: repos.enabled, pushEnabled: repos.push_enabled },
+                      },
+                    }
+                  : prev,
+              );
+            })
+            .catch(() => undefined);
+        }
         setActionError(
           error instanceof DaemonError
             ? error.status === 403
@@ -154,8 +224,20 @@ export default function RepoScreen() {
         if (epoch.current === mine) setInFlight(undefined);
       }
     },
-    [host.daemonUrl, name],
+    [host.daemonUrl, host.id, generation, name],
   );
+
+  // "tycho" over "stjerneborg / operators" — all six Figma frames for this
+  // page draw a two-line header, and `module-list.tsx` already states why a
+  // host label belongs on screen in its own words: "Two machines can both be
+  // serving a workspace, and only the host tells them apart." That argument
+  // is strictly stronger here than on the composition list — this is the
+  // page that pushes under the host user's credential, with no undo. The
+  // section (the manifest directory the repo lives under) needs `repo.path`,
+  // which is only known once the load resolves; before that, the host alone
+  // still answers "which machine am I about to act on."
+  const subtitle =
+    state.status === 'ok' ? `${host.label} / ${sectionOf(state.data.repo.path)}` : host.label;
 
   return (
     <Screen edges={[]}>
@@ -163,20 +245,35 @@ export default function RepoScreen() {
           agree with it once loaded, so the title is correct from the first
           frame rather than waiting on the load to resolve. */}
       <Stack.Screen options={{ title: name }} />
+      <Box px="lg" style={{ paddingTop: theme.space.sm }}>
+        <Text variant="caption" color="txTertiary" numberOfLines={1}>
+          {subtitle}
+        </Text>
+      </Box>
 
       {state.status === 'loading' ? (
         <Box style={{ flex: 1, justifyContent: 'center' }}>
           <ActivityIndicator />
         </Box>
       ) : state.status === 'error' ? (
-        <Box p="lg">
+        <ScrollView
+          testID="repo-screen-error-scroll"
+          contentContainerStyle={{ flexGrow: 1, padding: theme.space.lg }}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}>
           <Text variant="heading">Can&apos;t reach the engine</Text>
           <Text variant="caption" color="txTertiary" style={{ paddingTop: theme.space.sm }}>
             {state.error instanceof Error ? state.error.message : String(state.error)}
           </Text>
-        </Box>
+          {/* No retry button and no host switcher here on purpose — pull-to-
+              refresh (IMPORTANT-1's way out of this state) already covers
+              "try again," and a host switch is `useHost`'s job via Settings,
+              not a control this screen re-invents. */}
+        </ScrollView>
       ) : (
-        <ScrollView contentContainerStyle={{ padding: theme.space.lg }}>
+        <ScrollView
+          testID="repo-screen-scroll"
+          contentContainerStyle={{ padding: theme.space.lg }}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}>
           <RepoStateCard
             state={state.data.repo}
             gates={state.data.gates}
