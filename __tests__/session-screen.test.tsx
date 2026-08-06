@@ -1,5 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import * as Clipboard from 'expo-clipboard';
+import { ActionSheetIOS, Alert, Platform } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import SessionScreen from '../src/app/instance/[instanceId]';
@@ -8,6 +10,8 @@ import type { SessionAPI } from '../src/lib/session/api';
 import type { SubscriptionHandler } from '../src/lib/session/events';
 import type { Host } from '../src/lib/hosts';
 import { space } from '../src/theme';
+
+jest.mock('expo-clipboard', () => ({ setStringAsync: jest.fn(async () => true) }));
 
 // The screen calls `sessionAPIFor(host)` rather than constructing its own
 // MockSessionAPI (Task 5's shared-store requirement, Task 15's host-aware
@@ -81,6 +85,13 @@ describe('Session screen', () => {
 
   afterEach(() => {
     jest.useRealTimers();
+    // `ActionSheetIOS.showActionSheetWithOptions` and `Alert.alert` are
+    // spied directly on the shared `react-native` module objects (unlike
+    // every other spy in this file, which targets a fresh per-test `api`
+    // instance) — without restoring, a later test's `jest.spyOn(...)` call
+    // returns the *same* accumulated spy rather than a fresh one, so its
+    // `.mock.calls[0]` reads a prior test's call instead of its own.
+    jest.restoreAllMocks();
   });
 
   it('renders fixture messages already in the log', async () => {
@@ -370,5 +381,135 @@ describe('Session screen', () => {
 
     expect(await screen.findByDisplayValue('important draft')).toBeTruthy();
     expect(screen.getByText(/refused: instance busy/)).toBeTruthy();
+  });
+
+  it('long-press on a message opens the menu, and Copy puts the raw text on the clipboard', async () => {
+    jest.useFakeTimers();
+    mockApi = new MockSessionAPI({ fragmentDelayMs: 5 }) as unknown as SessionAPI;
+    const inst = await (mockApi as MockSessionAPI).create('tycho');
+    await mockApi.send(inst.id, 'hello there', 'seed');
+    await jest.advanceTimersByTimeAsync(200);
+    mockInstanceId = inst.id;
+
+    const sheetSpy = jest.spyOn(ActionSheetIOS, 'showActionSheetWithOptions').mockImplementation(() => {});
+    await render(<SessionScreen />);
+
+    await fireEvent(await screen.findByText(CANNED_REPLY), 'longPress');
+
+    expect(sheetSpy).toHaveBeenCalledTimes(1);
+    const [config, onChoose] = sheetSpy.mock.calls[0];
+    expect(config.options).toEqual(['Copy', 'Select text', 'Remove from context', 'Cancel']);
+    expect(config.cancelButtonIndex).toBe(3);
+    expect(config.destructiveButtonIndex).toBe(2);
+
+    await act(async () => onChoose(0));
+    // Raw text verbatim (spec decision 2) — the canned reply as stored.
+    expect(Clipboard.setStringAsync).toHaveBeenCalledWith(CANNED_REPLY);
+  });
+
+  it('Remove from context survives the move behind the menu: confirm intact, evict called, row dims', async () => {
+    jest.useFakeTimers();
+    const api = new MockSessionAPI({ fragmentDelayMs: 5 });
+    const inst = await api.create('tycho');
+    await api.send(inst.id, 'hello there', 'seed');
+    await jest.advanceTimersByTimeAsync(200);
+    const evictSpy = jest.spyOn(api, 'evict');
+    mockApi = api as unknown as SessionAPI;
+    mockInstanceId = inst.id;
+
+    const sheetSpy = jest.spyOn(ActionSheetIOS, 'showActionSheetWithOptions').mockImplementation(() => {});
+    const alertSpy = jest.spyOn(Alert, 'alert');
+    await render(<SessionScreen />);
+
+    await fireEvent(await screen.findByText('hello there'), 'longPress');
+    const [, onChoose] = sheetSpy.mock.calls[0];
+    await act(async () => onChoose(2));
+
+    // The existing confirm, verbatim — not skipped by the menu.
+    expect(alertSpy).toHaveBeenCalledWith('Remove from context?', 'hello there', expect.any(Array));
+    const buttons = alertSpy.mock.calls[0][2]!;
+    const remove = buttons.find((b) => b.text === 'Remove')!;
+    await act(async () => {
+      remove.onPress!();
+      await jest.advanceTimersByTimeAsync(50);
+    });
+
+    expect(evictSpy).toHaveBeenCalledWith(inst.id, expect.any(String));
+    // Two, not one: the evicted row's own dimmed caption, plus the durable
+    // `context_evict` system row projectSession always appends alongside it
+    // (project.ts) — both carry this exact label, pre-existing behavior this
+    // menu doesn't touch.
+    expect(await screen.findAllByText('removed from context')).toHaveLength(2);
+
+    // The dimmed row still offers Copy and Select text — but not Remove.
+    await fireEvent(screen.getByText('hello there'), 'longPress');
+    const [evictedConfig] = sheetSpy.mock.calls[sheetSpy.mock.calls.length - 1];
+    expect(evictedConfig.options).toEqual(['Copy', 'Select text', 'Cancel']);
+    expect(evictedConfig.destructiveButtonIndex).toBeUndefined();
+  });
+
+  it('Select text opens the sheet with the full message selectable, and Done dismisses it', async () => {
+    jest.useFakeTimers();
+    mockApi = new MockSessionAPI({ fragmentDelayMs: 5 }) as unknown as SessionAPI;
+    const inst = await (mockApi as MockSessionAPI).create('tycho');
+    await mockApi.send(inst.id, 'hello there', 'seed');
+    await jest.advanceTimersByTimeAsync(200);
+    mockInstanceId = inst.id;
+
+    const sheetSpy = jest.spyOn(ActionSheetIOS, 'showActionSheetWithOptions').mockImplementation(() => {});
+    await render(<SessionScreen />);
+
+    await fireEvent(await screen.findByText(CANNED_REPLY), 'longPress');
+    const [, onChoose] = sheetSpy.mock.calls[0];
+    await act(async () => onChoose(1));
+
+    // Text now appears twice: the list row and the sheet's selectable copy.
+    const copies = screen.getAllByText(CANNED_REPLY);
+    expect(copies).toHaveLength(2);
+    expect(copies.some((t) => t.props.selectable === true)).toBe(true);
+
+    await fireEvent.press(screen.getByText('Done'));
+    expect(screen.getAllByText(CANNED_REPLY)).toHaveLength(1);
+  });
+
+  it('a streaming row offers no long-press menu', async () => {
+    jest.useFakeTimers();
+    mockApi = new MockSessionAPI({ fragmentDelayMs: 10 }) as unknown as SessionAPI;
+    const inst = await (mockApi as MockSessionAPI).create('tycho');
+    mockInstanceId = inst.id;
+
+    const sheetSpy = jest.spyOn(ActionSheetIOS, 'showActionSheetWithOptions').mockImplementation(() => {});
+    await render(<SessionScreen />);
+    await fireEvent.changeText(screen.getByPlaceholderText('Message'), 'go');
+    await fireEvent.press(screen.getByText('Send'));
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(15);
+    });
+
+    // Mid-stream snapshot (same instant the existing streaming test pins).
+    await fireEvent(screen.getByText('the…'), 'longPress');
+    expect(sheetSpy).not.toHaveBeenCalled();
+  });
+
+  it('on Android the menu is an Alert with three buttons and tap-outside cancel', async () => {
+    const replaced = jest.replaceProperty(Platform, 'OS', 'android');
+    try {
+      jest.useFakeTimers();
+      mockApi = new MockSessionAPI({ fragmentDelayMs: 5 }) as unknown as SessionAPI;
+      const inst = await (mockApi as MockSessionAPI).create('tycho');
+      await mockApi.send(inst.id, 'hello there', 'seed');
+      await jest.advanceTimersByTimeAsync(200);
+      mockInstanceId = inst.id;
+
+      const alertSpy = jest.spyOn(Alert, 'alert');
+      await render(<SessionScreen />);
+      await fireEvent(await screen.findByText('hello there'), 'longPress');
+
+      const [, , buttons, options] = alertSpy.mock.calls[0];
+      expect(buttons!.map((b) => b.text)).toEqual(['Copy', 'Select text', 'Remove from context']);
+      expect(options).toEqual({ cancelable: true });
+    } finally {
+      replaced.restore();
+    }
   });
 });
