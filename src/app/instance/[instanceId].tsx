@@ -1,7 +1,9 @@
+import * as Clipboard from 'expo-clipboard';
 import { useLocalSearchParams } from 'expo-router';
 import { Stack } from 'expo-router/stack';
 import { useCallback, useMemo, useState } from 'react';
 import {
+  ActionSheetIOS,
   ActivityIndicator,
   Alert,
   FlatList,
@@ -15,6 +17,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { MarkdownView } from '@/components/markdown-view';
+import { SelectTextSheet } from '@/components/select-text-sheet';
 import { useHost } from '@/lib/host-context';
 import type { Host } from '@/lib/hosts';
 import { sessionAPIFor } from '@/lib/session/instance';
@@ -138,7 +141,11 @@ function SessionView({
     });
   }, [draft, send]);
 
-  const onLongPressMessage = useCallback(
+  const [selectText, setSelectText] = useState<string | null>(null);
+
+  // The evict confirm, exactly as it was before the menu existed — the menu's
+  // Remove item leads here rather than replacing it.
+  const confirmEvict = useCallback(
     (row: MessageRow) => {
       Alert.alert('Remove from context?', row.text, [
         { text: 'Cancel', style: 'cancel' },
@@ -146,6 +153,53 @@ function SessionView({
       ]);
     },
     [evict],
+  );
+
+  const onLongPressMessage = useCallback(
+    (row: MessageRow) => {
+      const copy = () => void Clipboard.setStringAsync(row.text);
+      const select = () => setSelectText(row.text);
+      if (Platform.OS === 'ios') {
+        // Evicted rows drop Remove — there is nothing left to remove.
+        const options = row.evicted
+          ? ['Copy', 'Select text', 'Cancel']
+          : ['Copy', 'Select text', 'Remove from context', 'Cancel'];
+        ActionSheetIOS.showActionSheetWithOptions(
+          {
+            options,
+            cancelButtonIndex: options.length - 1,
+            destructiveButtonIndex: row.evicted ? undefined : 2,
+          },
+          (index) => {
+            if (index === 0) copy();
+            else if (index === 1) select();
+            else if (index === 2 && !row.evicted) confirmEvict(row);
+          },
+        );
+      } else {
+        // Android's Alert renders at most three buttons, so Cancel is not a
+        // button here: tap-outside/back dismisses (spec § Interaction).
+        Alert.alert(
+          'Message',
+          undefined,
+          [
+            { text: 'Copy', onPress: copy },
+            { text: 'Select text', onPress: select },
+            ...(row.evicted
+              ? []
+              : [
+                  {
+                    text: 'Remove from context',
+                    style: 'destructive' as const,
+                    onPress: () => confirmEvict(row),
+                  },
+                ]),
+          ],
+          { cancelable: true },
+        );
+      }
+    },
+    [confirmEvict],
   );
 
   return (
@@ -217,7 +271,9 @@ function SessionView({
               case 'message': {
                 if (item.evicted) {
                   return (
-                    <View style={{ paddingVertical: theme.space.sm }}>
+                    <Pressable
+                      onLongPress={() => onLongPressMessage(item)}
+                      style={{ paddingVertical: theme.space.sm }}>
                       <Text style={{ ...theme.type.body, color: theme.color.txDisabled }}>{item.text}</Text>
                       <Text
                         style={{
@@ -227,7 +283,7 @@ function SessionView({
                         }}>
                         removed from context
                       </Text>
-                    </View>
+                    </Pressable>
                   );
                 }
                 if (item.error) {
@@ -371,6 +427,8 @@ function SessionView({
           )}
         </View>
       </KeyboardAvoidingView>
+
+      <SelectTextSheet text={selectText} onDone={() => setSelectText(null)} />
     </SafeAreaView>
   );
 }
