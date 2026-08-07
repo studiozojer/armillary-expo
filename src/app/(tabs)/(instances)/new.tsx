@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable } from 'react-native';
 
 import { Box, Button, Card, Icon, Inline, ListRow, Rule, Screen, Text } from '@/components/ui';
@@ -67,25 +67,26 @@ export default function NewInstance() {
   // pilots", which is the honest thing to send and the honest thing to show.
   const catalog = modelsState.status === 'ok' ? modelsState.data : null;
   const [model, setModel] = useState<string | null>(null);
-  const [modelTouched, setModelTouched] = useState(false);
   const [modelExpanded, setModelExpanded] = useState(false);
 
-  // The catalog arrives after first render, so the default is applied when
-  // it lands — but never over a choice already made.
-  useEffect(() => {
-    if (!modelTouched && catalog?.default) {
-      setModel(catalog.default);
-    }
-  }, [catalog?.default, modelTouched]);
+  // `model` holds only an explicit user pick — no row in the picker ever
+  // sets it back to `null` (see the `onPress` below), so `null` unambiguously
+  // means "nothing chosen yet" and `??` is free to fall through to the
+  // catalog's default. That's also why a later-arriving catalog can never
+  // clobber a choice already made: once `model` is non-null it wins the `??`
+  // regardless of what the catalog resolves to. No effect, no touched flag —
+  // this was a `useEffect` + `modelTouched` pair before; a derived value does
+  // the same job with one less piece of state and no ordering to get wrong.
+  const effectiveModel = model ?? catalog?.default ?? null;
 
   const modelRows = catalog?.models ?? [];
-  const modelLabel = modelRows.find((m) => m.id === model)?.label ?? model ?? 'engine default';
+  const modelLabel = modelRows.find((m) => m.id === effectiveModel)?.label ?? effectiveModel ?? 'engine default';
 
   const onCreate = useCallback(async () => {
     setCreating(true);
     setCreateError(null);
     try {
-      const instance = await api.create(selection, model);
+      const instance = await api.create(selection, effectiveModel);
       // Dismiss the sheet, then push — NOT a single `replace`.
       //
       // While the chat lived beside this sheet in the Instances stack, one
@@ -108,7 +109,7 @@ export default function NewInstance() {
       setCreateError(error instanceof Error ? error.message : String(error));
       setCreating(false);
     }
-  }, [api, selection, model, router]);
+  }, [api, selection, effectiveModel, router]);
 
   const rows: PickerRow[] = [
     { key: 'dispatcher', label: 'Dispatcher', note: 'no operator summoned', value: null },
@@ -227,10 +228,9 @@ export default function NewInstance() {
                   // row is disabled here rather than refused there.
                   note={m.usable ? m.id : `${m.id} — no key on this engine`}
                   disabled={!m.usable}
-                  trailing={model === m.id ? <Icon name="check" size={18} color="icAccent" /> : null}
+                  trailing={effectiveModel === m.id ? <Icon name="check" size={18} color="icAccent" /> : null}
                   onPress={() => {
                     setModel(m.id);
-                    setModelTouched(true);
                     setModelExpanded(false);
                   }}
                 />
