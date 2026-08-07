@@ -62,7 +62,7 @@ jest.mock('../src/lib/session/instance', () => ({
 }));
 
 function instanceFor(id: string, operator: string | null): Instance {
-  return { id, operator, stream: id, startedAt: new Date().toISOString(), lastSeq: 0 };
+  return { id, operator, stream: id, startedAt: new Date().toISOString(), lastSeq: 0, model: null };
 }
 
 function RootLayout() {
@@ -201,6 +201,7 @@ describe('Instances list screen', () => {
       stream: 'chat',
       startedAt: new Date().toISOString(),
       lastSeq: 12,
+      model: null,
     };
     const list = jest.fn(async () => [instance]);
     mockApi = makeMockApi({ list });

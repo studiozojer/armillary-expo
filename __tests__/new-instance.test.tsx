@@ -48,7 +48,7 @@ jest.mock('../src/lib/session/instance', () => ({
 }));
 
 function instanceFor(id: string, operator: string | null): Instance {
-  return { id, operator, stream: id, startedAt: new Date().toISOString(), lastSeq: 0 };
+  return { id, operator, stream: id, startedAt: new Date().toISOString(), lastSeq: 0, model: null };
 }
 
 /** Stands in for the session screen at the navigation destination. This
@@ -122,7 +122,9 @@ describe('New instance sheet', () => {
     await fireEvent.press(screen.getByText('Create'));
 
     expect(await screen.findByText('session:inst-42')).toBeTruthy();
-    expect(mockApi.create).toHaveBeenCalledWith('tycho');
+    // Second arg is the model — Task 7's picker is what will send a real
+    // selection; this screen still always passes null (see new.tsx).
+    expect(mockApi.create).toHaveBeenCalledWith('tycho', null);
   });
 
   it('creates with Dispatcher (null) when Create is pressed without picking an operator, since Dispatcher starts preselected', async () => {
@@ -147,7 +149,7 @@ describe('New instance sheet', () => {
     await fireEvent.press(screen.getByText('Create'));
 
     expect(await screen.findByText('session:inst-1')).toBeTruthy();
-    expect(mockApi.create).toHaveBeenCalledWith(null);
+    expect(mockApi.create).toHaveBeenCalledWith(null, null);
   });
 
   it('still offers a working Dispatcher row and names the refusal when the composition load fails', async () => {
@@ -165,7 +167,7 @@ describe('New instance sheet', () => {
     await fireEvent.press(screen.getByText('Create'));
 
     expect(await screen.findByText('session:inst-9')).toBeTruthy();
-    expect(mockApi.create).toHaveBeenCalledWith(null);
+    expect(mockApi.create).toHaveBeenCalledWith(null, null);
   });
 
   it('names the refusal and stays open, with Create re-enabled, when create() rejects — no navigation', async () => {

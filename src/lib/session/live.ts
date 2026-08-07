@@ -53,11 +53,11 @@ export class LiveSessionAPI implements SessionAPI {
     return (await response.json()) as T;
   }
 
-  create(operator: string | null): Promise<Instance> {
+  create(operator: string | null, model: string | null = null): Promise<Instance> {
     return this.request<Instance>('/instances', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ operator }),
+      body: JSON.stringify({ operator, model }),
     });
   }
 

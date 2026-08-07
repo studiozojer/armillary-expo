@@ -53,7 +53,7 @@ jest.mock('../src/lib/session/instance', () => ({
 }));
 
 function instanceFor(id: string, operator: string | null): Instance {
-  return { id, operator, stream: id, startedAt: new Date().toISOString(), lastSeq: 0 };
+  return { id, operator, stream: id, startedAt: new Date().toISOString(), lastSeq: 0, model: null };
 }
 
 /** Stands in for the chat at the navigation destination — `instance/

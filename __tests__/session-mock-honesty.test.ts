@@ -44,6 +44,23 @@ describe('MockSessionAPI honesty obligations', () => {
     expect(transients.every((e) => e.seq === 0)).toBe(true);
   });
 
+  it('pins the chosen model on the instance and on instance_created, and null when none was chosen', async () => {
+    jest.useFakeTimers();
+    const api = new MockSessionAPI();
+    const seen: EventEnvelope[] = [];
+
+    const withModel = await api.create('tycho', 'zen/deepseek-v4-flash');
+    api.subscribe(withModel.stream, 0, handlerCollecting(seen));
+    await jest.advanceTimersByTimeAsync(0);
+
+    expect(withModel.model).toBe('zen/deepseek-v4-flash');
+    const created = seen.find((e) => e.type === 'instance_created' && e.stream === withModel.stream);
+    expect((created!.data as { model: string | null }).model).toBe('zen/deepseek-v4-flash');
+
+    const withoutModel = await api.create('tycho');
+    expect(withoutModel.model).toBeNull();
+  });
+
   it('never fires the gap signal for a fresh subscribe at the default earliestSeq', async () => {
     jest.useFakeTimers();
     // Default earliestSeq (1): a from=0 subscribe on a brand-new session has

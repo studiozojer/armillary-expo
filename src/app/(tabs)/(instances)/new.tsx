@@ -59,7 +59,8 @@ export default function NewInstance() {
     setCreating(true);
     setCreateError(null);
     try {
-      const instance = await api.create(selection);
+      // Task 7 replaces this `null` with the picker's real selection.
+      const instance = await api.create(selection, null);
       // Dismiss the sheet, then push — NOT a single `replace`.
       //
       // While the chat lived beside this sheet in the Instances stack, one

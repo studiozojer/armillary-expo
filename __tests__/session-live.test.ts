@@ -58,24 +58,62 @@ function flush(): Promise<void> {
 
 describe('LiveSessionAPI', () => {
   describe('non-streaming methods', () => {
-    it('create() POSTs {operator} and returns the Instance', async () => {
+    it('create() POSTs {operator, model} and returns the Instance', async () => {
       const instance = {
         id: 'inst-1',
         operator: 'tycho',
         stream: 'inst-1',
         startedAt: '2026-07-28T00:00:00Z',
         lastSeq: 1,
+        model: null,
       };
       const fetcher = jest.fn().mockResolvedValue(jsonResponse(201, instance));
 
+      // Called with just an operator, as every pre-Task-6 call site does —
+      // `model` defaults to null (see api.ts's optional-param comment).
       const result = await client(fetcher).create('tycho');
 
       expect(fetcher).toHaveBeenCalledWith(`${BASE}/instances`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ operator: 'tycho' }),
+        body: JSON.stringify({ operator: 'tycho', model: null }),
       });
       expect(result).toEqual(instance);
+    });
+
+    it('sends the chosen model in the create body', async () => {
+      const instance = {
+        id: 'i1',
+        operator: 'tycho',
+        stream: 'i1',
+        startedAt: '2026-08-07T00:00:00.000Z',
+        lastSeq: 1,
+        model: 'zen/deepseek-v4-flash',
+      };
+      const fetcher = jest.fn().mockResolvedValue(jsonResponse(201, instance));
+
+      const result = await client(fetcher).create('tycho', 'zen/deepseek-v4-flash');
+
+      const [, init] = fetcher.mock.calls[0];
+      expect(JSON.parse(init.body)).toEqual({ operator: 'tycho', model: 'zen/deepseek-v4-flash' });
+      expect(result.model).toBe('zen/deepseek-v4-flash');
+    });
+
+    it('sends a null model when none was chosen, so the engine default pilots', async () => {
+      const instance = {
+        id: 'i1',
+        operator: null,
+        stream: 'i1',
+        startedAt: '2026-08-07T00:00:00.000Z',
+        lastSeq: 1,
+        model: null,
+      };
+      const fetcher = jest.fn().mockResolvedValue(jsonResponse(201, instance));
+
+      await client(fetcher).create(null, null);
+
+      const [, init] = fetcher.mock.calls[0];
+      expect(JSON.parse(init.body)).toEqual({ operator: null, model: null });
     });
 
     it('list() GETs /instances and returns the array', async () => {

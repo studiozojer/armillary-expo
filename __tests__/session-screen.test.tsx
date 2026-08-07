@@ -301,6 +301,7 @@ describe('Session screen', () => {
           stream: 's-err',
           startedAt: '2026-07-28T00:00:00.000Z',
           lastSeq: 0,
+          model: null,
         },
         earliestSeq: 1,
         headSeq: 0,

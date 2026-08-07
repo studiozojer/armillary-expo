@@ -10,7 +10,18 @@ import type { AttachInfo, SendReceipt, SubscriptionHandler, Unsubscribe } from '
  * decisions D1–D10.
  */
 export interface SessionAPI {
-  create(operator: string | null): Promise<Instance>;
+  /**
+   * `model` pins which model pilots this instance, for its whole life —
+   * there is no changing it afterwards (design decision 1). `null` (or
+   * omitted) means the engine's own default pilots, which is what an app
+   * talking to an engine with no catalog sends.
+   *
+   * Optional rather than the design's strictly-required second parameter:
+   * every pre-existing call site in this repo creates with just an
+   * operator, and Task 7 (the picker) is what will start passing a real
+   * selection through. Omitting it and passing `null` are equivalent.
+   */
+  create(operator: string | null, model?: string | null): Promise<Instance>;
   list(): Promise<Instance[]>;
   attach(instanceId: string): Promise<AttachInfo>;
   /** Returns an unsubscribe function. `stream` and `fromSeq` are the cursor pair, per invariant (iii). */

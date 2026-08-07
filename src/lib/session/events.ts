@@ -37,6 +37,8 @@ export type Instance = {
   stream: string;
   startedAt: string;
   lastSeq: number;
+  /** Pinned at creation; null when the engine's default pilots. */
+  model: string | null;
 };
 
 export const DURABLE_TYPES = [
