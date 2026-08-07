@@ -2,7 +2,16 @@ import { fireEvent, render, screen } from '@testing-library/react-native';
 import { Platform, StyleSheet } from 'react-native';
 
 import { CardRow, ICONS, Text } from '../src/components/ui';
+import { InstanceCard } from '../src/components/instance-card';
+import type { Instance } from '../src/lib/session/events';
 import { themeFor } from '../src/theme';
+
+// `InstanceCard` only needs `useRouter()` for its `onPress` — a real
+// navigation tree is more than this guard needs, same reasoning as
+// `instances-screen.test.tsx`'s router mock.
+jest.mock('expo-router', () => ({
+  useRouter: () => ({ push: jest.fn() }),
+}));
 
 // Shaped the way @testing-library/react-native's own internal
 // buildResponderGrantEvent() builds one — see the note on the pressed-surface
@@ -161,6 +170,30 @@ describe('<CardRow>', () => {
       await render(<CardRow label="tycho" trailing={<Text>●</Text>} />);
       expect(screen.getByText('●')).toBeTruthy();
       expect(symbolNames()).not.toContain(platformName(ICONS.chevron));
+    });
+
+    // Fix 9: this file's absence assertion above exercises `CardRow` directly
+    // with a hand-supplied `trailing` — it says nothing about `InstanceCard`,
+    // the actual caller on the Instances list, and nothing here would catch a
+    // chevron reintroduced inside ITS trailing slot (e.g. a future edit that
+    // drops the model caption and falls back to `trailing={undefined}`).
+    // Pins the count at exactly zero, reusing the same `findAllByType` walk
+    // `symbolNames()` above is built on.
+    it('InstanceCard never falls back to the chevron — its trailing slot always names a model', async () => {
+      const instance: Instance = {
+        id: 'inst-1',
+        operator: 'tycho',
+        stream: 'inst-1',
+        startedAt: new Date().toISOString(),
+        lastSeq: 3,
+        model: 'claude-sonnet-5',
+      };
+      await render(<InstanceCard instance={instance} />);
+
+      const chevrons = findAllByType(screen.toJSON() as JsonNode | null, 'ViewManagerAdapter_SymbolModule')
+        .map((symbol) => symbol.props.name)
+        .filter((name) => name === platformName(ICONS.chevron));
+      expect(chevrons).toHaveLength(0);
     });
   });
 });

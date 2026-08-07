@@ -66,20 +66,30 @@ export default function NewInstance() {
   // must still create instances. `null` then means "the engine's default
   // pilots", which is the honest thing to send and the honest thing to show.
   const catalog = modelsState.status === 'ok' ? modelsState.data : null;
-  const [model, setModel] = useState<string | null>(null);
+  // `undefined` = the user has not chosen; `null` = the user explicitly
+  // chose "engine default"; a string = an explicit model. The three are
+  // genuinely different, which is why this is not a plain `string | null` —
+  // a picker row now maps to `null` (see the synthetic row below), so `null`
+  // can no longer double as "nothing chosen yet" the way it used to.
+  const [model, setModel] = useState<string | null | undefined>(undefined);
   const [modelExpanded, setModelExpanded] = useState(false);
 
-  // `model` holds only an explicit user pick — no row in the picker ever
-  // sets it back to `null` (see the `onPress` below), so `null` unambiguously
-  // means "nothing chosen yet" and `??` is free to fall through to the
-  // catalog's default. That's also why a later-arriving catalog can never
-  // clobber a choice already made: once `model` is non-null it wins the `??`
-  // regardless of what the catalog resolves to. No effect, no touched flag —
-  // this was a `useEffect` + `modelTouched` pair before; a derived value does
-  // the same job with one less piece of state and no ordering to get wrong.
-  const effectiveModel = model ?? catalog?.default ?? null;
+  // A later-arriving catalog can never clobber a choice already made: once
+  // `model` is anything but `undefined` it wins outright, regardless of what
+  // the catalog resolves to. No effect, no touched flag — this was a
+  // `useEffect` + `modelTouched` pair before; a derived value does the same
+  // job with one less piece of state and no ordering to get wrong.
+  const effectiveModel = model !== undefined ? model : (catalog?.default ?? null);
 
-  const modelRows = catalog?.models ?? [];
+  // The synthetic "engine default" row is always first — same idiom as the
+  // always-present Dispatcher row above, same reason: with no catalog (no
+  // models.toml, or an engine too old to serve /models) this is the only
+  // row, not an empty accordion, and it is always a way to say "let the
+  // engine decide" even when the catalog's own `default` is unusable.
+  const modelRows: { id: string | null; label: string | null; usable: boolean }[] = [
+    { id: null, label: 'engine default', usable: true },
+    ...(catalog?.models ?? []),
+  ];
   const modelLabel = modelRows.find((m) => m.id === effectiveModel)?.label ?? effectiveModel ?? 'engine default';
 
   const onCreate = useCallback(async () => {
@@ -219,14 +229,16 @@ export default function NewInstance() {
           {modelExpanded
             ? modelRows.map((m) => (
                 <ListRow
-                  key={m.id}
+                  key={m.id ?? 'engine-default'}
                   icon="inbox"
-                  label={m.label ?? m.id}
+                  label={m.label ?? m.id ?? 'engine default'}
                   // Named, not merely greyed: a row that is dim for an
                   // unexplained reason reads as a bug. The engine still
                   // ACCEPTS this model — it just cannot pilot it — so the
-                  // row is disabled here rather than refused there.
-                  note={m.usable ? m.id : `${m.id} — no key on this engine`}
+                  // row is disabled here rather than refused there. The
+                  // synthetic "engine default" row (`m.id === null`) has no
+                  // model to name, so it carries no note at all.
+                  note={m.id === null ? undefined : m.usable ? m.id : `${m.id} — no key on this engine`}
                   disabled={!m.usable}
                   trailing={effectiveModel === m.id ? <Icon name="check" size={18} color="icAccent" /> : null}
                   onPress={() => {

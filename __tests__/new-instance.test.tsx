@@ -295,6 +295,49 @@ describe('New instance sheet', () => {
     expect(row.props.accessibilityLabel).toBe('Model, engine default');
   });
 
+  // Fix 1's empty-accordion case. `modelRows` used to be `catalog?.models ?? []`
+  // outright, so an empty catalog expanded the row onto NOTHING — a chevron
+  // opening onto a broken state, exactly what the design promised the
+  // fallback would never be. The synthetic "engine default" row must always
+  // be present, so expanding shows exactly one row, not zero. Distinguished
+  // from the collapsed caption above (which also reads "engine default") via
+  // `getByLabelText` — the row's own accessibilityLabel is bare `'engine
+  // default'`, while the collapsed Pressable's is `'Model, engine default'`.
+  it('expanding the model row with no catalog shows exactly one row, not an empty accordion', async () => {
+    const { getByTestId, getByLabelText, queryAllByText } = await renderSheet({
+      models: { default: null, models: [] },
+    });
+
+    await fireEvent.press(getByTestId('model-row'));
+
+    expect(getByLabelText('engine default')).toBeTruthy();
+    // Exactly one occurrence of the row's own label, plus the collapsed
+    // caption already on screen — two total, not more (no phantom rows) and
+    // not one (the empty-accordion bug this test pins).
+    expect(queryAllByText('engine default')).toHaveLength(2);
+  });
+
+  // Fix 1's tri-state regression guard: choosing "engine default" explicitly
+  // must send `null`, even when the catalog's own `default` is a real model —
+  // this is exactly the case a naive `model ?? catalog?.default` fix would
+  // get wrong, since a row that sets `model` back to `null` would be
+  // indistinguishable from "nothing chosen" and the catalog default would
+  // win regardless of the tap.
+  it('choosing "engine default" explicitly sends null even though the catalog declares a non-null default', async () => {
+    const { getByTestId, getByLabelText, getByText } = await renderSheet({
+      models: {
+        default: 'claude-sonnet-5',
+        models: [{ id: 'claude-sonnet-5', label: 'Sonnet 5', provider: 'anthropic', usable: true }],
+      },
+    });
+
+    await fireEvent.press(getByTestId('model-row'));
+    await fireEvent.press(getByLabelText('engine default'));
+    await fireEvent.press(getByText('Create'));
+
+    await waitFor(() => expect(createSpy).toHaveBeenCalledWith(null, null));
+  });
+
   it('creates with the chosen model', async () => {
     const { getByTestId, getByText, findByText } = await renderSheet({
       models: {

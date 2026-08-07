@@ -26,7 +26,12 @@ export function InstanceCard({ instance }: { instance: Instance }) {
       note={`${instance.stream} · seq ${instance.lastSeq}`}
       noteVariant="mono"
       trailing={
-        <Text variant="caption" color="txTertiary" numberOfLines={1}>
+        // `flexShrink: 1` — `numberOfLines={1}` alone stops the caption
+        // WRAPPING but not SHRINKING: RN's default `flexShrink: 0` (and
+        // `Inline` sets none) leaves this `Text` at its full intrinsic
+        // width, so the label lane (`Stack flex={1}`) shrinks instead and a
+        // long model slug truncates the OPERATOR name, not the model.
+        <Text variant="caption" color="txTertiary" numberOfLines={1} style={{ flexShrink: 1 }}>
           {instance.model ?? 'engine default'}
         </Text>
       }
