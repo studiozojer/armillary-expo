@@ -95,6 +95,31 @@ describe('DaemonClient', () => {
     const fetcher = mockFetch(404, 'not_composed');
     await expect(clientWith(fetcher).getVoicenotes()).rejects.toBeInstanceOf(DaemonError);
   });
+
+  it('reads the model catalog', async () => {
+    const fetcher = mockFetch(200, {
+      default: 'claude-sonnet-5',
+      models: [
+        { id: 'claude-sonnet-5', label: 'Sonnet 5', provider: 'anthropic', usable: true },
+        { id: 'zen/deepseek-v4-flash', label: null, provider: 'zen', usable: false },
+      ],
+    });
+    const catalog = await clientWith(fetcher).getModels();
+
+    expect(fetcher).toHaveBeenCalledWith('http://host:7778/models', { signal: undefined });
+    expect(catalog.default).toBe('claude-sonnet-5');
+    expect(catalog.models[1].usable).toBe(false);
+  });
+
+  it('treats a host with no models.toml as an empty catalog, not an error', async () => {
+    // The engine returns 200 with `{ default: null, models: [] }` here, never
+    // a 500 — an absent catalog is a normal, empty state.
+    const fetcher = mockFetch(200, { default: null, models: [] });
+    const catalog = await clientWith(fetcher).getModels();
+
+    expect(catalog.default).toBeNull();
+    expect(catalog.models).toEqual([]);
+  });
 });
 
 describe('per-repo git', () => {

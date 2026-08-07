@@ -6,6 +6,7 @@ import {
   type Composition,
   type FileResponse,
   type HealthResponse,
+  type ModelCatalog,
   type RepoState,
   type ReposResponse,
   type TreeResponse,
@@ -57,6 +58,11 @@ export class DaemonClient {
 
   getComposition(signal?: AbortSignal): Promise<Composition> {
     return this.get<Composition>('/composition', signal);
+  }
+
+  /** The host's model catalog — `default` and `models` are both empty/null rather than a 500 when no `models.toml` is composed. */
+  getModels(signal?: AbortSignal): Promise<ModelCatalog> {
+    return this.get<ModelCatalog>('/models', signal);
   }
 
   getTree(path: string, signal?: AbortSignal): Promise<TreeResponse> {

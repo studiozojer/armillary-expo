@@ -158,3 +158,22 @@ export type Commit = {
 };
 
 export type ChangedFile = { path: string; change: string; staged: boolean };
+
+export type ModelEntry = {
+  id: string;
+  label: string | null;
+  /** `choose_provider`'s answer on the engine — the app never re-derives the prefix rule. */
+  provider: 'anthropic' | 'zen';
+  /**
+   * Whether the engine holds a key for this model's provider. **Advisory** —
+   * the engine accepts a create for an unusable model and fails the first
+   * turn with `no_api_key`. The picker greys the row out; it does not block.
+   */
+  usable: boolean;
+};
+
+/** `default` is null on a host with no `models.toml` — a 200 with an empty catalog, not an error. */
+export type ModelCatalog = {
+  default: string | null;
+  models: ModelEntry[];
+};
