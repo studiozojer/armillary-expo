@@ -463,13 +463,15 @@ describe('Session screen', () => {
     const [, onChoose] = sheetSpy.mock.calls[0];
     await act(async () => onChoose(1));
 
-    // Text now appears twice: the list row and the sheet's selectable copy.
-    const copies = screen.getAllByText(CANNED_REPLY);
-    expect(copies).toHaveLength(2);
-    expect(copies.some((t) => t.props.selectable === true)).toBe(true);
+    // On iOS the sheet renders the message in a non-editable TextInput (the
+    // platform's only element with real selection handles), so the sheet's
+    // copy is a display value, not a second Text — the list row stays the
+    // only Text match.
+    expect(screen.getByDisplayValue(CANNED_REPLY)).toBeTruthy();
+    expect(screen.getAllByText(CANNED_REPLY)).toHaveLength(1);
 
     await fireEvent.press(screen.getByText('Done'));
-    expect(screen.getAllByText(CANNED_REPLY)).toHaveLength(1);
+    expect(screen.queryByDisplayValue(CANNED_REPLY)).toBeNull();
   });
 
   it('a streaming row offers no long-press menu', async () => {

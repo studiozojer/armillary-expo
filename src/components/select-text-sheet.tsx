@@ -1,4 +1,4 @@
-import { Modal, ScrollView, Text, View } from 'react-native';
+import { Modal, Platform, ScrollView, Text, TextInput, View } from 'react-native';
 
 import { Button } from '@/components/ui';
 import { useTheme } from '@/theme';
@@ -11,6 +11,13 @@ import { useTheme } from '@/theme';
  * transparent-header-under-liquid-glass behaviour the July sheet work hit.
  * Shows raw text, not rendered markdown — matching what Copy puts on the
  * clipboard.
+ *
+ * The text element is platform-split, and both halves are load-bearing
+ * (device-verified 2026-08-06): on iOS a selectable Text gives only the
+ * select-all copy callout — drag handles do not exist for Text there, so a
+ * non-editable multiline TextInput (a real UITextView) is the only route to
+ * partial selection. On Android it is exactly reversed: selectable Text has
+ * proper handles, while a non-editable TextInput refuses selection outright.
  */
 export function SelectTextSheet({ text, onDone }: { text: string | null; onDone: () => void }) {
   const theme = useTheme();
@@ -32,9 +39,19 @@ export function SelectTextSheet({ text, onDone }: { text: string | null; onDone:
           <Button label="Done" variant="secondary" onPress={onDone} />
         </View>
         <ScrollView contentContainerStyle={{ padding: theme.space.lg }}>
-          <Text selectable style={{ ...theme.type.body, color: theme.color.txPrimary }}>
-            {text ?? ''}
-          </Text>
+          {Platform.OS === 'ios' ? (
+            <TextInput
+              value={text ?? ''}
+              editable={false}
+              multiline
+              scrollEnabled={false}
+              style={{ ...theme.type.body, color: theme.color.txPrimary }}
+            />
+          ) : (
+            <Text selectable style={{ ...theme.type.body, color: theme.color.txPrimary }}>
+              {text ?? ''}
+            </Text>
+          )}
         </ScrollView>
       </View>
     </Modal>

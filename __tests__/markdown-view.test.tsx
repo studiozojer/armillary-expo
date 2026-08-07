@@ -33,4 +33,15 @@ describe('MarkdownView', () => {
   it('renders an empty document without throwing', async () => {
     await expect(render(<MarkdownView source="" />)).resolves.toBeDefined();
   });
+
+  it('renders text that is not system-selectable, so a long-press reaches the row menu alone', async () => {
+    // react-native-marked's own Renderer hardcodes `selectable: true` on every
+    // text node — on device that makes iOS answer a long-press with the system
+    // copy callout on top of the message menu (David, 2026-08-06). Selection
+    // is SelectTextSheet's job; the chat list must not compete with it.
+    await render(<MarkdownView source={SAMPLE_MARKDOWN} />);
+    expect(screen.getByText('harness anatomy').props.selectable).toBe(false);
+    expect(screen.getByText(/the-flat-window/).props.selectable).toBe(false);
+    expect(screen.getByText('a small distributed system').props.selectable).toBe(false);
+  });
 });
