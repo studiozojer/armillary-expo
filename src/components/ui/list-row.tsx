@@ -24,6 +24,7 @@ export function ListRow({
   trailing,
   onPress,
   testID,
+  disabled,
 }: {
   icon: IconName;
   label: string;
@@ -39,18 +40,27 @@ export function ListRow({
   trailing?: ReactNode;
   onPress?: () => void;
   testID?: string;
+  /**
+   * Same `txDisabled` colouring `FilterStub` (`index.tsx`) uses, plus
+   * `accessibilityState={{ disabled: true }}` — not a styled-at-the-call-site
+   * dim. The caller still supplies `note` to say *why*: a row dim for an
+   * unexplained reason reads as a bug, so disabling never hides the note.
+   */
+  disabled?: boolean;
 }) {
   const theme = useTheme();
 
   return (
     <Pressable
       testID={testID}
-      onPress={onPress}
+      onPress={disabled ? undefined : onPress}
+      disabled={disabled}
       // The row is the control; its icons are hidden from assistive technology
       // (see Icon). The note is folded into the label because a screen-reader
       // user gets one announcement per element, not a visual glance that takes
       // in both lines at once.
       accessibilityRole={onPress ? 'button' : undefined}
+      accessibilityState={disabled ? { disabled: true } : undefined}
       accessibilityLabel={note ? `${label}. ${note}` : label}
       style={({ pressed }) => ({
         // Gated on `onPress`, not on `disabled`: a row with no `onPress` isn't
@@ -63,20 +73,22 @@ export function ListRow({
         // affordance contradicting the accessibility tree, which correctly
         // carries no button role here.
         backgroundColor:
-          pressed && onPress ? theme.color.bgSolidCardPressed : theme.color.bgSolidCard,
+          pressed && onPress && !disabled ? theme.color.bgSolidCardPressed : theme.color.bgSolidCard,
       })}>
       {/* Box carries the padding because Inline deliberately has none — the kit
           has one padding API and it lives on Box. */}
       <Box px="lg" py="md">
         <Inline>
           <Inline style={{ width: ROW_ICON_LANE }}>
-            <Icon name={icon} size={20} color="icPrimary" />
+            <Icon name={icon} size={20} color={disabled ? 'txDisabled' : 'icPrimary'} />
           </Inline>
 
           <Stack flex={1} gap="xxs">
-            <Text numberOfLines={1}>{label}</Text>
+            <Text numberOfLines={1} color={disabled ? 'txDisabled' : 'txPrimary'}>
+              {label}
+            </Text>
             {note ? (
-              <Text variant="caption" color="txTertiary" numberOfLines={2}>
+              <Text variant="caption" color={disabled ? 'txDisabled' : 'txTertiary'} numberOfLines={2}>
                 {note}
               </Text>
             ) : null}

@@ -1,10 +1,10 @@
 import { useRouter } from 'expo-router';
-import { useCallback, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Pressable } from 'react-native';
 
 import { Box, Button, Card, Icon, Inline, ListRow, Rule, Screen, Text } from '@/components/ui';
 import { DaemonClient } from '@/lib/daemon/client';
-import type { Composition } from '@/lib/daemon/types';
+import type { Composition, ModelCatalog } from '@/lib/daemon/types';
 import { useHost } from '@/lib/host-context';
 import { sessionAPIFor } from '@/lib/session/instance';
 import { useLoader } from '@/lib/use-loader';
@@ -55,12 +55,37 @@ export default function NewInstance() {
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
+  const loadModels = useCallback(
+    (signal: AbortSignal) => new DaemonClient(host.daemonUrl).getModels(signal),
+    [host.daemonUrl],
+  );
+  const { state: modelsState } = useLoader<ModelCatalog>(`${host.id}:${generation}:models`, loadModels, ready);
+
+  // The catalog is decoration, exactly like the operator list above it: an
+  // engine with no models.toml — or one too old to serve /models at all —
+  // must still create instances. `null` then means "the engine's default
+  // pilots", which is the honest thing to send and the honest thing to show.
+  const catalog = modelsState.status === 'ok' ? modelsState.data : null;
+  const [model, setModel] = useState<string | null>(null);
+  const [modelTouched, setModelTouched] = useState(false);
+  const [modelExpanded, setModelExpanded] = useState(false);
+
+  // The catalog arrives after first render, so the default is applied when
+  // it lands — but never over a choice already made.
+  useEffect(() => {
+    if (!modelTouched && catalog?.default) {
+      setModel(catalog.default);
+    }
+  }, [catalog?.default, modelTouched]);
+
+  const modelRows = catalog?.models ?? [];
+  const modelLabel = modelRows.find((m) => m.id === model)?.label ?? model ?? 'engine default';
+
   const onCreate = useCallback(async () => {
     setCreating(true);
     setCreateError(null);
     try {
-      // Task 7 replaces this `null` with the picker's real selection.
-      const instance = await api.create(selection, null);
+      const instance = await api.create(selection, model);
       // Dismiss the sheet, then push — NOT a single `replace`.
       //
       // While the chat lived beside this sheet in the Instances stack, one
@@ -83,7 +108,7 @@ export default function NewInstance() {
       setCreateError(error instanceof Error ? error.message : String(error));
       setCreating(false);
     }
-  }, [api, selection, router]);
+  }, [api, selection, model, router]);
 
   const rows: PickerRow[] = [
     { key: 'dispatcher', label: 'Dispatcher', note: 'no operator summoned', value: null },
@@ -174,17 +199,43 @@ export default function NewInstance() {
 
           <Rule />
 
-          <View
-            testID="model-stub"
-            accessible
-            accessibilityState={{ disabled: true }}
-            accessibilityLabel="Model, engine default"
-            style={{ paddingHorizontal: theme.space.lg, paddingVertical: theme.space.md }}>
-            <Inline justify="space-between">
-              <Text color="txDisabled">Model</Text>
-              <Text color="txDisabled">engine default</Text>
-            </Inline>
-          </View>
+          <Pressable
+            testID="model-row"
+            accessibilityRole="button"
+            accessibilityLabel={`Model, ${modelLabel}`}
+            onPress={() => setModelExpanded((e) => !e)}>
+            <Box px="lg" py="md">
+              <Inline justify="space-between">
+                <Text>Model</Text>
+                <Inline gap="xs">
+                  <Text color="txSecondary">{modelLabel}</Text>
+                  <Icon name="chevronDown" size={14} color="icSecondary" />
+                </Inline>
+              </Inline>
+            </Box>
+          </Pressable>
+
+          {modelExpanded
+            ? modelRows.map((m) => (
+                <ListRow
+                  key={m.id}
+                  icon="inbox"
+                  label={m.label ?? m.id}
+                  // Named, not merely greyed: a row that is dim for an
+                  // unexplained reason reads as a bug. The engine still
+                  // ACCEPTS this model — it just cannot pilot it — so the
+                  // row is disabled here rather than refused there.
+                  note={m.usable ? m.id : `${m.id} — no key on this engine`}
+                  disabled={!m.usable}
+                  trailing={model === m.id ? <Icon name="check" size={18} color="icAccent" /> : null}
+                  onPress={() => {
+                    setModel(m.id);
+                    setModelTouched(true);
+                    setModelExpanded(false);
+                  }}
+                />
+              ))
+            : null}
         </Card>
 
         {createError ? (

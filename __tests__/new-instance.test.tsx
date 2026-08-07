@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useLocalSearchParams } from 'expo-router';
-import { cleanup, fireEvent, renderRouter, screen } from 'expo-router/testing-library';
+import { cleanup, fireEvent, renderRouter, screen, waitFor } from 'expo-router/testing-library';
 import { Stack } from 'expo-router/stack';
 import { Children, isValidElement, type ReactElement, type ReactNode } from 'react';
 import { Text } from 'react-native';
@@ -9,6 +9,7 @@ import InstancesLayout from '../src/app/(tabs)/(instances)/_layout';
 import Instances from '../src/app/(tabs)/(instances)/index';
 import New from '../src/app/(tabs)/(instances)/new';
 import { HostProvider } from '../src/lib/host-context';
+import type { ModelCatalog } from '../src/lib/daemon/types';
 import type { Instance } from '../src/lib/session/events';
 import type { SessionAPI } from '../src/lib/session/api';
 
@@ -47,8 +48,8 @@ jest.mock('../src/lib/session/instance', () => ({
   sessionAPIFor: () => mockApi,
 }));
 
-function instanceFor(id: string, operator: string | null): Instance {
-  return { id, operator, stream: id, startedAt: new Date().toISOString(), lastSeq: 0, model: null };
+function instanceFor(id: string, operator: string | null, model: string | null = null): Instance {
+  return { id, operator, stream: id, startedAt: new Date().toISOString(), lastSeq: 0, model };
 }
 
 /** Stands in for the session screen at the navigation destination. This
@@ -79,6 +80,56 @@ const routes = {
   '(tabs)/(instances)/new': New,
   'instance/[instanceId]': SessionStub,
 };
+
+/** Set by `renderSheet` on every call, so a test can assert on the exact
+ *  `(operator, model)` pair `create()` was called with without threading the
+ *  spy through its return value. */
+let createSpy: jest.Mock;
+
+/**
+ * `renderSheet` extends the harness the rest of this suite already uses
+ * (`mockApi` + a `globalThis.fetch` stub keyed on the path) rather than
+ * building a second one, per the brief. It fixes the composition response to
+ * an empty operator list — these tests are about the model row, not the
+ * operator one — and adds a `/models` branch driven by `models`/`modelsError`.
+ *
+ * Not in the brief's sketch: the sketch calls `renderSheet` synchronously
+ * (`const { getByTestId } = renderSheet(...)`), but rendering a route is
+ * async in this harness (`renderRouter` and the initial `findByText` both
+ * need awaiting) — every other test in this file awaits `renderRouter`
+ * before touching `screen`. Made `renderSheet` async and every call site
+ * awaits it; the returned object is `screen` itself, since that already
+ * carries `getByTestId`/`getByText`/`findByText`/`queryByText`.
+ */
+async function renderSheet(options: { models?: ModelCatalog; modelsError?: Error } = {}) {
+  createSpy = jest.fn(async (operator: string | null, model: string | null) =>
+    instanceFor('inst-model', operator, model),
+  );
+  mockApi = makeMockApi({ create: createSpy });
+
+  globalThis.fetch = jest.fn((url: string) => {
+    if (url.includes('/composition')) {
+      return jsonResponse(200, {
+        operators: [],
+        commons: [],
+        repos: [],
+        protocols: [],
+        manifests: [],
+        protocol_sources: [],
+      });
+    }
+    if (url.includes('/models')) {
+      if (options.modelsError) return jsonResponse(404, options.modelsError.message);
+      return jsonResponse(200, options.models ?? { default: null, models: [] });
+    }
+    throw new Error(`unexpected fetch: ${url}`);
+  }) as unknown as typeof fetch;
+
+  await renderRouter(routes, { initialUrl: '/new' });
+  await screen.findByText('Dispatcher');
+
+  return screen;
+}
 
 describe('New instance sheet', () => {
   afterEach(cleanup);
@@ -230,28 +281,134 @@ describe('New instance sheet', () => {
     expect(await screen.findByText('Dispatcher')).toBeTruthy();
   });
 
-  it('the model row is an announced-disabled stub with the honest value', async () => {
-    mockApi = makeMockApi();
-    globalThis.fetch = jest.fn((url: string) => {
-      if (url.includes('/composition')) {
-        return jsonResponse(200, {
-          operators: [],
-          commons: [],
-          repos: [],
-          protocols: [],
-          manifests: [],
-          protocol_sources: [],
-        });
-      }
-      throw new Error(`unexpected fetch: ${url}`);
-    }) as unknown as typeof fetch;
+  // Superseded by the picker below (Task 7): the row is no longer a
+  // permanently-disabled `View` — it expands like the operator row above it.
+  // Kept, renamed and re-pointed at `model-row`, because the fact it asserts
+  // — an unreadable/empty catalog reads as "engine default", stated
+  // honestly rather than left blank — still holds and is still worth a name
+  // of its own, separate from the fallback test below (which is specifically
+  // about a catalog that errors, not one that is merely empty).
+  it('the model row starts on "engine default" when the catalog is empty, following the operator row pattern', async () => {
+    const { getByTestId } = await renderSheet({ models: { default: null, models: [] } });
 
-    await renderRouter(routes, { initialUrl: '/new' });
-    await screen.findByText('Dispatcher');
+    const row = getByTestId('model-row');
+    expect(row.props.accessibilityLabel).toBe('Model, engine default');
+  });
 
-    const stub = screen.getByTestId('model-stub');
-    expect(stub.props.accessibilityState).toMatchObject({ disabled: true });
-    expect(screen.getByText('engine default')).toBeTruthy();
+  it('creates with the chosen model', async () => {
+    const { getByTestId, getByText, findByText } = await renderSheet({
+      models: {
+        default: 'claude-sonnet-5',
+        models: [
+          { id: 'claude-sonnet-5', label: 'Sonnet 5', provider: 'anthropic', usable: true },
+          { id: 'zen/deepseek-v4-flash', label: 'DeepSeek Flash', provider: 'zen', usable: true },
+        ],
+      },
+    });
+
+    // `await` on every press, matching the convention the operator-row test
+    // above already sets (`await fireEvent.press(screen.getByText('tycho'))`)
+    // rather than the brief's sketch, which fires all three presses
+    // synchronously back to back. Un-awaited, the second press (picking
+    // DeepSeek Flash) and the third (Create) land in the same batch: `onCreate`
+    // is still the closure from the pre-selection render, so it reads the
+    // catalog's default rather than the pick — measured by adding a debug log
+    // to `onCreate`, which printed the default model, not the picked one,
+    // when the presses weren't awaited. `await`ing a non-promise still yields
+    // a microtask turn, which is enough for the state update to commit before
+    // the next press reads it.
+    await fireEvent.press(getByTestId('model-row'));
+    await fireEvent.press(await findByText('DeepSeek Flash'));
+    await fireEvent.press(getByText('Create'));
+
+    await waitFor(() => expect(createSpy).toHaveBeenCalledWith(null, 'zen/deepseek-v4-flash'));
+  });
+
+  // Not one of the brief's three required tests, but the behaviour it
+  // documents in prose ("entries with usable: false render disabled with the
+  // reason named — not silently greyed") had no assertion anywhere, and it's
+  // the other half of what makes the picker honest rather than just present.
+  it('names the reason and refuses the tap for a model the engine cannot use', async () => {
+    const { getByTestId, getByText, findByText, queryByText } = await renderSheet({
+      models: {
+        default: 'claude-sonnet-5',
+        models: [
+          { id: 'claude-sonnet-5', label: 'Sonnet 5', provider: 'anthropic', usable: true },
+          { id: 'zen/deepseek-v4-flash', label: 'DeepSeek Flash', provider: 'zen', usable: false },
+        ],
+      },
+    });
+
+    await fireEvent.press(getByTestId('model-row'));
+    const unusableRow = await findByText('DeepSeek Flash');
+    expect(queryByText('zen/deepseek-v4-flash — no key on this engine')).toBeTruthy();
+
+    await fireEvent.press(unusableRow);
+    // Refused: still expanded (a successful pick collapses the accordion —
+    // see the "creates with the chosen model" test above), and Create still
+    // carries the catalog default, not the row that was tapped.
+    expect(queryByText('DeepSeek Flash')).toBeTruthy();
+
+    await fireEvent.press(getByText('Create'));
+    await waitFor(() => expect(createSpy).toHaveBeenCalledWith(null, 'claude-sonnet-5'));
+  });
+
+  it('defaults to the catalog default', async () => {
+    const { getByText, findByText } = await renderSheet({
+      models: {
+        default: 'zen/deepseek-v4-flash',
+        models: [
+          { id: 'claude-sonnet-5', label: 'Sonnet 5', provider: 'anthropic', usable: true },
+          { id: 'zen/deepseek-v4-flash', label: 'DeepSeek Flash', provider: 'zen', usable: true },
+        ],
+      },
+    });
+
+    // The catalog lands after first render (the `useEffect` in new.tsx says
+    // so explicitly) — waiting for the collapsed row to actually show the
+    // default's label is what makes this test about the default applying,
+    // rather than a race against whether the fetch resolved before Create
+    // was pressed.
+    await findByText('DeepSeek Flash');
+    await fireEvent.press(getByText('Create'));
+
+    await waitFor(() => expect(createSpy).toHaveBeenCalledWith(null, 'zen/deepseek-v4-flash'));
+  });
+
+  it('keeps Create working when the catalog cannot be read', async () => {
+    // The rule this screen already documents for the operator list: the
+    // catalog is decoration, not load-bearing. An engine too old to serve
+    // /models takes this same path, which is what lets the app ship first.
+    const { getByTestId, getByText } = await renderSheet({ modelsError: new Error('404 Not Found') });
+
+    // Checked via `model-row`'s own `accessibilityLabel`, not via
+    // `queryByText(/engine default/i)` on the screen at large, and checked
+    // before Create is pressed rather than after (both changes from the
+    // brief's sketch, and both load-bearing — see the report's note on the
+    // critical-obligation check this test exists to satisfy):
+    //
+    // - `queryByText` matched the OLD `model-stub` `View` just as well as the
+    //   new picker — that `View`'s hard-coded "engine default" caption is
+    //   there unconditionally, whether the catalog loaded, errored, or was
+    //   never fetched at all. Asserting on it proved nothing about this
+    //   task's fallback path specifically. `getByTestId('model-row')` does:
+    //   that ID does not exist until Step 3 replaces the stub, so this
+    //   assertion is what actually goes red before the row is built, rather
+    //   than passing by coincidence against Task 6's leftover `null`.
+    // - After Create is pressed, `onCreate` runs the same `dismissTo` + push`
+    //   every successful create does, and the sheet is gone by the time
+    //   `waitFor` below settles — there is no "engine default" text left on
+    //   screen to find at that point on EITHER the old or the new code,
+    //   which is exactly the false-negative shape as the false-positive
+    //   above: passing or failing for a reason that has nothing to do with
+    //   the fallback. Checked here, before Create, it is true only once the
+    //   real fallback path (an errored `/models` load) is live.
+    const row = getByTestId('model-row');
+    expect(row.props.accessibilityLabel).toBe('Model, engine default');
+
+    await fireEvent.press(getByText('Create'));
+
+    await waitFor(() => expect(createSpy).toHaveBeenCalledWith(null, null));
   });
 });
 
