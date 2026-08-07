@@ -69,9 +69,7 @@ describe('LiveSessionAPI', () => {
       };
       const fetcher = jest.fn().mockResolvedValue(jsonResponse(201, instance));
 
-      // Called with just an operator, as every pre-Task-6 call site does —
-      // `model` defaults to null (see api.ts's optional-param comment).
-      const result = await client(fetcher).create('tycho');
+      const result = await client(fetcher).create('tycho', null);
 
       expect(fetcher).toHaveBeenCalledWith(`${BASE}/instances`, {
         method: 'POST',

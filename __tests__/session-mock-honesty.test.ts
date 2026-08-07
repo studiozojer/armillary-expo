@@ -25,7 +25,7 @@ describe('MockSessionAPI honesty obligations', () => {
   it('emits snapshot transients that a durable event with the same generation supersedes', async () => {
     jest.useFakeTimers();
     const api = new MockSessionAPI();
-    const inst = await api.create('tycho');
+    const inst = await api.create('tycho', null);
     const seen: EventEnvelope[] = [];
     api.subscribe(inst.stream, 0, handlerCollecting(seen));
     await api.send(inst.id, 'hi', 'k');
@@ -57,7 +57,7 @@ describe('MockSessionAPI honesty obligations', () => {
     const created = seen.find((e) => e.type === 'instance_created' && e.stream === withModel.stream);
     expect((created!.data as { model: string | null }).model).toBe('zen/deepseek-v4-flash');
 
-    const withoutModel = await api.create('tycho');
+    const withoutModel = await api.create('tycho', null);
     expect(withoutModel.model).toBeNull();
   });
 
@@ -67,7 +67,7 @@ describe('MockSessionAPI honesty obligations', () => {
     // nothing missing between the cursor and what's available — the engine
     // itself only fires when `from + 1 < earliest_seq`, and 0 + 1 is not < 1.
     const api = new MockSessionAPI();
-    const inst = await api.create('tycho');
+    const inst = await api.create('tycho', null);
 
     const gaps: GapInfo[] = [];
     api.subscribe(inst.stream, 0, {
@@ -85,7 +85,7 @@ describe('MockSessionAPI honesty obligations', () => {
     // Fake timers + never advancing them: the canned generation's setTimeout
     // chain never fires, so it can't add events to this test's window.
     const api = new MockSessionAPI({ earliestSeq: 5 });
-    const inst = await api.create('tycho');
+    const inst = await api.create('tycho', null);
     for (let i = 0; i < 8; i++) await api.send(inst.id, `msg-${i}`, `k${i}`);
     // instance_created (seq 1) + 8 user_message (seq 2..9) = 9 durable events.
 
@@ -106,7 +106,7 @@ describe('MockSessionAPI honesty obligations', () => {
   it('interrupt mid-generation lands a durable partial marked incomplete', async () => {
     jest.useFakeTimers();
     const api = new MockSessionAPI({ fragmentDelayMs: 25 });
-    const inst = await api.create('tycho');
+    const inst = await api.create('tycho', null);
     const seen: EventEnvelope[] = [];
     api.subscribe(inst.stream, 0, handlerCollecting(seen));
     await api.send(inst.id, 'hi', 'k');
@@ -139,7 +139,7 @@ describe('MockSessionAPI honesty obligations', () => {
   it('evict appends context_evict and never removes the target', async () => {
     jest.useFakeTimers();
     const api = new MockSessionAPI();
-    const inst = await api.create('tycho');
+    const inst = await api.create('tycho', null);
     const receipt = await api.send(inst.id, 'hi', 'k');
 
     await api.evict(inst.id, receipt.id);
@@ -163,7 +163,7 @@ describe('MockSessionAPI honesty obligations', () => {
   it('buffers a tail event that lands between subscribe and its replay tick, delivering it once and in order', async () => {
     jest.useFakeTimers();
     const api = new MockSessionAPI();
-    const inst = await api.create('tycho');
+    const inst = await api.create('tycho', null);
     await api.send(inst.id, 'seed', 'k0'); // durable, present before subscribe
 
     const seen: EventEnvelope[] = [];

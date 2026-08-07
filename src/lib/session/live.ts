@@ -53,7 +53,7 @@ export class LiveSessionAPI implements SessionAPI {
     return (await response.json()) as T;
   }
 
-  create(operator: string | null, model: string | null = null): Promise<Instance> {
+  create(operator: string | null, model: string | null): Promise<Instance> {
     return this.request<Instance>('/instances', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

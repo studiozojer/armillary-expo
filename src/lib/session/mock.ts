@@ -139,7 +139,7 @@ export class MockSessionAPI implements SessionAPI {
     return list[list.length - 1]?.seq ?? 0;
   }
 
-  async create(operator: string | null, model: string | null = null): Promise<Instance> {
+  async create(operator: string | null, model: string | null): Promise<Instance> {
     const id = `inst-mock-${++this.counter}`;
     const instance: Instance = {
       id,

@@ -97,7 +97,7 @@ describe('Session screen', () => {
   it('renders fixture messages already in the log', async () => {
     jest.useFakeTimers();
     mockApi = new MockSessionAPI({ fragmentDelayMs: 5 }) as unknown as SessionAPI;
-    const inst = await (mockApi as MockSessionAPI).create('tycho');
+    const inst = await (mockApi as MockSessionAPI).create('tycho', null);
     await mockApi.send(inst.id, 'hello there', 'seed');
     await jest.advanceTimersByTimeAsync(200);
     mockInstanceId = inst.id;
@@ -111,7 +111,7 @@ describe('Session screen', () => {
   it('composer send shows the text immediately as a pending row', async () => {
     jest.useFakeTimers();
     mockApi = new MockSessionAPI({ fragmentDelayMs: 5 }) as unknown as SessionAPI;
-    const inst = await (mockApi as MockSessionAPI).create('tycho');
+    const inst = await (mockApi as MockSessionAPI).create('tycho', null);
     mockInstanceId = inst.id;
 
     await render(<SessionScreen />);
@@ -129,7 +129,7 @@ describe('Session screen', () => {
   it('shows a streaming row updating and a Stop affordance during generation, then exactly one copy after settling', async () => {
     jest.useFakeTimers();
     mockApi = new MockSessionAPI({ fragmentDelayMs: 10 }) as unknown as SessionAPI;
-    const inst = await (mockApi as MockSessionAPI).create('tycho');
+    const inst = await (mockApi as MockSessionAPI).create('tycho', null);
     mockInstanceId = inst.id;
 
     await render(<SessionScreen />);
@@ -157,7 +157,7 @@ describe('Session screen', () => {
   it('shows a gap row naming the missing range for a session with a truncated log', async () => {
     jest.useFakeTimers();
     mockApi = new MockSessionAPI({ earliestSeq: 5, fragmentDelayMs: 5 }) as unknown as SessionAPI;
-    const inst = await (mockApi as MockSessionAPI).create('tycho');
+    const inst = await (mockApi as MockSessionAPI).create('tycho', null);
     mockInstanceId = inst.id;
 
     await render(<SessionScreen />);
@@ -173,7 +173,7 @@ describe('Session screen', () => {
     const api = new MockSessionAPI({ fragmentDelayMs: 5 });
     const attachSpy = jest.spyOn(api, 'attach');
     mockApi = api as unknown as SessionAPI;
-    const inst = await api.create('tycho');
+    const inst = await api.create('tycho', null);
     await api.send(inst.id, 'hello there', 'seed');
     await jest.advanceTimersByTimeAsync(200);
     mockInstanceId = inst.id;
@@ -199,7 +199,7 @@ describe('Session screen', () => {
     jest.useFakeTimers();
 
     const apiA = new MockSessionAPI({ fragmentDelayMs: 5 });
-    const instA = await apiA.create('tycho');
+    const instA = await apiA.create('tycho', null);
     // Wrap subscribe so its returned unsubscribe is observable — the point
     // of this test is that the *old* host's subscription gets torn down,
     // not merely that a new one starts.
@@ -217,7 +217,7 @@ describe('Session screen', () => {
     // Same counter start as apiA (each MockSessionAPI's own counter begins
     // at 0), so this instance shares the id the screen is already attached
     // to under host A.
-    await apiB.create('tycho');
+    await apiB.create('tycho', null);
     const attachSpyB = jest.spyOn(apiB, 'attach');
     const subscribeSpyB = jest.spyOn(apiB, 'subscribe');
 
@@ -265,7 +265,7 @@ describe('Session screen', () => {
   it("sets the header title to @operator once attach resolves, and shows the instance's short id", async () => {
     jest.useFakeTimers();
     mockApi = new MockSessionAPI({ fragmentDelayMs: 5 }) as unknown as SessionAPI;
-    const inst = await (mockApi as MockSessionAPI).create('tycho');
+    const inst = await (mockApi as MockSessionAPI).create('tycho', null);
     mockInstanceId = inst.id;
 
     await render(<SessionScreen />);
@@ -277,7 +277,7 @@ describe('Session screen', () => {
   it('titles a dispatcher-routed instance "dispatcher", not "@null" or blank', async () => {
     jest.useFakeTimers();
     mockApi = new MockSessionAPI({ fragmentDelayMs: 5 }) as unknown as SessionAPI;
-    const inst = await (mockApi as MockSessionAPI).create(null);
+    const inst = await (mockApi as MockSessionAPI).create(null, null);
     mockInstanceId = inst.id;
 
     await render(<SessionScreen />);
@@ -348,7 +348,7 @@ describe('Session screen', () => {
     // this suite's preference for the real wiring over a hand-stubbed value.
     jest.useFakeTimers();
     mockApi = new MockSessionAPI({ fragmentDelayMs: 5 }) as unknown as SessionAPI;
-    const inst = await (mockApi as MockSessionAPI).create('tycho');
+    const inst = await (mockApi as MockSessionAPI).create('tycho', null);
     mockInstanceId = inst.id;
 
     await render(
@@ -368,7 +368,7 @@ describe('Session screen', () => {
 
   it('restores the draft text after a rejected send rather than losing it', async () => {
     const api = new MockSessionAPI({ fragmentDelayMs: 5 });
-    const inst = await api.create('tycho');
+    const inst = await api.create('tycho', null);
     jest.spyOn(api, 'send').mockRejectedValueOnce(new Error('refused: instance busy'));
     mockApi = api as unknown as SessionAPI;
     mockInstanceId = inst.id;
@@ -387,7 +387,7 @@ describe('Session screen', () => {
   it('long-press on a message opens the menu, and Copy puts the raw text on the clipboard', async () => {
     jest.useFakeTimers();
     mockApi = new MockSessionAPI({ fragmentDelayMs: 5 }) as unknown as SessionAPI;
-    const inst = await (mockApi as MockSessionAPI).create('tycho');
+    const inst = await (mockApi as MockSessionAPI).create('tycho', null);
     await mockApi.send(inst.id, 'hello there', 'seed');
     await jest.advanceTimersByTimeAsync(200);
     mockInstanceId = inst.id;
@@ -411,7 +411,7 @@ describe('Session screen', () => {
   it('Remove from context survives the move behind the menu: confirm intact, evict called, row dims', async () => {
     jest.useFakeTimers();
     const api = new MockSessionAPI({ fragmentDelayMs: 5 });
-    const inst = await api.create('tycho');
+    const inst = await api.create('tycho', null);
     await api.send(inst.id, 'hello there', 'seed');
     await jest.advanceTimersByTimeAsync(200);
     const evictSpy = jest.spyOn(api, 'evict');
@@ -452,7 +452,7 @@ describe('Session screen', () => {
   it('Select text opens the sheet with the full message selectable, and Done dismisses it', async () => {
     jest.useFakeTimers();
     mockApi = new MockSessionAPI({ fragmentDelayMs: 5 }) as unknown as SessionAPI;
-    const inst = await (mockApi as MockSessionAPI).create('tycho');
+    const inst = await (mockApi as MockSessionAPI).create('tycho', null);
     await mockApi.send(inst.id, 'hello there', 'seed');
     await jest.advanceTimersByTimeAsync(200);
     mockInstanceId = inst.id;
@@ -478,7 +478,7 @@ describe('Session screen', () => {
   it('a streaming row offers no long-press menu', async () => {
     jest.useFakeTimers();
     mockApi = new MockSessionAPI({ fragmentDelayMs: 10 }) as unknown as SessionAPI;
-    const inst = await (mockApi as MockSessionAPI).create('tycho');
+    const inst = await (mockApi as MockSessionAPI).create('tycho', null);
     mockInstanceId = inst.id;
 
     const sheetSpy = jest.spyOn(ActionSheetIOS, 'showActionSheetWithOptions').mockImplementation(() => {});
@@ -499,7 +499,7 @@ describe('Session screen', () => {
     try {
       jest.useFakeTimers();
       mockApi = new MockSessionAPI({ fragmentDelayMs: 5 }) as unknown as SessionAPI;
-      const inst = await (mockApi as MockSessionAPI).create('tycho');
+      const inst = await (mockApi as MockSessionAPI).create('tycho', null);
       await mockApi.send(inst.id, 'hello there', 'seed');
       await jest.advanceTimersByTimeAsync(200);
       mockInstanceId = inst.id;

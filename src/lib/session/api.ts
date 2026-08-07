@@ -12,16 +12,19 @@ import type { AttachInfo, SendReceipt, SubscriptionHandler, Unsubscribe } from '
 export interface SessionAPI {
   /**
    * `model` pins which model pilots this instance, for its whole life —
-   * there is no changing it afterwards (design decision 1). `null` (or
-   * omitted) means the engine's own default pilots, which is what an app
-   * talking to an engine with no catalog sends.
+   * there is no changing it afterwards (design decision 1). `null` means the
+   * engine's own default pilots, which is what an app talking to an engine
+   * with no catalog sends.
    *
-   * Optional rather than the design's strictly-required second parameter:
-   * every pre-existing call site in this repo creates with just an
-   * operator, and Task 7 (the picker) is what will start passing a real
-   * selection through. Omitting it and passing `null` are equivalent.
+   * Required, not optional: an omitted argument here would compile silently
+   * and fall back to the engine default even where a caller meant to pass a
+   * real selection — Task 7's picker is exactly the call site where that
+   * silent fallback would be a bad failure (an instance piloted by a model
+   * the user never chose, with nothing surfacing the mismatch). Making it
+   * required turns a dropped argument into a compile error at that one call
+   * site instead.
    */
-  create(operator: string | null, model?: string | null): Promise<Instance>;
+  create(operator: string | null, model: string | null): Promise<Instance>;
   list(): Promise<Instance[]>;
   attach(instanceId: string): Promise<AttachInfo>;
   /** Returns an unsubscribe function. `stream` and `fromSeq` are the cursor pair, per invariant (iii). */
