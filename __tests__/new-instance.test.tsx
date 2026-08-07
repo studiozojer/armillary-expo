@@ -364,11 +364,13 @@ describe('New instance sheet', () => {
       },
     });
 
-    // The catalog lands after first render (the `useEffect` in new.tsx says
-    // so explicitly) — waiting for the collapsed row to actually show the
-    // default's label is what makes this test about the default applying,
-    // rather than a race against whether the fetch resolved before Create
-    // was pressed.
+    // The catalog lands after first render, and the selection is derived
+    // rather than latched by an effect — `model ?? catalog?.default ?? null`
+    // (new.tsx) recomputes on every render, so a later-arriving catalog
+    // still wins when nothing was explicitly picked. Waiting for the
+    // collapsed row to actually show the default's label is what makes this
+    // test about the default applying, rather than a race against whether
+    // the fetch resolved before Create was pressed.
     await findByText('DeepSeek Flash');
     await fireEvent.press(getByText('Create'));
 

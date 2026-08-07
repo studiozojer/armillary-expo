@@ -213,6 +213,35 @@ describe('Instances list screen', () => {
     expect(screen.getByText('chat · seq 12')).toBeTruthy();
   });
 
+  it('names the model piloting an instance, and says so when it is the default', async () => {
+    const instances: Instance[] = [
+      {
+        id: 'i1',
+        operator: 'tycho',
+        stream: 'i1',
+        startedAt: '2026-08-07T00:00:00.000Z',
+        lastSeq: 3,
+        model: 'zen/deepseek-v4-flash',
+      },
+      {
+        id: 'i2',
+        operator: null,
+        stream: 'i2',
+        startedAt: '2026-08-07T00:00:00.000Z',
+        lastSeq: 1,
+        model: null,
+      },
+    ];
+    const list = jest.fn(async () => instances);
+    mockApi = makeMockApi({ list });
+
+    await renderRouter(routes, { initialUrl: '/' });
+    expect(await screen.findByText('zen/deepseek-v4-flash')).toBeTruthy();
+
+    expect(screen.getByText('engine default')).toBeTruthy();
+    expect(screen.queryByText('null')).toBeNull();
+  });
+
   it('pushes the chat at its root-level path, above the tab bar', async () => {
     mockApi = makeMockApi({ list: jest.fn(async () => [instanceFor('inst-7', 'tycho')]) });
 
