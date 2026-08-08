@@ -25,7 +25,7 @@ function RootLayout() {
   return (
     <HostProvider>
       {/* Mirrors the real `_layout.tsx` composition — Settings now renders the
-          enrolment section, which reads this. */}
+          enrollment section, which reads this. */}
       <AuthProvider>
         <PreferencesProvider>
           <Stack />

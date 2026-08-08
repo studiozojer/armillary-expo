@@ -314,10 +314,10 @@ describe('stateCard — the device gate', () => {
     }
   });
 
-  it('names ENROLMENT as the remedy, never the manifest — they are different files', () => {
+  it('names ENROLLMENT as the remedy, never the manifest — they are different files', () => {
     // The regression this exists to stop: rendering "ask the host to enable
     // the sync grant" to someone whose host has already granted it and whose
-    // actual next step is to enrol their phone.
+    // actual next step is to enroll their phone.
     const model = stateCard(base, UNENROLLED);
     expect(model.reason).toMatch(/Settings/);
     expect(model.reason).not.toMatch(/modules\.local\.toml|ask the host to enable/i);

@@ -9,8 +9,8 @@
  *
  * The remedies have nothing to do with each other:
  *
- * - no credential / unknown credential → **enrol this device** (paste a token)
- * - enrolled but ungranted → **re-enrol with the grant**
+ * - no credential / unknown credential → **enroll this device** (paste a token)
+ * - enrolled but ungranted → **re-enroll with the grant**
  * - manifest ceiling → **edit `modules.local.toml` on the host**
  *
  * Showing the manifest remedy for a device refusal sends someone to edit a
@@ -74,9 +74,9 @@ export function invalidatesToken(refusal: DeviceRefusal): boolean {
  *  here, and the host-side command is left where it can actually be typed. */
 export const REFUSAL_REASON: Record<DeviceRefusal, string> = {
   no_principal:
-    'This device isn’t enrolled on this host. Enrol it in Settings with a token minted there.',
+    'This device isn’t enrolled on this host. Enroll it in Settings with a token minted there.',
   unknown_principal:
-    'This host no longer recognises this device’s token — it may have been revoked. Re-enrol in Settings.',
+    'This host no longer recognises this device’s token — it may have been revoked. Re-enroll in Settings.',
   principal_not_granted:
-    'This device is enrolled but wasn’t granted that authority. Re-enrol it on the host with the grant it needs.',
+    'This device is enrolled but wasn’t granted that authority. Re-enroll it on the host with the grant it needs.',
 };

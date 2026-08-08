@@ -35,7 +35,7 @@ export type GateState = 'granted' | 'refused' | 'unknown';
  * problem.
  *
  * There is deliberately no `'ungranted'` value. Whether an enrolled device
- * holds `push` as well as `sync` is not knowable from this app: enrolment is a
+ * holds `push` as well as `sync` is not knowable from this app: enrollment is a
  * host CLI (design decision 6) and no route reports a principal's grants. So
  * `'enrolled'` means "has a token", the verbs are offered, and a device that
  * lacks the grant learns so from the engine's own `principal_not_granted` —
@@ -151,11 +151,11 @@ const PUSH_UNKNOWN =
 
 /** Shown when the device holds no token for this host at all. */
 const DEVICE_UNENROLLED =
-  'This device isn’t enrolled on this host, so it can’t act on repos. Enrol it in Settings with a token minted on the host.';
+  'This device isn’t enrolled on this host, so it can’t act on repos. Enroll it in Settings with a token minted on the host.';
 
 /** Shown when a token IS held and the host refused it — the revoke case. */
 const DEVICE_REJECTED =
-  'This host no longer recognises this device’s token — it may have been revoked. Re-enrol in Settings.';
+  'This host no longer recognises this device’s token — it may have been revoked. Re-enroll in Settings.';
 
 /** `gates.enabled`/`gates.pushEnabled` are `GateState`, not `boolean` — this
  *  is where the two blocked reasons (and their tones) fork on WHY the grant
@@ -193,7 +193,7 @@ export function deviceMayAct(device: DeviceGate, manifest: GateState): boolean {
  * the host-local registry, then the manifest ceiling — so a device that is not
  * enrolled would be refused with `no_principal` no matter what the manifest
  * says. Checking the manifest first here would render "ask the host to enable
- * the sync grant" to someone whose actual next step is to enrol their phone,
+ * the sync grant" to someone whose actual next step is to enroll their phone,
  * and whose host may already have granted everything.
  *
  * Called at the same points the manifest gate used to be checked alone, so

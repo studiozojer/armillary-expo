@@ -15,19 +15,19 @@ import { clearToken, loadToken, saveToken, secureStorageAvailable } from './toke
  * may have been revoked," and telling someone their device was revoked when
  * they simply never enrolled it is a remedy aimed at the wrong problem.
  */
-export type EnrolmentState = 'enrolled' | 'unenrolled' | 'rejected';
+export type EnrollmentState = 'enrolled' | 'unenrolled' | 'rejected';
 
 type AuthContextValue = {
-  enrolment: EnrolmentState;
-  /** False on platforms with no Keychain — the enrolment UI says so rather than offering a field that cannot persist. */
-  canEnrol: boolean;
-  /** Hydrated from storage. Screens must not read `enrolment` as meaningful before this. */
+  enrollment: EnrollmentState;
+  /** False on platforms with no Keychain — the enrollment UI says so rather than offering a field that cannot persist. */
+  canEnroll: boolean;
+  /** Hydrated from storage. Screens must not read `enrollment` as meaningful before this. */
   ready: boolean;
-  enrol: (token: string) => Promise<void>;
-  unenrol: () => Promise<void>;
+  enroll: (token: string) => Promise<void>;
+  unenroll: () => Promise<void>;
   /**
    * Report a refusal the engine just returned, so the app's belief about its
-   * own enrolment follows the host rather than drifting from it.
+   * own enrollment follows the host rather than drifting from it.
    *
    * A `revoke` takes effect on the engine's very next request with no restart
    * (the registry is read per request), so the only way this app learns its
@@ -41,7 +41,7 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const { host, ready: hostReady } = useHost();
-  const [enrolment, setEnrolment] = useState<EnrolmentState>('unenrolled');
+  const [enrollment, setEnrollment] = useState<EnrollmentState>('unenrolled');
   // Readiness is DERIVED from which host has been hydrated, not a boolean the
   // effect flips off on entry. Setting state synchronously inside an effect
   // triggers a cascading render, and the derived form says the same thing more
@@ -60,7 +60,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     let cancelled = false;
     void loadToken(host.id).then((token) => {
       if (cancelled) return;
-      setEnrolment(token ? 'enrolled' : 'unenrolled');
+      setEnrollment(token ? 'enrolled' : 'unenrolled');
       setHydratedFor(host.id);
     });
     return () => {
@@ -68,17 +68,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, [host.id, hostReady]);
 
-  const enrol = useCallback(
+  const enroll = useCallback(
     async (token: string) => {
       await saveToken(host.id, token);
-      setEnrolment('enrolled');
+      setEnrollment('enrolled');
     },
     [host.id],
   );
 
-  const unenrol = useCallback(async () => {
+  const unenroll = useCallback(async () => {
     await clearToken(host.id);
-    setEnrolment('unenrolled');
+    setEnrollment('unenrolled');
   }, [host.id]);
 
   const noteRefusal = useCallback(
@@ -87,14 +87,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // The held token is no good, so drop it rather than leaving a dead
       // credential in the Keychain to be re-sent on every subsequent request.
       void clearToken(host.id);
-      setEnrolment('rejected');
+      setEnrollment('rejected');
     },
     [host.id],
   );
 
   const value = useMemo(
-    () => ({ enrolment, canEnrol: secureStorageAvailable, ready, enrol, unenrol, noteRefusal }),
-    [enrolment, ready, enrol, unenrol, noteRefusal],
+    () => ({ enrollment, canEnroll: secureStorageAvailable, ready, enroll, unenroll, noteRefusal }),
+    [enrollment, ready, enroll, unenroll, noteRefusal],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

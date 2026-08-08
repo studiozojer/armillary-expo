@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 
-import { DeviceEnrolment } from '../src/components/device-enrolment';
+import { DeviceEnrollment } from '../src/components/device-enrollment';
 import { AuthProvider } from '../src/lib/auth/auth-context';
 import { __resetTokenCache, loadToken } from '../src/lib/auth/token-store';
 import { HostProvider } from '../src/lib/host-context';
@@ -17,61 +17,61 @@ beforeEach(() => {
   __resetTokenCache();
 });
 
-function renderEnrolment() {
+function renderEnrollment() {
   return render(
     <HostProvider>
       <AuthProvider>
-        <DeviceEnrolment host={HOST} />
+        <DeviceEnrollment host={HOST} />
       </AuthProvider>
     </HostProvider>,
   );
 }
 
-describe('<DeviceEnrolment>', () => {
-  it('reports the device unenrolled, and says which host it would enrol against', async () => {
+describe('<DeviceEnrollment>', () => {
+  it('reports the device unenrolled, and says which host it would enroll against', async () => {
     // Naming the host is the guard against pasting the right token at the
     // wrong machine — the registry is host-local, so that mistake produces a
     // 401 that looks like a bad token rather than a misaimed one.
-    await renderEnrolment();
+    await renderEnrollment();
     expect(await screen.findByText('Not enrolled')).toBeTruthy();
     expect(screen.getByText(new RegExp(`Mint a token on ${HOST.label}`))).toBeTruthy();
   });
 
   it('shows the exact command that mints a token, because nothing here can', async () => {
-    // There is no enrolment endpoint by design, so the only honest instruction
+    // There is no enrollment endpoint by design, so the only honest instruction
     // is the one that runs on the host.
-    await renderEnrolment();
+    await renderEnrollment();
     expect(await screen.findByText(/armillary-engine enroll/)).toBeTruthy();
   });
 
   it('stores a pasted token against the selected host and flips to enrolled', async () => {
-    await renderEnrolment();
+    await renderEnrollment();
     await screen.findByText('Not enrolled');
 
-    fireEvent.changeText(screen.getByTestId('enrolment-input'), 'tok-from-host');
+    fireEvent.changeText(screen.getByTestId('enrollment-input'), 'tok-from-host');
     // Wait for the button to actually enable before pressing it. `changeText`
     // and `press` in the same tick pressed a still-disabled control, whose
     // `onPress` is `undefined` — the press landed on nothing and the test
     // failed for a harness reason that looks exactly like a broken feature.
     await waitFor(() =>
       expect(
-        screen.getByRole('button', { name: 'Enrol this device' }).props.accessibilityState,
+        screen.getByRole('button', { name: 'Enroll this device' }).props.accessibilityState,
       ).toMatchObject({ disabled: false }),
     );
-    fireEvent.press(screen.getByRole('button', { name: 'Enrol this device' }));
+    fireEvent.press(screen.getByRole('button', { name: 'Enroll this device' }));
 
     expect(await screen.findByText('Enrolled')).toBeTruthy();
     expect(await loadToken(HOST.id)).toBe('tok-from-host');
   });
 
   it('refuses to submit an empty field rather than storing a blank credential', async () => {
-    await renderEnrolment();
+    await renderEnrollment();
     await screen.findByText('Not enrolled');
     // Asserted as a POSITIVE fact about the control, not merely as "nothing
     // happened" — an earlier draft of this test only pressed and checked the
     // state was unchanged, which passed even when the press did nothing at
     // all because it was aimed at the inner Text rather than the button.
-    const button = screen.getByRole('button', { name: 'Enrol this device' });
+    const button = screen.getByRole('button', { name: 'Enroll this device' });
     expect(button.props.accessibilityState).toMatchObject({ disabled: true });
 
     fireEvent.press(button);
@@ -80,17 +80,17 @@ describe('<DeviceEnrolment>', () => {
 
     // And it enables the moment there is something to submit — otherwise
     // "disabled" would pass for a button that is simply always dead.
-    fireEvent.changeText(screen.getByTestId('enrolment-input'), 'tok');
+    fireEvent.changeText(screen.getByTestId('enrollment-input'), 'tok');
     await waitFor(() =>
       expect(
-        screen.getByRole('button', { name: 'Enrol this device' }).props.accessibilityState,
+        screen.getByRole('button', { name: 'Enroll this device' }).props.accessibilityState,
       ).toMatchObject({ disabled: false }),
     );
   });
 
   it('removes the token, and does not claim authorities it cannot know', async () => {
     secureMock().__store.set(`armillary.deviceToken.${HOST.id}`, 'tok');
-    await renderEnrolment();
+    await renderEnrollment();
     expect(await screen.findByText('Enrolled')).toBeTruthy();
 
     // No route reports a principal's grants, so the enrolled copy must not

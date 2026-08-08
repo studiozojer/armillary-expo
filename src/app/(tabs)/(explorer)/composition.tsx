@@ -19,7 +19,7 @@ export default function CompositionScreen() {
   const theme = useTheme();
   const router = useRouter();
   const { host, generation, ready } = useHost();
-  const { enrolment, noteRefusal } = useAuth();
+  const { enrollment, noteRefusal } = useAuth();
 
   const load = useCallback(
     (signal: AbortSignal) => daemonClientFor(host.id, host.daemonUrl).getComposition(signal),
@@ -193,7 +193,7 @@ export default function CompositionScreen() {
         repos={repos?.repos}
         // `push_enabled` is deliberately not read here — it gates Push on the
         // repo page, and this screen only ever offers Fetch all.
-        reposEnabled={deviceMayAct(enrolment, repos?.enabled ? 'granted' : 'refused')}
+        reposEnabled={deviceMayAct(enrollment, repos?.enabled ? 'granted' : 'refused')}
         notComposed={repos?.not_composed}
         fetching={fetching}
         onFetchAll={fetchAll}

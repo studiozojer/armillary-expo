@@ -42,16 +42,16 @@ jest.mock('../src/lib/host-context', () => ({
 }));
 
 // Same treatment as `host-context` above, and for the same reason: the screen
-// reads the device's enrolment to gate its mutations, and these tests are
+// reads the device's enrollment to gate its mutations, and these tests are
 // about the session surface rather than about being enrolled. Enrolled is the
 // state every assertion below assumes.
 jest.mock('../src/lib/auth/auth-context', () => ({
   useAuth: () => ({
-    enrolment: 'enrolled',
-    canEnrol: true,
+    enrollment: 'enrolled',
+    canEnroll: true,
     ready: true,
-    enrol: jest.fn(),
-    unenrol: jest.fn(),
+    enroll: jest.fn(),
+    unenroll: jest.fn(),
     noteRefusal: jest.fn(),
   }),
 }));

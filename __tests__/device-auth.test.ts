@@ -102,7 +102,7 @@ describe('authedFetch', () => {
     // a captured value: `sessionAPIFor` memoizes one client per host for the
     // life of the app. A token captured when the fetcher was built would leave
     // a freshly enrolled device still refused until relaunch — a defect that
-    // presents as "enrolment didn't work".
+    // presents as "enrollment didn't work".
     const base = jest.fn(async () => new Response('{}'));
     const fetcher = authedFetch('benatky', base as unknown as typeof fetch);
 
@@ -180,7 +180,7 @@ describe('refusal parsing', () => {
   it('reads a MANIFEST refusal as no device refusal at all', () => {
     // The ceiling's body is bare prose with no code prefix, and its remedy is
     // to edit `modules.local.toml` on the host — nothing a device can fix.
-    // Misreading it as a device problem would send someone to re-enrol a phone
+    // Misreading it as a device problem would send someone to re-enroll a phone
     // that is already enrolled.
     expect(
       deviceRefusalOf(

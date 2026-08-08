@@ -87,7 +87,7 @@ export default function RepoScreen() {
   const { name: rawName } = useLocalSearchParams<{ name: string }>();
   const name = rawName ?? '';
   const { host, generation, ready } = useHost();
-  const { enrolment, ready: authReady, noteRefusal } = useAuth();
+  const { enrollment, ready: authReady, noteRefusal } = useAuth();
 
   const [state, setState] = useState<ScreenState>({ status: 'loading' });
   const [inFlight, setInFlight] = useState<Verb | undefined>(undefined);
@@ -280,9 +280,9 @@ export default function RepoScreen() {
   );
 
   // `unenrolled` until auth hydrates: fail closed. Stated rather than relying
-  // on `enrolment`'s own initial value, so a future default of 'enrolled'
+  // on `enrollment`'s own initial value, so a future default of 'enrolled'
   // cannot quietly open the verbs for a frame.
-  const deviceGate: DeviceGate = authReady ? enrolment : 'unenrolled';
+  const deviceGate: DeviceGate = authReady ? enrollment : 'unenrolled';
 
   // "tycho" over "stjerneborg / operators" — all six Figma frames for this
   // page draw a two-line header, and `module-list.tsx` already states why a
