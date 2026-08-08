@@ -32,7 +32,7 @@ function TestRootLayout() {
       {/* The real provider, as the app composes it — these tests are about
           the MANIFEST gates, and every one of them assumes a device that can
           act, so `seedEnrolled()` below puts a token in the mocked Keychain
-          rather than this wrapper faking an enrolment the app cannot. */}
+          rather than this wrapper faking an enrollment the app cannot. */}
       <AuthProvider>
         <Stack screenOptions={{ headerShown: false }} />
       </AuthProvider>

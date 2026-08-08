@@ -2,7 +2,7 @@ import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 
 /**
- * The device's enrolment token, per host.
+ * The device's enrollment token, per host.
  *
  * # Why per host, and not one token
  *
@@ -28,7 +28,7 @@ import { Platform } from 'react-native';
  * unset, so web is a configured target. Rather than let every call throw at
  * runtime, web reads as "no token, and cannot hold one" — the app degrades to
  * the same read-only surface an unenrolled device gets, and
- * `secureStorageAvailable` lets the enrolment UI say so instead of offering a
+ * `secureStorageAvailable` lets the enrollment UI say so instead of offering a
  * field that cannot persist. Silently falling back to `localStorage` was the
  * alternative and is rejected: it would put a bearer token somewhere any script
  * on the origin can read, while the UI went on claiming Keychain.
@@ -46,13 +46,13 @@ export const secureStorageAvailable = Platform.OS !== 'web';
  * both clients take their `fetch` by injection. If a token were captured when
  * that fetcher was built, enrolling a device would not reach the client that
  * had already been constructed — pushes would keep failing until an app
- * restart, which is precisely the kind of defect that looks like "enrolment
+ * restart, which is precisely the kind of defect that looks like "enrollment
  * didn't work" and is actually a stale closure.
  *
  * So the header is attached from THIS cache, read at request time. That gives
  * the client the same property the engine gives itself: the registry there is
  * read per request so a `revoke` lands on the next call with no restart, and
- * the token here is read per request so an `enrol` does too.
+ * the token here is read per request so an `enroll` does too.
  *
  * Keychain reads are async and a `fetch` wrapper cannot await one without
  * making every request pay a Keychain round trip, which is why this is a cache

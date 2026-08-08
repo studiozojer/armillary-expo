@@ -65,7 +65,7 @@ function RootLayout() {
   return (
     <HostProvider>
       {/* Mirrors `_layout.tsx` — the create sheet reads the device's
-          enrolment to report a refusal in the phone's own words. */}
+          enrollment to report a refusal in the phone's own words. */}
       <AuthProvider>
         <Stack />
       </AuthProvider>

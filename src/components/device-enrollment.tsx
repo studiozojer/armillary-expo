@@ -11,7 +11,7 @@ import { useTheme } from '@/theme';
  *
  * # Why this is a paste field and not a button
  *
- * There is no enrolment endpoint, deliberately: the engine's design keeps the
+ * There is no enrollment endpoint, deliberately: the engine's design keeps the
  * unauthenticated surface from growing, so a token is minted by a host CLI
  * (`armillary-engine enroll --name <name> --grants sync,push`) and printed
  * exactly once. It is never recoverable — a lost token is re-enrolled, not
@@ -26,9 +26,9 @@ import { useTheme } from '@/theme';
  * and the fix is to say which machine is being enrolled rather than to say
  * "this device".
  */
-export function DeviceEnrolment({ host }: { host: Host }) {
+export function DeviceEnrollment({ host }: { host: Host }) {
   const theme = useTheme();
-  const { enrolment, canEnrol, ready, enrol, unenrol } = useAuth();
+  const { enrollment, canEnroll, ready, enroll, unenroll } = useAuth();
   const [value, setValue] = useState('');
   const [error, setError] = useState<string | undefined>(undefined);
   const [busy, setBusy] = useState(false);
@@ -37,7 +37,7 @@ export function DeviceEnrolment({ host }: { host: Host }) {
     setBusy(true);
     setError(undefined);
     try {
-      await enrol(value);
+      await enroll(value);
       // Cleared only on success. A token that failed to store should stay in
       // the field — it was printed once and cannot be looked up again, so
       // wiping it on failure destroys the only copy the user has.
@@ -49,9 +49,9 @@ export function DeviceEnrolment({ host }: { host: Host }) {
     }
   };
 
-  if (!canEnrol) {
+  if (!canEnroll) {
     return (
-      <Box px="lg" py="md" testID="enrolment-unavailable">
+      <Box px="lg" py="md" testID="enrollment-unavailable">
         <Text variant="caption" color="txTertiary">
           This platform has no secure storage, so a device token can’t be held here. The web build
           stays read-only.
@@ -61,7 +61,7 @@ export function DeviceEnrolment({ host }: { host: Host }) {
   }
 
   return (
-    <Box px="lg" py="md" testID="device-enrolment">
+    <Box px="lg" py="md" testID="device-enrollment">
       <Stack gap="sm">
         <Inline justify="space-between">
           <Text>{host.label}</Text>
@@ -70,23 +70,23 @@ export function DeviceEnrolment({ host }: { host: Host }) {
             color={
               !ready
                 ? 'txTertiary'
-                : enrolment === 'enrolled'
+                : enrollment === 'enrolled'
                   ? 'txSuccess'
-                  : enrolment === 'rejected'
+                  : enrollment === 'rejected'
                     ? 'txError'
                     : 'txTertiary'
             }>
             {!ready
               ? '…'
-              : enrolment === 'enrolled'
+              : enrollment === 'enrolled'
                 ? 'Enrolled'
-                : enrolment === 'rejected'
+                : enrollment === 'rejected'
                   ? 'Token rejected'
                   : 'Not enrolled'}
           </Text>
         </Inline>
 
-        {enrolment === 'enrolled' ? (
+        {enrollment === 'enrolled' ? (
           <Stack gap="xs">
             <Text variant="caption" color="txTertiary">
               {/* Deliberately not "you can push". Whether this device holds
@@ -96,20 +96,24 @@ export function DeviceEnrolment({ host }: { host: Host }) {
               This device holds a token for {host.label}. Which authorities it was granted is
               decided on the host.
             </Text>
-            <Button label="Remove token" variant="secondary" onPress={() => void unenrol()} />
+            <Button label="Remove token" variant="secondary" onPress={() => void unenroll()} />
           </Stack>
         ) : (
           <Stack gap="xs">
             <Text variant="caption" color="txTertiary">
-              {enrolment === 'rejected'
+              {enrollment === 'rejected'
                 ? `${host.label} no longer recognises this device’s token — it may have been revoked. Mint a new one and paste it below.`
                 : `Mint a token on ${host.label} and paste it here. Reads work without one; fetch, pull, push and sending to an instance don’t.`}
             </Text>
+            {/* Runs ON THE HOST, not here — and `--root` is deliberately
+                absent: it was a required global until 2026-08-08, which made
+                this exact line fail with "required arguments were not
+                provided". The engine now takes it only when serving. */}
             <Text variant="caption" color="txSecondary">
               armillary-engine enroll --name &lt;device&gt; --grants sync,push
             </Text>
             <TextInput
-              testID="enrolment-input"
+              testID="enrollment-input"
               value={value}
               onChangeText={setValue}
               placeholder="Paste the token"
@@ -119,7 +123,7 @@ export function DeviceEnrolment({ host }: { host: Host }) {
               // Not `secureTextEntry`: the token is printed once and never
               // recoverable, so a user pasting it needs to be able to SEE
               // that it arrived intact. Masking a value nobody can look up
-              // again turns a typo into a re-enrolment.
+              // again turns a typo into a re-enrollment.
               style={{
                 color: theme.color.txPrimary,
                 backgroundColor: theme.color.bgSolidCard,
@@ -134,7 +138,7 @@ export function DeviceEnrolment({ host }: { host: Host }) {
               </Text>
             ) : null}
             <Button
-              label={busy ? 'Enrolling…' : 'Enrol this device'}
+              label={busy ? 'Enrolling…' : 'Enroll this device'}
               onPress={() => void submit()}
               disabled={busy || value.trim().length === 0}
             />
