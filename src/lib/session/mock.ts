@@ -15,8 +15,10 @@ import type {
 } from './events';
 import { ASSISTANT_DELTA } from './events';
 
-/** `instance_created` has no dedicated payload type in the design — it just names who started. */
-type InstanceCreatedData = { operator: string | null };
+/** `instance_created` has no dedicated payload type in the design — it just names who started
+ *  and, since Task 6, which model was pinned (null when the engine's default pilots). Duplicated
+ *  in `project.ts` (a known deferred item) — keep the two in step. */
+type InstanceCreatedData = { operator: string | null; model: string | null };
 /** `interrupt` has no dedicated payload in the design — the event *type* + actor carries the meaning. */
 type InterruptData = Record<string, never>;
 
@@ -137,7 +139,7 @@ export class MockSessionAPI implements SessionAPI {
     return list[list.length - 1]?.seq ?? 0;
   }
 
-  async create(operator: string | null): Promise<Instance> {
+  async create(operator: string | null, model: string | null): Promise<Instance> {
     const id = `inst-mock-${++this.counter}`;
     const instance: Instance = {
       id,
@@ -145,10 +147,11 @@ export class MockSessionAPI implements SessionAPI {
       stream: id,
       startedAt: new Date().toISOString(),
       lastSeq: 0,
+      model,
     };
     this.instances.set(id, instance);
 
-    const created = this.append<InstanceCreatedData>(id, 'instance_created', { operator });
+    const created = this.append<InstanceCreatedData>(id, 'instance_created', { operator, model });
     instance.lastSeq = created.seq;
 
     return { ...instance };

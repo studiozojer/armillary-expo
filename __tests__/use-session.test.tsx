@@ -49,7 +49,7 @@ function scriptedApi(stream: string) {
 
   function resolveAttach(overrides: Partial<AttachInfo> = {}) {
     attachDeferred.resolve({
-      instance: { id: 'inst-1', operator: null, stream, startedAt: '2026-07-28T00:00:00.000Z', lastSeq: 0 },
+      instance: { id: 'inst-1', operator: null, stream, startedAt: '2026-07-28T00:00:00.000Z', lastSeq: 0, model: null },
       earliestSeq: 1,
       headSeq: 0,
       ...overrides,

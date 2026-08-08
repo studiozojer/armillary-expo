@@ -43,7 +43,7 @@ export type SessionRow =
 export type PendingSend = { clientKey: string; text: string; at: string };
 
 /** `instance_created` has no dedicated payload type in the design — see mock.ts. */
-type InstanceCreatedData = { operator: string | null };
+type InstanceCreatedData = { operator: string | null; model: string | null };
 
 function systemRow(e: EventEnvelope, label: string): SessionRow {
   return { kind: 'system', id: e.id, seq: e.seq, label };

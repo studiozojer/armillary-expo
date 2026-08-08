@@ -18,7 +18,7 @@ describe('MockSessionAPI', () => {
     const validate = ajv.compile(schema);
 
     const api = new MockSessionAPI();
-    const instance = await api.create('tycho');
+    const instance = await api.create('tycho', null);
 
     const seen: EventEnvelope[] = [];
     const unsubscribe = api.subscribe(instance.stream, 0, {
@@ -40,7 +40,7 @@ describe('MockSessionAPI', () => {
 
   it('does not use position as event identity (invariant ii)', async () => {
     const api = new MockSessionAPI();
-    const instance = await api.create('tycho');
+    const instance = await api.create('tycho', null);
 
     const seen: EventEnvelope[] = [];
     api.subscribe(instance.stream, 0, { onEvent: (event) => seen.push(event), onStatus: () => {}, onGap: () => {} });
@@ -56,7 +56,7 @@ describe('MockSessionAPI', () => {
 
   it('advances seq monotonically within the stream (invariant iii)', async () => {
     const api = new MockSessionAPI();
-    const instance = await api.create(null);
+    const instance = await api.create(null, null);
     const seen: EventEnvelope[] = [];
     api.subscribe(instance.stream, 0, { onEvent: (e) => seen.push(e), onStatus: () => {}, onGap: () => {} });
     await flush();
@@ -71,8 +71,8 @@ describe('MockSessionAPI', () => {
 
   it('lists created instances', async () => {
     const api = new MockSessionAPI();
-    await api.create('tycho');
-    await api.create(null);
+    await api.create('tycho', null);
+    await api.create(null, null);
     const instances = await api.list();
     expect(instances.length).toBeGreaterThan(0);
     expect(instances.some((i) => i.operator === null)).toBe(true);
@@ -80,7 +80,7 @@ describe('MockSessionAPI', () => {
 
   it('unsubscribe stops delivery', async () => {
     const api = new MockSessionAPI();
-    const instance = await api.create('tycho');
+    const instance = await api.create('tycho', null);
     const seen: EventEnvelope[] = [];
     const off = api.subscribe(instance.stream, 0, { onEvent: (e) => seen.push(e), onStatus: () => {}, onGap: () => {} });
     await flush();
@@ -92,7 +92,7 @@ describe('MockSessionAPI', () => {
 
   it('attach returns instance, earliestSeq, and headSeq', async () => {
     const api = new MockSessionAPI();
-    const instance = await api.create('tycho');
+    const instance = await api.create('tycho', null);
     await api.send(instance.id, 'one', 'k1');
     const info = await api.attach(instance.id);
     expect(info.instance.id).toBe(instance.id);
@@ -102,7 +102,7 @@ describe('MockSessionAPI', () => {
 
   it('replays durable events past the cursor before going live', async () => {
     const api = new MockSessionAPI();
-    const inst = await api.create('tycho');
+    const inst = await api.create('tycho', null);
     await api.send(inst.id, 'one', 'k1');
     await api.send(inst.id, 'two', 'k2');
     const seen: EventEnvelope[] = [];
@@ -117,7 +117,7 @@ describe('MockSessionAPI', () => {
 
   it('send returns the durable identity and echoes the clientKey', async () => {
     const api = new MockSessionAPI();
-    const inst = await api.create(null);
+    const inst = await api.create(null, null);
     const receipt = await api.send(inst.id, 'hello', 'key-1');
     expect(receipt.seq).toBeGreaterThan(0);
 
