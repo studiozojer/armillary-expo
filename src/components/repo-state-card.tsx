@@ -2,7 +2,7 @@ import { Pressable } from 'react-native';
 
 import { useTheme, type ColorRole } from '@/theme';
 import type { RepoState } from '@/lib/daemon/types';
-import { stateCard, type CardTone, type GateState } from '@/lib/repo-state-card';
+import { stateCard, type CardTone, type DeviceGate, type GateState } from '@/lib/repo-state-card';
 
 import { Box, Icon, Inline, Stack, Text } from './ui';
 
@@ -47,7 +47,7 @@ export function RepoStateCard({
   testID = 'repo-state-card',
 }: {
   state: RepoState;
-  gates: { enabled: GateState; pushEnabled: GateState };
+  gates: { enabled: GateState; pushEnabled: GateState; device: DeviceGate };
   inFlight?: 'fetch' | 'pull' | 'push';
   onAction?: (verb: 'fetch' | 'pull' | 'push') => void;
   testID?: string;

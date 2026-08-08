@@ -6,7 +6,7 @@ import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import { ChromeZone } from '@/components/chrome-zone';
 import { TreeList } from '@/components/tree-list';
 import { Box, CircleButton, Screen, Text as UIText } from '@/components/ui';
-import { DaemonClient } from '@/lib/daemon/client';
+import { daemonClientFor } from '@/lib/daemon/client';
 import { annotationsFor } from '@/lib/annotations';
 import type { Composition, TreeResponse } from '@/lib/daemon/types';
 import { useHost } from '@/lib/host-context';
@@ -21,7 +21,7 @@ export default function Explorer() {
 
   const load = useCallback(
     async (signal: AbortSignal) => {
-      const client = new DaemonClient(host.daemonUrl);
+      const client = daemonClientFor(host.id, host.daemonUrl);
       const tree = await client.getTree('', signal);
       // The filesystem is the load-bearing half. If /composition fails we still
       // render the workspace, just without subtitles — the old screen could
@@ -29,7 +29,7 @@ export default function Explorer() {
       const composition = await client.getComposition(signal).catch(() => null);
       return { tree, composition };
     },
-    [host.daemonUrl],
+    [host.daemonUrl, host.id],
   );
 
   // `ready` gates the first fetch until the stored host has hydrated, so a cold

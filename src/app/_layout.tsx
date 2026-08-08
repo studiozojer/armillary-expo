@@ -4,6 +4,7 @@ import { Stack } from 'expo-router/stack';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect, type ReactNode } from 'react';
 
+import { AuthProvider } from '@/lib/auth/auth-context';
 import { HostProvider } from '@/lib/host-context';
 import { PreferencesProvider } from '@/lib/preferences';
 import { navThemeFor, useTheme } from '@/theme';
@@ -79,32 +80,38 @@ export default function RootLayout() {
     <ThemeModeProvider>
       <NavigationChrome>
         <HostProvider>
-          <PreferencesProvider>
-            <Stack>
-              <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-              <Stack.Screen
-                name="settings"
-                options={{ title: 'Settings', presentation: 'modal' }}
-              />
-              {/* The chat sits on the ROOT stack, not inside the Instances
-                  group, so the tab bar belongs to the screen it is pushed
-                  from: list and bar translate off together, and the chat comes
-                  in over neither. This is UIKit's `hidesBottomBarWhenPushed`
-                  obtained by structure rather than by a custom transition —
-                  the same reason Settings lives here, one level above the bar.
+          {/* Inside HostProvider on purpose: the credential is per host —
+              the engine's registry is host-local, so a token minted on one
+              machine authenticates against nothing on another. This reads
+              the selected host and re-hydrates when it changes. */}
+          <AuthProvider>
+            <PreferencesProvider>
+              <Stack>
+                <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+                <Stack.Screen
+                  name="settings"
+                  options={{ title: 'Settings', presentation: 'modal' }}
+                />
+                {/* The chat sits on the ROOT stack, not inside the Instances
+                    group, so the tab bar belongs to the screen it is pushed
+                    from: list and bar translate off together, and the chat comes
+                    in over neither. This is UIKit's `hidesBottomBarWhenPushed`
+                    obtained by structure rather than by a custom transition —
+                    the same reason Settings lives here, one level above the bar.
 
-                  `title` is a FALLBACK, not the header: the screen sets its
-                  own title to `@operator` (or `dispatcher`) once attach()
-                  resolves. Both it and `headerBackButtonDisplayMode` were
-                  inherited from the `(instances)` group layout this route
-                  left, and are re-declared here because nothing else would
-                  supply them. */}
-              <Stack.Screen
-                name="instance/[instanceId]"
-                options={{ title: 'Instance', headerBackButtonDisplayMode: 'minimal' }}
-              />
-            </Stack>
-          </PreferencesProvider>
+                    `title` is a FALLBACK, not the header: the screen sets its
+                    own title to `@operator` (or `dispatcher`) once attach()
+                    resolves. Both it and `headerBackButtonDisplayMode` were
+                    inherited from the `(instances)` group layout this route
+                    left, and are re-declared here because nothing else would
+                    supply them. */}
+                <Stack.Screen
+                  name="instance/[instanceId]"
+                  options={{ title: 'Instance', headerBackButtonDisplayMode: 'minimal' }}
+                />
+              </Stack>
+            </PreferencesProvider>
+          </AuthProvider>
         </HostProvider>
       </NavigationChrome>
     </ThemeModeProvider>

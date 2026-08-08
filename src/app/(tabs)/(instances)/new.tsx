@@ -1,9 +1,11 @@
+import { useAuth } from '@/lib/auth/auth-context';
+import { deviceRefusalOf, REFUSAL_REASON } from '@/lib/auth/refusal';
 import { useRouter } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable } from 'react-native';
 
 import { Box, Button, Card, Icon, Inline, ListRow, Rule, Screen, Text } from '@/components/ui';
-import { DaemonClient } from '@/lib/daemon/client';
+import { daemonClientFor } from '@/lib/daemon/client';
 import type { Composition, ModelCatalog } from '@/lib/daemon/types';
 import { useHost } from '@/lib/host-context';
 import { sessionAPIFor } from '@/lib/session/instance';
@@ -26,6 +28,7 @@ export default function NewInstance() {
   const theme = useTheme();
   const router = useRouter();
   const { host, generation, ready } = useHost();
+  const { noteRefusal } = useAuth();
 
   // Same identity rule as the list and session screens: memoized by
   // id/url inside `sessionAPIFor` already, keyed here on `host.id` +
@@ -35,8 +38,8 @@ export default function NewInstance() {
   const api = useMemo(() => sessionAPIFor(host), [host.id, generation]);
 
   const loadComposition = useCallback(
-    (signal: AbortSignal) => new DaemonClient(host.daemonUrl).getComposition(signal),
-    [host.daemonUrl],
+    (signal: AbortSignal) => daemonClientFor(host.id, host.daemonUrl).getComposition(signal),
+    [host.daemonUrl, host.id],
   );
   const { state } = useLoader<Composition>(`${host.id}:${generation}:composition`, loadComposition, ready);
 
@@ -56,8 +59,8 @@ export default function NewInstance() {
   const [createError, setCreateError] = useState<string | null>(null);
 
   const loadModels = useCallback(
-    (signal: AbortSignal) => new DaemonClient(host.daemonUrl).getModels(signal),
-    [host.daemonUrl],
+    (signal: AbortSignal) => daemonClientFor(host.id, host.daemonUrl).getModels(signal),
+    [host.daemonUrl, host.id],
   );
   const { state: modelsState } = useLoader<ModelCatalog>(`${host.id}:${generation}:models`, loadModels, ready);
 
@@ -116,10 +119,17 @@ export default function NewInstance() {
       router.dismissTo('/');
       router.push(`/instance/${instance.id}`);
     } catch (error) {
-      setCreateError(error instanceof Error ? error.message : String(error));
+      // Creating an instance is a mutation, so it is gated like the repo
+      // verbs. The engine's own refusal text names a command for the host's
+      // terminal; this names what can be done from here.
+      const refusal = error instanceof Error ? deviceRefusalOf(error.message) : null;
+      if (refusal) noteRefusal(refusal);
+      setCreateError(
+        refusal ? REFUSAL_REASON[refusal] : error instanceof Error ? error.message : String(error),
+      );
       setCreating(false);
     }
-  }, [api, selection, effectiveModel, router]);
+  }, [api, selection, effectiveModel, router, noteRefusal]);
 
   const rows: PickerRow[] = [
     { key: 'dispatcher', label: 'Dispatcher', note: 'no operator summoned', value: null },

@@ -1,3 +1,4 @@
+import { deviceMayAct } from '@/lib/repo-state-card';
 import { useRouter } from 'expo-router';
 import { Stack } from 'expo-router/stack';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -5,9 +6,11 @@ import { ActivityIndicator } from 'react-native';
 
 import { ModuleList } from '@/components/module-list';
 import { Box, Button, Inline, Screen, Text } from '@/components/ui';
-import { DaemonClient } from '@/lib/daemon/client';
+import { daemonClientFor } from '@/lib/daemon/client';
 import { getCachedRepos } from '@/lib/daemon/repos-cache';
 import { DaemonError, type Composition, type ReposResponse } from '@/lib/daemon/types';
+import { useAuth } from '@/lib/auth/auth-context';
+import { deviceRefusalOf, REFUSAL_REASON } from '@/lib/auth/refusal';
 import { useHost } from '@/lib/host-context';
 import { useLoader } from '@/lib/use-loader';
 import { useTheme } from '@/theme';
@@ -16,10 +19,11 @@ export default function CompositionScreen() {
   const theme = useTheme();
   const router = useRouter();
   const { host, generation, ready } = useHost();
+  const { enrolment, noteRefusal } = useAuth();
 
   const load = useCallback(
-    (signal: AbortSignal) => new DaemonClient(host.daemonUrl).getComposition(signal),
-    [host.daemonUrl],
+    (signal: AbortSignal) => daemonClientFor(host.id, host.daemonUrl).getComposition(signal),
+    [host.daemonUrl, host.id],
   );
 
   // `ready` gates the first fetch until the stored host has hydrated, so a cold
@@ -55,7 +59,7 @@ export default function CompositionScreen() {
   const loadRepos = useCallback(
     (signal?: AbortSignal, force = false) => {
       const epoch = ++reposEpoch.current;
-      return getCachedRepos(new DaemonClient(host.daemonUrl), host.id, generation, {
+      return getCachedRepos(daemonClientFor(host.id, host.daemonUrl), host.id, generation, {
         signal,
         force,
       })
@@ -95,7 +99,7 @@ export default function CompositionScreen() {
     const epoch = reposEpoch.current;
     setFetching(true);
     try {
-      const updated = await new DaemonClient(host.daemonUrl).fetchAll();
+      const updated = await daemonClientFor(host.id, host.daemonUrl).fetchAll();
       if (epoch === reposEpoch.current) {
         // The sweep response is the new `repos` array; `enabled`/`push_enabled`/
         // `not_composed` don't change out from under a fetch, so carry them
@@ -108,18 +112,28 @@ export default function CompositionScreen() {
       // no reading — but the tap still needs to say it did nothing, and a
       // 403 specifically means the host hasn't granted the gate at all.
       if (epoch === reposEpoch.current) {
+        // A DEVICE refusal is checked before the manifest reading, the same
+        // order the engine uses. Without this, `principal_not_granted` fell
+        // into the 403 branch below and reported "this host has not granted
+        // fetch" — the manifest's remedy for a problem the manifest does not
+        // have, sending someone to edit a file that is already correct. The
+        // repo screen was fixed for exactly this and this sibling was missed.
+        const refusal = error instanceof DaemonError ? deviceRefusalOf(error.message) : null;
+        if (refusal) noteRefusal(refusal);
         setFetchError(
-          error instanceof DaemonError
-            ? error.status === 403
-              ? 'This host has not granted fetch.'
-              : error.message || 'Fetch failed.'
-            : 'Fetch failed.',
+          refusal
+            ? REFUSAL_REASON[refusal]
+            : error instanceof DaemonError
+              ? error.status === 403
+                ? 'This host has not granted fetch.'
+                : error.message || 'Fetch failed.'
+              : 'Fetch failed.',
         );
       }
     } finally {
       setFetching(false);
     }
-  }, [host.daemonUrl]);
+  }, [host.daemonUrl, host.id, noteRefusal]);
 
   if (state.status === 'error') {
     return (
@@ -166,6 +180,11 @@ export default function CompositionScreen() {
           listing is the index now and owns that header, so a second Capture
           entry point one push deeper would just be a duplicate. */}
       <Stack.Screen options={{ title: 'Composition' }} />
+      {/* `reposEnabled` below carries BOTH halves, because the engine requires
+          both: it authenticates before it reads the ceiling, so a
+          manifest-only check would offer a sweep every tap of which is a 401.
+          Hiding rather than disabling is this screen's existing choice for the
+          manifest gate. */}
       <ModuleList
         composition={state.data}
         hostLabel={host.label}
@@ -174,7 +193,7 @@ export default function CompositionScreen() {
         repos={repos?.repos}
         // `push_enabled` is deliberately not read here — it gates Push on the
         // repo page, and this screen only ever offers Fetch all.
-        reposEnabled={repos?.enabled ?? false}
+        reposEnabled={deviceMayAct(enrolment, repos?.enabled ? 'granted' : 'refused')}
         notComposed={repos?.not_composed}
         fetching={fetching}
         onFetchAll={fetchAll}

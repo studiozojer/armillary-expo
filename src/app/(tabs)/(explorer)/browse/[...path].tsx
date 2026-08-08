@@ -6,7 +6,7 @@ import { MarkdownView } from '@/components/markdown-view';
 import { TreeList } from '@/components/tree-list';
 import { Screen } from '@/components/ui';
 import { isAudioPath, VoicenotePage } from '@/components/voicenote-page';
-import { DaemonClient } from '@/lib/daemon/client';
+import { DaemonClient, daemonClientFor } from '@/lib/daemon/client';
 import {
   DaemonError,
   type FileResponse,
@@ -91,7 +91,7 @@ export default function Browse() {
 
   const load = useCallback(
     async (signal: AbortSignal): Promise<Node> => {
-      const client = new DaemonClient(host.daemonUrl);
+      const client = daemonClientFor(host.id, host.daemonUrl);
       let tree: TreeResponse | undefined;
       try {
         tree = await client.getTree(path, signal);
@@ -160,7 +160,7 @@ export default function Browse() {
         throw e;
       }
     },
-    [host.daemonUrl, path],
+    [host.daemonUrl, host.id, path],
   );
 
   const { state, refreshing, refresh } = useLoader<Node>(`${host.id}:${path}`, load, ready);

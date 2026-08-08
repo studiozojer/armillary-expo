@@ -41,6 +41,21 @@ jest.mock('../src/lib/host-context', () => ({
   useHost: () => mockHostValue,
 }));
 
+// Same treatment as `host-context` above, and for the same reason: the screen
+// reads the device's enrolment to gate its mutations, and these tests are
+// about the session surface rather than about being enrolled. Enrolled is the
+// state every assertion below assumes.
+jest.mock('../src/lib/auth/auth-context', () => ({
+  useAuth: () => ({
+    enrolment: 'enrolled',
+    canEnrol: true,
+    ready: true,
+    enrol: jest.fn(),
+    unenrol: jest.fn(),
+    noteRefusal: jest.fn(),
+  }),
+}));
+
 // Similarly for the route param: the screen reads `instanceId` via
 // `useLocalSearchParams`, mocked directly rather than routed through
 // `expo-router/testing-library`'s full navigator (this screen owns no

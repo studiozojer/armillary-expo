@@ -1,3 +1,4 @@
+import { authedFetch } from '../auth/authed-fetch';
 import type { Host } from '../hosts';
 import type { SessionAPI } from './api';
 import { LiveSessionAPI } from './live';
@@ -50,7 +51,13 @@ export function sessionAPIFor(host: Host): SessionAPI {
 
   const created: SessionAPI = mock
     ? new MockSessionAPI()
-    : new LiveSessionAPI(host.daemonUrl, resolveStreamingFetch());
+    : // The credential is layered onto the streaming fetch rather than passed
+      // to the client, which is what keeps `LiveSessionAPI` transport-dumb as
+      // its own doc claims. `authedFetch` reads the token PER REQUEST — this
+      // map memoizes one client per host for the life of the app, so a token
+      // captured here instead would leave a device enrolled-but-refused until
+      // relaunch.
+      new LiveSessionAPI(host.daemonUrl, authedFetch(host.id, resolveStreamingFetch()));
   instances.set(key, created);
   return created;
 }

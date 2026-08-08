@@ -8,6 +8,7 @@ import { Text } from 'react-native';
 import InstancesLayout from '../src/app/(tabs)/(instances)/_layout';
 import Instances from '../src/app/(tabs)/(instances)/index';
 import New from '../src/app/(tabs)/(instances)/new';
+import { AuthProvider } from '../src/lib/auth/auth-context';
 import { HostProvider } from '../src/lib/host-context';
 import type { ModelCatalog } from '../src/lib/daemon/types';
 import type { Instance } from '../src/lib/session/events';
@@ -63,7 +64,11 @@ function SessionStub() {
 function RootLayout() {
   return (
     <HostProvider>
-      <Stack />
+      {/* Mirrors `_layout.tsx` — the create sheet reads the device's
+          enrolment to report a refusal in the phone's own words. */}
+      <AuthProvider>
+        <Stack />
+      </AuthProvider>
     </HostProvider>
   );
 }

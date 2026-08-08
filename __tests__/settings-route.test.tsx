@@ -7,6 +7,7 @@ import { Stack } from 'expo-router/stack';
 
 import Instances from '../src/app/(tabs)/(instances)/index';
 import Settings from '../src/app/settings';
+import { AuthProvider } from '../src/lib/auth/auth-context';
 import { HostProvider } from '../src/lib/host-context';
 import { PreferencesProvider } from '../src/lib/preferences';
 
@@ -23,9 +24,13 @@ function jsonResponse(status: number, body: unknown) {
 function RootLayout() {
   return (
     <HostProvider>
-      <PreferencesProvider>
-        <Stack />
-      </PreferencesProvider>
+      {/* Mirrors the real `_layout.tsx` composition — Settings now renders the
+          enrolment section, which reads this. */}
+      <AuthProvider>
+        <PreferencesProvider>
+          <Stack />
+        </PreferencesProvider>
+      </AuthProvider>
     </HostProvider>
   );
 }

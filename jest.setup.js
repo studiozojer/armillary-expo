@@ -21,3 +21,26 @@ jest.mock('react-native-safe-area-context', () => {
   const mocked = require('react-native-safe-area-context/jest/mock');
   return mocked.default ?? mocked;
 });
+
+// expo-secure-store reaches for the Keychain through a native binding that
+// does not exist under jest. Same treatment as AsyncStorage above, and for the
+// same reason: without it every suite that renders a screen fails, because the
+// screen tree now includes AuthProvider, which hydrates the device token.
+//
+// An in-memory map rather than `jest.fn()` returning null, so a test can SEED
+// a token and exercise the enrolled path — `token-store.test.ts` and the repo
+// screen's gate tests both need that, and a mock that can only ever answer
+// "no token" would make the enrolled path untestable while looking fine.
+jest.mock('expo-secure-store', () => {
+  const store = new Map();
+  return {
+    __store: store,
+    getItemAsync: jest.fn(async (key) => (store.has(key) ? store.get(key) : null)),
+    setItemAsync: jest.fn(async (key, value) => {
+      store.set(key, value);
+    }),
+    deleteItemAsync: jest.fn(async (key) => {
+      store.delete(key);
+    }),
+  };
+});

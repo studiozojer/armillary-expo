@@ -9,6 +9,8 @@ import { Stack } from 'expo-router/stack';
 import RepoScreen from '../src/app/(tabs)/(explorer)/repo/[name]';
 import { DaemonClient } from '../src/lib/daemon/client';
 import { __clearReposCacheForTests, getCachedRepos } from '../src/lib/daemon/repos-cache';
+import { AuthProvider } from '../src/lib/auth/auth-context';
+import { __resetTokenCache } from '../src/lib/auth/token-store';
 import { HostProvider } from '../src/lib/host-context';
 import { KNOWN_HOSTS } from '../src/lib/hosts';
 import type { ChangedFile, Commit, RepoState } from '../src/lib/daemon/types';
@@ -27,9 +29,22 @@ function jsonResponse(status: number, body: unknown) {
 function TestRootLayout() {
   return (
     <HostProvider>
-      <Stack screenOptions={{ headerShown: false }} />
+      {/* The real provider, as the app composes it — these tests are about
+          the MANIFEST gates, and every one of them assumes a device that can
+          act, so `seedEnrolled()` below puts a token in the mocked Keychain
+          rather than this wrapper faking an enrolment the app cannot. */}
+      <AuthProvider>
+        <Stack screenOptions={{ headerShown: false }} />
+      </AuthProvider>
     </HostProvider>
   );
+}
+
+/** A token for every known host, in the mocked Keychain. */
+function seedEnrolled() {
+  const secure = jest.requireMock('expo-secure-store') as { __store: Map<string, string> };
+  secure.__store.clear();
+  for (const h of KNOWN_HOSTS) secure.__store.set(`armillary.deviceToken.${h.id}`, 'test-token');
 }
 
 const context = { _layout: TestRootLayout, 'repo/[name]': RepoScreen };
@@ -91,6 +106,8 @@ function mockFetch(opts: {
 describe('Repo screen — unreadable', () => {
   beforeEach(async () => {
     await AsyncStorage.clear();
+    seedEnrolled();
+    __resetTokenCache();
     // repos-cache.ts is module-level state, shared across every `it` in this
     // file (and with composition.tsx, in the real app). Without this, the
     // SECOND test's `GET /repos` mock is never actually hit — it silently
@@ -123,6 +140,8 @@ describe('Repo screen — unreadable', () => {
 describe('Repo screen — the happy path', () => {
   beforeEach(async () => {
     await AsyncStorage.clear();
+    seedEnrolled();
+    __resetTokenCache();
     // repos-cache.ts is module-level state, shared across every `it` in this
     // file (and with composition.tsx, in the real app). Without this, the
     // SECOND test's `GET /repos` mock is never actually hit — it silently
@@ -258,6 +277,8 @@ describe('Repo screen — the happy path', () => {
 describe('Repo screen — whole-branch review IMPORTANT 1: a failed GET /repos must not sink the page', () => {
   beforeEach(async () => {
     await AsyncStorage.clear();
+    seedEnrolled();
+    __resetTokenCache();
     __clearReposCacheForTests();
   });
 
@@ -295,6 +316,8 @@ describe('Repo screen — whole-branch review IMPORTANT 1: a failed GET /repos m
 describe('Repo screen — whole-branch review IMPORTANT 3: pull-to-refresh', () => {
   beforeEach(async () => {
     await AsyncStorage.clear();
+    seedEnrolled();
+    __resetTokenCache();
     __clearReposCacheForTests();
   });
 
@@ -364,6 +387,8 @@ describe('Repo screen — whole-branch review IMPORTANT 3: pull-to-refresh', () 
 describe('Repo screen — 403 invalidation', () => {
   beforeEach(async () => {
     await AsyncStorage.clear();
+    seedEnrolled();
+    __resetTokenCache();
     __clearReposCacheForTests();
   });
 

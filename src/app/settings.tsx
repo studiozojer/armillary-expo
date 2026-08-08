@@ -2,6 +2,7 @@ import { Stack } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
 
+import { DeviceEnrolment } from '@/components/device-enrolment';
 import { Box, Button, Icon, Inline, Screen, SectionHeader, Stack as UIStack, Text } from '@/components/ui';
 import { useHost } from '@/lib/host-context';
 import { probe, type Host, type Reachability } from '@/lib/hosts';
@@ -49,6 +50,15 @@ export default function Settings() {
             ))}
           </UIStack>
         </Box>
+
+        {/* Directly under the host list, because the credential belongs to
+            the host selected above — switching hosts changes which token is
+            in play, and separating the two would let someone enrol against a
+            machine they are not looking at. */}
+        <Box style={{ paddingTop: theme.space.lg }}>
+          <SectionHeader>This device</SectionHeader>
+        </Box>
+        <DeviceEnrolment host={host} />
 
         <Box style={{ paddingTop: theme.space.lg }}>
           <SectionHeader>Files</SectionHeader>
