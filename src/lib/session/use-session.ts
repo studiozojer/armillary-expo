@@ -346,15 +346,34 @@ export function useSession(
     [instanceId, onDeviceRefusal],
   );
 
+  // `interrupt` and `evict` are gated mutations like `send`, and both are
+  // called as `void interrupt()` from the screen — so a rejection was
+  // swallowed as an unhandled promise rejection: Stop did nothing, said
+  // nothing, and (after a revoke) left the app still believing it was
+  // enrolled. `send` was given this treatment and its two siblings four lines
+  // below were missed.
+  //
+  // Every failure surfaces, not only a refusal: a Stop that quietly fails is
+  // the "quietly broken" shape regardless of why it failed. Reuses
+  // `sendError`, which already documents itself as the channel for the most
+  // recent rejected mutation.
   const interrupt = useCallback(async (): Promise<void> => {
-    await apiRef.current.interrupt(instanceId);
-  }, [instanceId]);
+    try {
+      await apiRef.current.interrupt(instanceId);
+    } catch (error) {
+      setSendError(mutationErrorMessage(error, onDeviceRefusal));
+    }
+  }, [instanceId, onDeviceRefusal]);
 
   const evict = useCallback(
     async (eventId: string): Promise<void> => {
-      await apiRef.current.evict(instanceId, eventId);
+      try {
+        await apiRef.current.evict(instanceId, eventId);
+      } catch (error) {
+        setSendError(mutationErrorMessage(error, onDeviceRefusal));
+      }
     },
-    [instanceId],
+    [instanceId, onDeviceRefusal],
   );
 
   const rows = useMemo(() => projectSession(durable, transients, pending), [durable, transients, pending]);

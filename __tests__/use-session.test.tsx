@@ -1,3 +1,5 @@
+import type { DeviceRefusal } from '../src/lib/auth/refusal';
+import { SessionError } from '../src/lib/session/events';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { act, render, screen, waitFor } from '@testing-library/react-native';
 import { Text } from 'react-native';
@@ -92,13 +94,15 @@ function Harness({
   instanceId,
   enabled = true,
   capture,
+  onDeviceRefusal,
 }: {
   api: SessionAPI;
   instanceId: string;
   enabled?: boolean;
   capture: (r: UseSessionResult) => void;
+  onDeviceRefusal?: (r: DeviceRefusal) => void;
 }) {
-  const result = useSession(api, instanceId, enabled);
+  const result = useSession(api, instanceId, enabled, onDeviceRefusal);
   capture(result);
   return (
     <>
@@ -447,5 +451,83 @@ describe('useSession', () => {
     // Reusing sendError (rather than a dedicated field) — see use-session.ts's
     // comment on why.
     expect(current.sendError).toMatch(/unknown_instance/);
+  });
+});
+
+describe('useSession — a gated mutation that is refused', () => {
+  /** The engine's refusal body format: `{code}: {sentence}`. */
+  function refusal(code: string) {
+    return new SessionError(code === 'principal_not_granted' ? 403 : 401, `${code}: refused by the host`);
+  }
+
+  /**
+   * All THREE mutations, not just `send`.
+   *
+   * `send` was given refusal handling and its two siblings four lines below it
+   * were missed — both were called as `void interrupt()` from the screen, so a
+   * rejection was swallowed as an unhandled promise rejection: the control did
+   * nothing, said nothing, and left the app still believing it was enrolled.
+   * Enumerated rather than sampled, because sampling is exactly how the gap
+   * happened.
+   */
+  const mutations = [
+    { name: 'send', run: (r: UseSessionResult) => r.send('hello') },
+    { name: 'interrupt', run: (r: UseSessionResult) => r.interrupt() },
+    { name: 'evict', run: (r: UseSessionResult) => r.evict('evt-1') },
+  ] as const;
+
+  it.each(mutations)('$name reports a device refusal in the phone’s own words', async ({ name, run }) => {
+    const { api, resolveAttach } = scriptedApi('s1');
+    (api[name] as jest.Mock).mockRejectedValue(refusal('no_principal'));
+
+    let current!: UseSessionResult;
+    const noteRefusal = jest.fn();
+    await render(
+      <Harness api={api} instanceId="inst-1" capture={(r) => (current = r)} onDeviceRefusal={noteRefusal} />,
+    );
+    await act(async () => resolveAttach());
+    await act(async () => {
+      await run(current);
+    });
+
+    expect(noteRefusal).toHaveBeenCalledWith('no_principal');
+    // The engine's own sentence names a command for the host's terminal; what
+    // reaches the screen must name what can be done from here.
+    expect(current.sendError).toMatch(/Settings/);
+    expect(current.sendError).not.toMatch(/armillary-engine/);
+  });
+
+  it.each(mutations)('$name keeps a non-refusal failure verbatim', async ({ name, run }) => {
+    // `turn_in_progress` and `unknown_instance` are readable as they stand —
+    // translating everything would lose the engine's own precise vocabulary.
+    const { api, resolveAttach } = scriptedApi('s1');
+    (api[name] as jest.Mock).mockRejectedValue(new SessionError(409, 'turn_in_progress: a turn is already running'));
+
+    let current!: UseSessionResult;
+    const noteRefusal = jest.fn();
+    await render(
+      <Harness api={api} instanceId="inst-1" capture={(r) => (current = r)} onDeviceRefusal={noteRefusal} />,
+    );
+    await act(async () => resolveAttach());
+    await act(async () => {
+      await run(current);
+    });
+
+    expect(noteRefusal).not.toHaveBeenCalled();
+    expect(current.sendError).toMatch(/turn_in_progress/);
+  });
+
+  it('does not let a rejected interrupt escape as an unhandled rejection', async () => {
+    // The screen calls `void interrupt()`. Before this, the rejection had
+    // nowhere to go — which is why the failure was invisible rather than loud.
+    const { api, resolveAttach } = scriptedApi('s1');
+    (api.interrupt as jest.Mock).mockRejectedValue(new SessionError(401, 'no_principal: nope'));
+
+    let current!: UseSessionResult;
+    await render(<Harness api={api} instanceId="inst-1" capture={(r) => (current = r)} />);
+    await act(async () => resolveAttach());
+    await act(async () => {
+      await expect(current.interrupt()).resolves.toBeUndefined();
+    });
   });
 });
