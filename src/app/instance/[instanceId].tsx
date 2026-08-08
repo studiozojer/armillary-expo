@@ -1,3 +1,4 @@
+import { useAuth } from '@/lib/auth/auth-context';
 import * as Clipboard from 'expo-clipboard';
 import { useLocalSearchParams } from 'expo-router';
 import { Stack } from 'expo-router/stack';
@@ -99,13 +100,21 @@ function SessionView({
 }) {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
+  const { noteRefusal } = useAuth();
   // Same factory, same identity rule as the list screen (Task 5's shared
   // store, now host-aware): whichever instance the list screen created this
   // is, by construction, the same client object. Keyed on `host.id` +
   // `generation` rather than `host` itself for the same reason as the list
   // screen (see its comment) — `sessionAPIFor` already memoizes by id/url.
   const api = useMemo(() => sessionAPIFor(host), [host.id, generation]);
-  const { rows, status, gap, sendError, send, interrupt, evict, instance } = useSession(api, instanceId);
+  const { rows, status, gap, sendError, send, interrupt, evict, instance } = useSession(
+    api,
+    instanceId,
+    true,
+    // Lets a REVOKE land: the host reads its registry per request, so being
+    // refused is the only way this app learns its token died mid-session.
+    noteRefusal,
+  );
   const [draft, setDraft] = useState('');
 
   const streaming = rows.some((r) => r.kind === 'streaming');

@@ -18,6 +18,31 @@ export type CardTone = 'none' | 'neutral' | 'warn' | 'error';
  */
 export type GateState = 'granted' | 'refused' | 'unknown';
 
+/**
+ * Whether THIS DEVICE holds a credential for the host — a fact about the
+ * phone, where `GateState` above is a fact about the workspace manifest.
+ *
+ * Effective authority on the engine is `registry ∧ manifest`, checked in that
+ * order, and the two halves have unrelated remedies: a manifest refusal is
+ * fixed by editing `modules.local.toml` on the host, a device refusal by
+ * enrolling this phone. Rendering the manifest's remedy for a device refusal
+ * sends someone to edit a file that is already correct — the same defect
+ * `'unknown'` was introduced to prevent, arriving through another door.
+ *
+ * `'rejected'` is not `'unenrolled'`: a token IS held and the host refused it,
+ * which is what a `revoke` looks like from here. Telling someone their device
+ * was revoked when they simply never enrolled it aims a remedy at the wrong
+ * problem.
+ *
+ * There is deliberately no `'ungranted'` value. Whether an enrolled device
+ * holds `push` as well as `sync` is not knowable from this app: enrolment is a
+ * host CLI (design decision 6) and no route reports a principal's grants. So
+ * `'enrolled'` means "has a token", the verbs are offered, and a device that
+ * lacks the grant learns so from the engine's own `principal_not_granted` —
+ * carried to the screen as an action error, not guessed at here.
+ */
+export type DeviceGate = 'enrolled' | 'unenrolled' | 'rejected';
+
 export type CardModel = {
   action: CardAction;
   tone: CardTone;
@@ -124,6 +149,14 @@ const PUSH_NOT_GRANTED =
 const PUSH_UNKNOWN =
   'Couldn’t read this host’s grants, so push is held closed. Pull to refresh.';
 
+/** Shown when the device holds no token for this host at all. */
+const DEVICE_UNENROLLED =
+  'This device isn’t enrolled on this host, so it can’t act on repos. Enrol it in Settings with a token minted on the host.';
+
+/** Shown when a token IS held and the host refused it — the revoke case. */
+const DEVICE_REJECTED =
+  'This host no longer recognises this device’s token — it may have been revoked. Re-enrol in Settings.';
+
 /** `gates.enabled`/`gates.pushEnabled` are `GateState`, not `boolean` — this
  *  is where the two blocked reasons (and their tones) fork on WHY the grant
  *  reads as unavailable. `'unknown'` reads `warn`, not `neutral`: a refusal
@@ -131,6 +164,39 @@ const PUSH_UNKNOWN =
  *  failed read is an anomaly worth flagging, not a calm "no." */
 function gateBlocked(gate: GateState, refused: string, unknown: string): { tone: CardTone; reason: string } {
   return gate === 'unknown' ? { tone: 'warn', reason: unknown } : { tone: 'neutral', reason: refused };
+}
+
+/**
+ * Why this verb cannot run — or `null` if it can.
+ *
+ * **The device is checked before the manifest, and that order is the engine's
+ * own.** Its extractor authenticates first, then reads the device's grant from
+ * the host-local registry, then the manifest ceiling — so a device that is not
+ * enrolled would be refused with `no_principal` no matter what the manifest
+ * says. Checking the manifest first here would render "ask the host to enable
+ * the sync grant" to someone whose actual next step is to enrol their phone,
+ * and whose host may already have granted everything.
+ *
+ * Called at the same points the manifest gate used to be checked alone, so
+ * more specific repo facts still win: a detached HEAD or a dirty tree is a
+ * truer sentence than "not enrolled", and both are decided above this.
+ *
+ * `'rejected'` reads `warn` rather than `neutral`: an unenrolled device is a
+ * quiet, expected state, but a token the host has stopped recognising is an
+ * anomaly the user did not cause and should see flagged.
+ */
+function verbBlocked(
+  gates: { enabled: GateState; pushEnabled: GateState; device: DeviceGate },
+  which: 'sync' | 'push',
+): { tone: CardTone; reason: string } | null {
+  if (gates.device === 'unenrolled') return { tone: 'neutral', reason: DEVICE_UNENROLLED };
+  if (gates.device === 'rejected') return { tone: 'warn', reason: DEVICE_REJECTED };
+
+  const gate = which === 'push' ? gates.pushEnabled : gates.enabled;
+  if (gate === 'granted') return null;
+  return which === 'push'
+    ? gateBlocked(gate, PUSH_NOT_GRANTED, PUSH_UNKNOWN)
+    : gateBlocked(gate, SYNC_NOT_GRANTED, SYNC_UNKNOWN);
 }
 
 /**
@@ -186,7 +252,7 @@ function gateBlocked(gate: GateState, refused: string, unknown: string): { tone:
  */
 export function stateCard(
   s: RepoState,
-  gates: { enabled: GateState; pushEnabled: GateState },
+  gates: { enabled: GateState; pushEnabled: GateState; device: DeviceGate },
   inFlight?: 'fetch' | 'pull' | 'push',
 ): CardModel {
   const sublabel = s.last_fetch ? relative(s.last_fetch, new Date()) : 'No fetch recorded';
@@ -290,8 +356,9 @@ export function stateCard(
       }
 
       if (behind > 0) {
-        if (gates.enabled !== 'granted') {
-          const { tone, reason } = gateBlocked(gates.enabled, SYNC_NOT_GRANTED, SYNC_UNKNOWN);
+        const blocked = verbBlocked(gates, 'sync');
+        if (blocked) {
+          const { tone, reason } = blocked;
           return { action: 'blocked', tone, label: `Pull ${commitCount(behind)}`, sublabel, reason, verb: null };
         }
         return { action: 'ready', tone: 'none', label: `Pull ${commitCount(behind)}`, sublabel, verb: 'pull' };
@@ -300,15 +367,17 @@ export function stateCard(
       if (ahead > 0) {
         // Dirty does NOT block this branch (rule 10's doc comment above) —
         // pushing moves a remote ref and never touches the working tree.
-        if (gates.pushEnabled !== 'granted') {
-          const { tone, reason } = gateBlocked(gates.pushEnabled, PUSH_NOT_GRANTED, PUSH_UNKNOWN);
+        const blocked = verbBlocked(gates, 'push');
+        if (blocked) {
+          const { tone, reason } = blocked;
           return { action: 'blocked', tone, label: `Push ${commitCount(ahead)}`, sublabel, reason, verb: null };
         }
         return { action: 'ready', tone: 'none', label: `Push ${commitCount(ahead)}`, sublabel, verb: 'push' };
       }
 
-      if (gates.enabled !== 'granted') {
-        const { tone, reason } = gateBlocked(gates.enabled, SYNC_NOT_GRANTED, SYNC_UNKNOWN);
+      const blocked = verbBlocked(gates, 'sync');
+      if (blocked) {
+        const { tone, reason } = blocked;
         return { action: 'blocked', tone, label: 'Fetch origin', sublabel, reason, verb: null };
       }
       return { action: 'ready', tone: 'none', label: 'Fetch origin', sublabel, verb: 'fetch' };

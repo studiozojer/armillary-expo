@@ -5,7 +5,7 @@ import { ActivityIndicator } from 'react-native';
 
 import { ModuleList } from '@/components/module-list';
 import { Box, Button, Inline, Screen, Text } from '@/components/ui';
-import { DaemonClient } from '@/lib/daemon/client';
+import { daemonClientFor } from '@/lib/daemon/client';
 import { getCachedRepos } from '@/lib/daemon/repos-cache';
 import { DaemonError, type Composition, type ReposResponse } from '@/lib/daemon/types';
 import { useHost } from '@/lib/host-context';
@@ -18,8 +18,8 @@ export default function CompositionScreen() {
   const { host, generation, ready } = useHost();
 
   const load = useCallback(
-    (signal: AbortSignal) => new DaemonClient(host.daemonUrl).getComposition(signal),
-    [host.daemonUrl],
+    (signal: AbortSignal) => daemonClientFor(host.id, host.daemonUrl).getComposition(signal),
+    [host.daemonUrl, host.id],
   );
 
   // `ready` gates the first fetch until the stored host has hydrated, so a cold
@@ -55,7 +55,7 @@ export default function CompositionScreen() {
   const loadRepos = useCallback(
     (signal?: AbortSignal, force = false) => {
       const epoch = ++reposEpoch.current;
-      return getCachedRepos(new DaemonClient(host.daemonUrl), host.id, generation, {
+      return getCachedRepos(daemonClientFor(host.id, host.daemonUrl), host.id, generation, {
         signal,
         force,
       })
@@ -95,7 +95,7 @@ export default function CompositionScreen() {
     const epoch = reposEpoch.current;
     setFetching(true);
     try {
-      const updated = await new DaemonClient(host.daemonUrl).fetchAll();
+      const updated = await daemonClientFor(host.id, host.daemonUrl).fetchAll();
       if (epoch === reposEpoch.current) {
         // The sweep response is the new `repos` array; `enabled`/`push_enabled`/
         // `not_composed` don't change out from under a fetch, so carry them
@@ -119,7 +119,7 @@ export default function CompositionScreen() {
     } finally {
       setFetching(false);
     }
-  }, [host.daemonUrl]);
+  }, [host.daemonUrl, host.id]);
 
   if (state.status === 'error') {
     return (

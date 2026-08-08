@@ -38,7 +38,8 @@
           "imageWidth": 76
         }
       ],
-      "./plugins/with-signing"
+      "./plugins/with-signing",
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true,

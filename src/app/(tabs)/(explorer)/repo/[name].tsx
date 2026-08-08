@@ -5,10 +5,12 @@ import { ActivityIndicator, RefreshControl, ScrollView } from 'react-native';
 import { RepoStateCard } from '@/components/repo-state-card';
 import { RepoTabs } from '@/components/repo-tabs';
 import { Box, Screen, Text } from '@/components/ui';
-import { DaemonClient } from '@/lib/daemon/client';
+import { daemonClientFor } from '@/lib/daemon/client';
 import { getCachedRepos, invalidateReposCache } from '@/lib/daemon/repos-cache';
-import { type GateState } from '@/lib/repo-state-card';
+import { type DeviceGate, type GateState } from '@/lib/repo-state-card';
 import { DaemonError, type ChangedFile, type Commit, type ReposResponse, type RepoState } from '@/lib/daemon/types';
+import { useAuth } from '@/lib/auth/auth-context';
+import { deviceRefusalOf, REFUSAL_REASON } from '@/lib/auth/refusal';
 import { useHost } from '@/lib/host-context';
 import { useTheme } from '@/theme';
 
@@ -40,6 +42,8 @@ type Loaded = {
   repo: RepoState;
   commits: Commit[];
   changes: ChangedFile[];
+  /** The MANIFEST halves only — what `GET /repos` actually reported. The
+   *  device half is local (the Keychain), merged in at the render site. */
   gates: { enabled: GateState; pushEnabled: GateState };
 };
 
@@ -83,6 +87,7 @@ export default function RepoScreen() {
   const { name: rawName } = useLocalSearchParams<{ name: string }>();
   const name = rawName ?? '';
   const { host, generation, ready } = useHost();
+  const { enrolment, ready: authReady, noteRefusal } = useAuth();
 
   const [state, setState] = useState<ScreenState>({ status: 'loading' });
   const [inFlight, setInFlight] = useState<Verb | undefined>(undefined);
@@ -101,7 +106,7 @@ export default function RepoScreen() {
 
   const load = useCallback(
     async (signal: AbortSignal, force = false): Promise<Loaded> => {
-      const client = new DaemonClient(host.daemonUrl);
+      const client = daemonClientFor(host.id, host.daemonUrl);
       // `getRepo` and `getCachedRepos` are two INDEPENDENT reads, joined only
       // by this `Promise.all` — and `Promise.all` rejects the instant either
       // one does. Before this fix, a `GET /repos` failure (the sweep this
@@ -117,6 +122,11 @@ export default function RepoScreen() {
         client.getRepo(name, signal),
         getCachedRepos(client, host.id, generation, { signal, force }).catch(() => undefined),
       ]);
+      // The device half is LOCAL — no route reports whether this phone is
+      // enrolled, so it comes from the Keychain rather than from `GET /repos`.
+      // Held closed until auth has hydrated, for the same fail-closed reason
+      // the gates read does it: offering a verb we cannot yet authenticate
+      // produces a 401 that reads as an engine fault.
       const gates = { enabled: gateState(repos, repos?.enabled), pushEnabled: gateState(repos, repos?.push_enabled) };
       // `read_error` is a 200-with-a-field, not a thrown `DaemonError` (see
       // `types.ts`'s doc on `RepoState.read_error`), so `repo` above always
@@ -189,7 +199,7 @@ export default function RepoScreen() {
       setInFlight(verb);
       setActionError(undefined);
       try {
-        const client = new DaemonClient(host.daemonUrl);
+        const client = daemonClientFor(host.id, host.daemonUrl);
         // Every verb returns the repo's OWN new state (`client.ts`'s doc on
         // the mutation methods) — folded straight in below, never re-read.
         // A second `getRepo` here would be a second source of truth for the
@@ -206,13 +216,26 @@ export default function RepoScreen() {
         );
       } catch (error) {
         if (epoch.current !== mine) return;
+        // A device refusal is checked FIRST, and is not a manifest fact: the
+        // engine authenticates before it reads either registry or ceiling, so
+        // re-reading the gates here would answer a question that was never
+        // asked. `noteRefusal` is what lets a REVOKE land — the registry is
+        // read per request on the host, so being told no is the only way this
+        // app learns its token died.
+        const refusal =
+          error instanceof DaemonError ? deviceRefusalOf(error.message) : null;
+        if (refusal) {
+          noteRefusal(refusal);
+          setActionError(REFUSAL_REASON[refusal]);
+          return;
+        }
         if (error instanceof DaemonError && error.status === 403) {
           // A 403 here is PROOF the cached grant was wrong — not a reason to
           // keep offering a button the engine just refused. Clear the cache
           // key and re-read the gates, so the card reflects reality on the
           // very next render rather than for up to `TTL_MS` more.
           invalidateReposCache(host.id, generation);
-          getCachedRepos(new DaemonClient(host.daemonUrl), host.id, generation, { force: true })
+          getCachedRepos(daemonClientFor(host.id, host.daemonUrl), host.id, generation, { force: true })
             .then((repos) => {
               if (epoch.current !== mine) return;
               setState((prev) =>
@@ -253,8 +276,13 @@ export default function RepoScreen() {
         setInFlight(undefined);
       }
     },
-    [host.daemonUrl, host.id, generation, name],
+    [host.daemonUrl, host.id, generation, name, noteRefusal],
   );
+
+  // `unenrolled` until auth hydrates: fail closed. Stated rather than relying
+  // on `enrolment`'s own initial value, so a future default of 'enrolled'
+  // cannot quietly open the verbs for a frame.
+  const deviceGate: DeviceGate = authReady ? enrolment : 'unenrolled';
 
   // "tycho" over "stjerneborg / operators" — all six Figma frames for this
   // page draw a two-line header, and `module-list.tsx` already states why a
@@ -303,9 +331,15 @@ export default function RepoScreen() {
           testID="repo-screen-scroll"
           contentContainerStyle={{ padding: theme.space.lg }}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}>
+          {/* The manifest halves come from the engine; the device half is a
+              local Keychain fact merged in HERE rather than inside `load`.
+              Threading it through the loader put it in that callback's
+              dependency array, so auth hydrating mid-load re-fired the whole
+              read — two GETs per repo open, and a frame of "not enrolled"
+              before it corrected itself. */}
           <RepoStateCard
             state={state.data.repo}
-            gates={state.data.gates}
+            gates={{ ...state.data.gates, device: deviceGate }}
             inFlight={inFlight}
             onAction={onAction}
           />

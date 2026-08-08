@@ -1,3 +1,4 @@
+import { authedFetch } from '../auth/authed-fetch';
 import { DAEMON_BASE_URL } from '../config';
 import {
   DaemonError,
@@ -126,4 +127,27 @@ export class DaemonClient {
   fetchAll(signal?: AbortSignal): Promise<RepoState[]> {
     return this.post<RepoState[]>('/repos/fetch', signal);
   }
+}
+
+/**
+ * The app's `DaemonClient` for a host, carrying that host's device token.
+ *
+ * One factory rather than ten `daemonClientFor(host)` call sites,
+ * because a credential attached at nine of ten sites is worse than none: the
+ * tenth fails with a refusal that looks like a host problem. Every screen goes
+ * through here.
+ *
+ * Takes the two fields rather than the `Host` object because every caller's
+ * `useCallback`/`useMemo` dependency array already lists `host.id` and
+ * `host.daemonUrl` — passing the object would reference a value those arrays
+ * do not name, which is a real staleness hazard and not merely a lint
+ * complaint.
+ *
+ * Not memoized, unlike `sessionAPIFor` — this client holds no connection and
+ * no shared store, so a fresh one per call is free, and the existing call
+ * sites already construct one per action. `authedFetch` reads the token per
+ * request either way.
+ */
+export function daemonClientFor(hostId: string, daemonUrl: string): DaemonClient {
+  return new DaemonClient(daemonUrl, authedFetch(hostId));
 }

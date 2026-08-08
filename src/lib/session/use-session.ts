@@ -1,3 +1,4 @@
+import { deviceRefusalOf, REFUSAL_REASON, type DeviceRefusal } from '../auth/refusal';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -89,7 +90,40 @@ export type UseSessionResult = {
  * false→true flip starts the lifecycle fresh against whichever `api` is
  * current *at that render*, never one captured earlier while disabled.
  */
-export function useSession(api: SessionAPI, instanceId: string, enabled = true): UseSessionResult {
+/**
+ * The message to show for a failed mutation.
+ *
+ * A device refusal gets the phone-side sentence rather than the engine's own,
+ * which is written for whoever is at the host's terminal — it names a command
+ * (`armillary-engine enroll`) that cannot be run from here and arrives with a
+ * machine code glued to the front. Everything else keeps the engine's text
+ * verbatim, which is what makes `turn_in_progress` and `unknown_instance`
+ * readable today.
+ */
+function mutationErrorMessage(error: unknown, onRefusal: (r: DeviceRefusal) => void): string {
+  const refusal = error instanceof Error ? deviceRefusalOf(error.message) : null;
+  if (refusal) {
+    onRefusal(refusal);
+    return REFUSAL_REASON[refusal];
+  }
+  return error instanceof Error ? error.message : String(error);
+}
+
+export function useSession(
+  api: SessionAPI,
+  instanceId: string,
+  enabled = true,
+  /**
+   * Told when the engine refuses a mutation on device grounds.
+   *
+   * INJECTED rather than read from `useAuth()` here, deliberately. This is a
+   * library hook and `api` is already injected for the same reason — reaching
+   * for a provider would make it untestable without one and couple the session
+   * layer to the app's context tree. The screen supplies `noteRefusal`; a
+   * caller that has no auth context (the mock, a test) supplies nothing.
+   */
+  onDeviceRefusal: (r: DeviceRefusal) => void = () => {},
+): UseSessionResult {
   const [durable, setDurable] = useState<EventEnvelope[]>([]);
   const [transients, setTransients] = useState<Map<string, AssistantDeltaData>>(new Map());
   const [pending, setPending] = useState<PendingSend[]>([]);
@@ -305,11 +339,11 @@ export function useSession(api: SessionAPI, instanceId: string, enabled = true):
       } catch (error) {
         if (epoch.current !== mine) return false;
         setPending((prev) => prev.filter((p) => p.clientKey !== clientKey));
-        setSendError(error instanceof Error ? error.message : String(error));
+        setSendError(mutationErrorMessage(error, onDeviceRefusal));
         return false;
       }
     },
-    [instanceId],
+    [instanceId, onDeviceRefusal],
   );
 
   const interrupt = useCallback(async (): Promise<void> => {
