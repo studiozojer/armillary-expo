@@ -1,4 +1,4 @@
-import { stateCard } from '../src/lib/repo-state-card';
+import { deviceMayAct, stateCard } from '../src/lib/repo-state-card';
 import type { RepoState } from '../src/lib/daemon/types';
 
 const base: RepoState = {
@@ -356,5 +356,23 @@ describe('stateCard — the device gate', () => {
     // case still works — otherwise "blocked" would pass for the wrong reason.
     expect(stateCard(base, OPEN)).toMatchObject({ action: 'ready', verb: 'fetch' });
     expect(stateCard(ahead2, OPEN)).toMatchObject({ action: 'ready', verb: 'push' });
+  });
+});
+
+describe('deviceMayAct — the rule both screens consult', () => {
+  it('requires BOTH halves, which is the conjunction the engine enforces', () => {
+    expect(deviceMayAct('enrolled', 'granted')).toBe(true);
+    // The manifest alone is not enough: the engine authenticates before it
+    // reads its ceiling, so offering a sweep here means a 401 on every tap.
+    expect(deviceMayAct('unenrolled', 'granted')).toBe(false);
+    expect(deviceMayAct('rejected', 'granted')).toBe(false);
+    // And the device alone is not enough either.
+    expect(deviceMayAct('enrolled', 'refused')).toBe(false);
+  });
+
+  it('treats an UNREADABLE manifest as no permission, not as permission', () => {
+    // Fail closed, matching the repo screen's own reading of an absent or
+    // malformed `GET /repos`.
+    expect(deviceMayAct('enrolled', 'unknown')).toBe(false);
   });
 });

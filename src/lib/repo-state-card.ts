@@ -167,6 +167,25 @@ function gateBlocked(gate: GateState, refused: string, unknown: string): { tone:
 }
 
 /**
+ * May this device run a repo verb at all, on this workspace?
+ *
+ * The `registry ∧ manifest` conjunction the engine enforces, as one predicate,
+ * so the two screens that decide whether to OFFER a sweep or a verb consult
+ * the same rule. `verbBlocked` below answers the richer question (which reason
+ * to show); this answers the plain one, for the group-fetch affordance on the
+ * composition screen, which hides rather than explains.
+ *
+ * Extracted after shipping the device gate on the repo screen and missing this
+ * sibling — the composition screen went on offering a sweep to an unenrolled
+ * device and reporting the refusal as a MANIFEST problem. One member of a set
+ * standing in for the set; a shared predicate is what stops the next screen
+ * repeating it.
+ */
+export function deviceMayAct(device: DeviceGate, manifest: GateState): boolean {
+  return device === 'enrolled' && manifest === 'granted';
+}
+
+/**
  * Why this verb cannot run — or `null` if it can.
  *
  * **The device is checked before the manifest, and that order is the engine's
