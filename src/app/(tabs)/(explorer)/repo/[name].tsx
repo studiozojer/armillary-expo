@@ -6,11 +6,13 @@ import { RepoStateCard } from '@/components/repo-state-card';
 import { RepoTabs } from '@/components/repo-tabs';
 import { Box, Screen, Text } from '@/components/ui';
 import { DaemonClient, daemonClientFor } from '@/lib/daemon/client';
+import { bumpGitEpoch } from '@/lib/daemon/git-epoch';
 import { getCachedRepos, invalidateReposCache } from '@/lib/daemon/repos-cache';
 import { type DeviceGate, type GateState } from '@/lib/repo-state-card';
 import { DaemonError, type ChangedFile, type Commit, type ReposResponse, type RepoState } from '@/lib/daemon/types';
 import { useAuth } from '@/lib/auth/auth-context';
 import { deviceRefusalOf, REFUSAL_REASON } from '@/lib/auth/refusal';
+import { useGitEpochFocusRefresh } from '@/lib/use-git-epoch-focus';
 import { useHost } from '@/lib/host-context';
 import { useTheme } from '@/theme';
 
@@ -235,6 +237,25 @@ export default function RepoScreen() {
       });
   }, [load]);
 
+  // The focus half of the action-epoch design: this screen participates too
+  // (a fetch-all on the composition screen changes this card). Bespoke
+  // rather than useLoader's revalidate because this screen never adopted
+  // useLoader — same contract: silent, content-preserving, resolves true
+  // iff the fresh read landed.
+  const silentRevalidate = useCallback(async (): Promise<boolean> => {
+    const mine = ++epoch.current;
+    try {
+      const data = await load(new AbortController().signal, true);
+      if (epoch.current !== mine) return false;
+      setState({ status: 'ok', data });
+      setActionError(undefined);
+      return true;
+    } catch {
+      return false;
+    }
+  }, [load]);
+  const { markFresh } = useGitEpochFocusRefresh(host.id, silentRevalidate);
+
   // The two write handlers' shared catch — extracted rather than forked so
   // the refusal/403/generic-message ladder can only read one way. `mine` is
   // the CALLER's own epoch snapshot (taken before its own `await`), passed
@@ -338,10 +359,23 @@ export default function RepoScreen() {
         // A second `getRepo` here would be a second source of truth for the
         // exact fact this response already carries.
         const updated = await networkVerb(client, name, verb);
+        // The verb SUCCEEDED, so the world changed regardless of whether this
+        // screen is still current — the bump and the cache invalidation are
+        // unconditional (like the finally's spinner stop, and unlike the
+        // state folds below): a host switch mid-action doesn't unhappen the
+        // pull. Cache: a successful verb falsifies the cached sweep exactly
+        // as surely as a 403 falsifies a cached grant (git-ux design D8b).
+        bumpGitEpoch(host.id);
+        invalidateReposCache(host.id, generation);
         if (epoch.current !== mine) return;
         setState((prev) =>
           prev.status === 'ok' ? { status: 'ok', data: { ...prev.data, repo: updated } } : prev,
         );
+        markFresh();
+        // A pull moves HEAD: the History tab has new entries and the folded
+        // RepoState cannot carry them — same re-read a commit already does
+        // (git-ux design D8a). Fetch and push change neither list.
+        if (verb === 'pull') void reloadTabs(mine);
       } catch (error) {
         handleVerbError(error, mine);
       } finally {
@@ -358,7 +392,7 @@ export default function RepoScreen() {
         setInFlight(undefined);
       }
     },
-    [host.daemonUrl, host.id, name, handleVerbError],
+    [host.daemonUrl, host.id, name, generation, handleVerbError, markFresh, reloadTabs],
   );
 
   // `RepoTabs`'s own `CommitForm` — never the State Card, which cannot
@@ -373,10 +407,17 @@ export default function RepoScreen() {
       try {
         const client = daemonClientFor(host.id, host.daemonUrl);
         const updated = await client.commitRepo(name, message);
+        // Same unconditional bump/invalidate as `onAction` — a successful
+        // commit changed the world regardless of whether this screen is
+        // still current (see that function's own comment for the full
+        // reasoning).
+        bumpGitEpoch(host.id);
+        invalidateReposCache(host.id, generation);
         if (epoch.current !== mine) return;
         setState((prev) =>
           prev.status === 'ok' ? { status: 'ok', data: { ...prev.data, repo: updated } } : prev,
         );
+        markFresh();
         // The commit changed both tabs' content; the folded `RepoState`
         // above cannot carry the file list or the new log entry, so re-read
         // them separately.
@@ -390,7 +431,7 @@ export default function RepoScreen() {
         setInFlight(undefined);
       }
     },
-    [host.daemonUrl, host.id, name, handleVerbError, reloadTabs],
+    [host.daemonUrl, host.id, name, generation, handleVerbError, markFresh, reloadTabs],
   );
 
   // `unenrolled` until auth hydrates: fail closed. Stated rather than relying
