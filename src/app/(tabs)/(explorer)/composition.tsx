@@ -7,10 +7,12 @@ import { ActivityIndicator } from 'react-native';
 import { ModuleList } from '@/components/module-list';
 import { Box, Button, Inline, Screen, Text } from '@/components/ui';
 import { daemonClientFor } from '@/lib/daemon/client';
-import { getCachedRepos } from '@/lib/daemon/repos-cache';
+import { bumpGitEpoch } from '@/lib/daemon/git-epoch';
+import { getCachedRepos, invalidateReposCache } from '@/lib/daemon/repos-cache';
 import { DaemonError, type Composition, type ReposResponse } from '@/lib/daemon/types';
 import { useAuth } from '@/lib/auth/auth-context';
 import { deviceRefusalOf, REFUSAL_REASON } from '@/lib/auth/refusal';
+import { useGitEpochFocusRefresh } from '@/lib/use-git-epoch-focus';
 import { useHost } from '@/lib/host-context';
 import { useLoader } from '@/lib/use-loader';
 import { useTheme } from '@/theme';
@@ -28,7 +30,7 @@ export default function CompositionScreen() {
 
   // `ready` gates the first fetch until the stored host has hydrated, so a cold
   // launch does not fire at the default host and then race its own correction.
-  const { state, refreshing, refresh, retry } = useLoader<Composition>(
+  const { state, refreshing, refresh, retry, revalidate } = useLoader<Composition>(
     `${host.id}:${generation}`,
     load,
     ready,
@@ -80,6 +82,16 @@ export default function CompositionScreen() {
     return () => controller.abort();
   }, [host.daemonUrl, generation, ready, loadRepos]);
 
+  // Focus half of the action-epoch design: revalidate BOTH reads — the
+  // composition silently, and the sweep with force, because the bump site
+  // already invalidated the cache and a lazy read must not resurrect a TTL
+  // hit under an older key.
+  const revalidateAll = useCallback(async (): Promise<boolean> => {
+    const [ok] = await Promise.all([revalidate(), loadRepos(undefined, true)]);
+    return ok;
+  }, [revalidate, loadRepos]);
+  const { markFresh } = useGitEpochFocusRefresh(host.id, revalidateAll);
+
   // Pull-to-refresh used to drive `useLoader`'s composition reload only, so a
   // report from one successful sweep kept reading stale statuses forever.
   // This re-reads both on one gesture. `force: true` bypasses the cache
@@ -100,12 +112,18 @@ export default function CompositionScreen() {
     setFetching(true);
     try {
       const updated = await daemonClientFor(host.id, host.daemonUrl).fetchAll();
+      // Success is the bump site (git-ux design D5/D8b) — unconditional for
+      // the same reason as the repo screen's: the sweep happened on the host
+      // whether or not this screen is still current.
+      bumpGitEpoch(host.id);
+      invalidateReposCache(host.id, generation);
       if (epoch === reposEpoch.current) {
         // The sweep response is the new `repos` array; `enabled`/`push_enabled`/
         // `not_composed` don't change out from under a fetch, so carry them
         // forward from the last `GET /repos` rather than re-reading them.
         setRepos((prev) => (prev ? { ...prev, repos: updated } : prev));
         setFetchError(undefined);
+        markFresh();
       }
     } catch (error) {
       // The previous statuses stay on screen — the last true reading beats
@@ -133,7 +151,7 @@ export default function CompositionScreen() {
     } finally {
       setFetching(false);
     }
-  }, [host.daemonUrl, host.id, noteRefusal]);
+  }, [host.daemonUrl, host.id, generation, noteRefusal, markFresh]);
 
   if (state.status === 'error') {
     return (
