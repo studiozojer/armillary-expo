@@ -1,3 +1,5 @@
+import { authedFetch } from '../src/lib/auth/authed-fetch';
+import { __resetTokenCache, saveToken } from '../src/lib/auth/token-store';
 import { DaemonClient } from '../src/lib/daemon/client';
 import { DaemonError, type Position } from '../src/lib/daemon/types';
 
@@ -137,6 +139,47 @@ describe('DaemonClient', () => {
 
     expect(catalog.default).toBeNull();
     expect(catalog.models).toEqual([]);
+  });
+});
+
+describe('whoami', () => {
+  beforeEach(() => {
+    __resetTokenCache();
+  });
+
+  it('rides authedFetch and carries the bearer token even though it is a GET', async () => {
+    await saveToken('host-1', 'tok-abc');
+    const calls: { url: string; init?: RequestInit }[] = [];
+    const scripted = jest.fn((url: string, init?: RequestInit) => {
+      calls.push({ url, init });
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => ({ name: 'iphone', grants: ['sync', 'push', 'commit'], minted: '2026-08-01T00:00:00Z' }),
+        text: async () => '',
+      });
+    });
+    const client = new DaemonClient('http://host', authedFetch('host-1', scripted as unknown as typeof fetch));
+
+    const facts = await client.whoami();
+
+    expect(calls[0].url).toBe('http://host/whoami');
+    expect(new Headers(calls[0].init?.headers).get('Authorization')).toBe('Bearer tok-abc');
+    expect(facts).toEqual({ name: 'iphone', grants: ['sync', 'push', 'commit'], minted: '2026-08-01T00:00:00Z' });
+  });
+
+  it('throws DaemonError on a 401, same contract as every other refused route', async () => {
+    const client = clientWith(mockFetch(401, 'no_principal: no Authorization header'));
+
+    await expect(client.whoami()).rejects.toBeInstanceOf(DaemonError);
+    await expect(client.whoami()).rejects.toMatchObject({ status: 401 });
+  });
+
+  it('threads an AbortSignal through like every other read', async () => {
+    const fetcher = mockFetch(200, { name: 'iphone', grants: [], minted: '2026-08-01T00:00:00Z' });
+    const controller = new AbortController();
+    await clientWith(fetcher).whoami(controller.signal);
+    expect(fetcher).toHaveBeenCalledWith('http://host:7778/whoami', { signal: controller.signal });
   });
 });
 

@@ -43,6 +43,17 @@ export type TreeResponse = {
 export type FileResponse = { path: string; sha256: string; bytes: number; text: string };
 export type HealthResponse = { ok: boolean; root: string; version: string };
 
+/**
+ * `GET /whoami`'s shape — what the presented token's own facts are, read
+ * back from the engine rather than assumed client-side. `grants` is a plain
+ * string array on the wire (the same `sync`/`push`/`commit` vocabulary
+ * `ReposResponse`'s three booleans name individually) rather than a closed
+ * union, because the engine — not this client — owns the grant vocabulary,
+ * and a closed union here would make an unrecognised grant a parse failure
+ * instead of a chip this screen simply doesn't have special styling for.
+ */
+export type WhoamiResponse = { name: string; grants: string[]; minted: string };
+
 export class DaemonError extends Error {
   readonly status: number;
 

@@ -4,6 +4,10 @@ import { Pressable, ScrollView, View } from 'react-native';
 
 import { DeviceEnrollment } from '@/components/device-enrollment';
 import { Box, Button, Icon, Inline, Screen, SectionHeader, Stack as UIStack, Text } from '@/components/ui';
+import { useAuth } from '@/lib/auth/auth-context';
+import { deviceRefusalOf } from '@/lib/auth/refusal';
+import { daemonClientFor } from '@/lib/daemon/client';
+import { DaemonError, type WhoamiResponse } from '@/lib/daemon/types';
 import { useHost } from '@/lib/host-context';
 import { probe, type Host, type Reachability } from '@/lib/hosts';
 import { useShowDotfiles } from '@/lib/preferences';
@@ -59,6 +63,7 @@ export default function Settings() {
           <SectionHeader>This device</SectionHeader>
         </Box>
         <DeviceEnrollment host={host} />
+        <EnrollmentFacts host={host} />
 
         <Box style={{ paddingTop: theme.space.lg }}>
           <SectionHeader>Files</SectionHeader>
@@ -101,6 +106,84 @@ export default function Settings() {
         </View>
       </ScrollView>
     </Screen>
+  );
+}
+
+/**
+ * The device's own enrollment facts, read from the host rather than assumed.
+ *
+ * Rendered as a sibling of `DeviceEnrollment`, not inside it — that component
+ * has no route to call and no reason to change shape here; this one owns the
+ * one new call `GET /whoami` adds. When unenrolled it renders nothing and
+ * fires nothing (the `enrollment === 'enrolled'` gate below), which is the
+ * whole of "the section shows the enrollment field as today" for that state.
+ *
+ * A later task adds consent toggles under this — this component is
+ * deliberately read-only.
+ */
+function EnrollmentFacts({ host }: { host: Host }) {
+  const { enrollment, ready, noteRefusal } = useAuth();
+  const [facts, setFacts] = useState<WhoamiResponse | undefined>(undefined);
+
+  useEffect(() => {
+    // No state update on this branch, deliberately — the render guard below
+    // already hides stale facts the instant `enrollment` stops being
+    // `'enrolled'`, so there is nothing here worth synchronizing eagerly.
+    if (!ready || enrollment !== 'enrolled') return;
+    let cancelled = false;
+    const controller = new AbortController();
+    daemonClientFor(host.id, host.daemonUrl)
+      .whoami(controller.signal)
+      .then((response) => {
+        if (!cancelled) setFacts(response);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        // A device may talk to an engine built before this route existed —
+        // that 404s, and the honest degrade is silence, not an error banner:
+        // the section already reads correctly without these facts, because
+        // it did for every version of the app before this task.
+        if (error instanceof DaemonError && error.status === 404) {
+          setFacts(undefined);
+          return;
+        }
+        // A 401 here is device-refusal-shaped exactly like every mutating
+        // route (`no_principal`/`unknown_principal`) — routed through the
+        // same `noteRefusal` the other screens use, so a revoked token flips
+        // `DeviceEnrollment`'s own state rather than this component
+        // inventing a second way to say the same thing.
+        const refusal = error instanceof DaemonError ? deviceRefusalOf(error.message) : null;
+        if (refusal) noteRefusal(refusal);
+        setFacts(undefined);
+      });
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [ready, enrollment, host.id, host.daemonUrl, noteRefusal]);
+
+  // `enrollment` gates this even before a host-switch's stale-fetch guard
+  // above would settle — the unenrolled render must never show a previous
+  // host's facts for even one frame.
+  if (enrollment !== 'enrolled' || !facts) return null;
+
+  return (
+    <Box px="lg" py="sm" testID="enrollment-facts">
+      <UIStack gap="xs">
+        <Text variant="label" color="txSecondary">
+          {facts.name}
+        </Text>
+        <Inline gap="xs" style={{ flexWrap: 'wrap' }}>
+          {facts.grants.map((grant) => (
+            <Box key={grant} px="sm" py="xxs" radius="full" bg="bgSolidCard" border="hairline" borderColor="bdCard">
+              <Text variant="caption" color="txSecondary">
+                {grant}
+              </Text>
+            </Box>
+          ))}
+        </Inline>
+      </UIStack>
+    </Box>
   );
 }
 

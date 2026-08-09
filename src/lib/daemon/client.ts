@@ -12,6 +12,7 @@ import {
   type ReposResponse,
   type TreeResponse,
   type VoicenoteIndex,
+  type WhoamiResponse,
 } from './types';
 
 /**
@@ -62,6 +63,18 @@ export class DaemonClient {
 
   getHealth(signal?: AbortSignal): Promise<HealthResponse> {
     return this.get<HealthResponse>('/health', signal);
+  }
+
+  /**
+   * The presented token's own facts — name, grants, mint time. Still just a
+   * `get()` under the hood, but unlike every other read here it REQUIRES the
+   * token: an unauthenticated request 401s `no_principal` rather than reading
+   * as an anonymous, ungated call. The requirement lives in what the caller
+   * sends (this always goes out through `authedFetch`, never a bare `fetch`),
+   * not in this method's shape.
+   */
+  whoami(signal?: AbortSignal): Promise<WhoamiResponse> {
+    return this.get<WhoamiResponse>('/whoami', signal);
   }
 
   getComposition(signal?: AbortSignal): Promise<Composition> {
