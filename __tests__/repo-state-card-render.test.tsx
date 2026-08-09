@@ -5,21 +5,24 @@ import { fireEvent, render, screen } from '@testing-library/react-native';
 import { StyleSheet } from 'react-native';
 
 import { RepoStateCard } from '../src/components/repo-state-card';
+import { ICONS } from '../src/components/ui/icon';
 import type { RepoState } from '../src/lib/daemon/types';
 import { themeFor } from '../src/theme';
 
-// Mock Icon to verify what name props it receives.
-jest.mock('../src/components/ui', () => {
-  const actual = jest.requireActual('../src/components/ui');
-  return {
-    ...actual,
-    Icon: jest.fn((props) => {
-      // Call through to the real Icon for rendering, but track calls.
-      const RealIcon = actual.Icon;
-      return RealIcon(props);
-    }),
-  };
-});
+// toJSON()'s tree is the only stable way to reach the host SymbolView node's
+// props — same approach __tests__/ui-icon.test.tsx and __tests__/tree-list.test.tsx
+// use. The component under test does not expose testID on Icon calls (and should not —
+// testID is not a general concern of the component), so we query the rendered tree.
+type JsonNode = { type: string; props: Record<string, unknown>; children: JsonNode[] | null };
+
+function findAllByType(node: JsonNode | null, type: string, out: JsonNode[] = []): JsonNode[] {
+  if (!node) return out;
+  if (node.type === type) out.push(node);
+  for (const child of node.children ?? []) {
+    findAllByType(child, type, out);
+  }
+  return out;
+}
 
 function repo(overrides: Partial<RepoState> = {}): RepoState {
   return {
@@ -220,22 +223,20 @@ describe('<RepoStateCard>', () => {
   });
 
   it('the action glyph follows the verb: a behind repo renders the pull glyph, not sync (design D1)', async () => {
-    // A repo with commits behind: model.icon should be 'pullVerb', not 'sync'.
-    // The component currently hardcodes 'sync' on line 181, so this test fails.
-    // After fixing line 181 to read model.icon, this test passes.
-    const { Icon: IconMock } = require('../src/components/ui');
-    IconMock.mockClear();
+    // Behind state: model.icon is 'pullVerb', with iOS symbol 'arrow.down.to.line'.
+    // The component reads model.icon to the Icon; verify by checking rendered SymbolView nodes.
     await render(
       <RepoStateCard state={repo({ position: { kind: 'tracking', upstream: 'origin/main', ahead: 0, behind: 2 } })} gates={OPEN} />,
     );
-    // Icon is called multiple times (branch chevron + action button icons).
-    // Find the call to the action icon by its testID.
-    const actionIconCall = IconMock.mock.calls.find(
-      (args: [props: Record<string, unknown>]) => args[0]?.testID === 'repo-state-card-action-icon',
+    const symbols = findAllByType(screen.toJSON() as JsonNode | null, 'ViewManagerAdapter_SymbolModule').map(
+      (node) => node.props.name,
     );
-    expect(actionIconCall).toBeDefined();
-    // The action icon should receive 'pullVerb', not the hardcoded 'sync'.
-    expect(actionIconCall![0].name).toBe('pullVerb');
-    expect(actionIconCall![0].name).not.toBe('sync');
+    // Pull glyph must be present.
+    expect(symbols).toContain(ICONS.pullVerb.ios);
+    // Sync glyph appears once (branch chevron), not in the action button.
+    const syncSymbols = symbols.filter((name) => name === ICONS.sync.ios);
+    const pullSymbols = symbols.filter((name) => name === ICONS.pullVerb.ios);
+    expect(pullSymbols.length).toBeGreaterThan(0);
+    expect(syncSymbols).toHaveLength(0);
   });
 });
