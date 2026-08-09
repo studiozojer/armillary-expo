@@ -4,6 +4,12 @@ import { relative } from './repo-label';
 export type CardAction = 'ready' | 'blocked' | 'busy';
 export type CardTone = 'none' | 'neutral' | 'warn' | 'error';
 
+/** The State Card's glyph vocabulary (design D1–D3) — a literal union, not an
+ *  IconName import, so lib/ takes no dependency on components/. The
+ *  component hands these straight to Icon, which is where the names are
+ *  checked against the real table. */
+export type CardIcon = 'sync' | 'pullVerb' | 'pushVerb' | 'commitVerb';
+
 /**
  * A grant's state as read off `GET /repos` — or the fact that it couldn't be
  * read at all. `'unknown'` is a DIFFERENT claim from `'refused'`: the host
@@ -54,6 +60,7 @@ export type CardModel = {
   reason?: string;
   /** What to actually call. `null` whenever action !== 'ready'. */
   verb: 'fetch' | 'pull' | 'push' | 'commit' | null;
+  icon: CardIcon;
 };
 
 /** "1 commit", "3 commits", "1 file", "4 files" — one-ahead/one-behind (or
@@ -154,6 +161,12 @@ const IN_FLIGHT_LABEL: Record<'fetch' | 'pull' | 'push', string> = {
   fetch: 'Fetching…',
   pull: 'Pulling…',
   push: 'Pushing…',
+};
+
+const IN_FLIGHT_ICON: Record<'fetch' | 'pull' | 'push', CardIcon> = {
+  fetch: 'sync',
+  pull: 'pullVerb',
+  push: 'pushVerb',
 };
 
 /** Shown when a verb would otherwise run but the host has REFUSED `sync`. */
@@ -323,7 +336,7 @@ export function stateCard(
   const sublabel = s.last_fetch ? relative(s.last_fetch, new Date()) : 'No fetch recorded';
 
   if (inFlight) {
-    return { action: 'busy', tone: 'none', label: IN_FLIGHT_LABEL[inFlight], sublabel, verb: null };
+    return { action: 'busy', tone: 'none', label: IN_FLIGHT_LABEL[inFlight], sublabel, verb: null, icon: IN_FLIGHT_ICON[inFlight] };
   }
 
   if (s.read_error) {
@@ -340,6 +353,7 @@ export function stateCard(
       // specific fact available about WHY the read failed.
       reason: `Could not read this repository on the host. ${s.read_error}`,
       verb: null,
+      icon: 'sync',
     };
   }
 
@@ -357,7 +371,7 @@ export function stateCard(
       // nothing exercised until now.
       reason: `This app doesn’t recognize this failure yet. ${s.action_error.message}`,
     };
-    return { action: 'blocked', tone: ae.tone, label: ae.label, sublabel, reason: ae.reason, verb: null };
+    return { action: "blocked", tone: ae.tone, label: ae.label, sublabel, reason: ae.reason, verb: null, icon: "sync" };
   }
 
   switch (s.position.kind) {
@@ -369,6 +383,7 @@ export function stateCard(
         sublabel,
         reason: 'HEAD is not on a branch, so there is nothing to fetch, pull, or push against.',
         verb: null,
+        icon: 'sync',
       };
 
     case 'no-upstream':
@@ -382,6 +397,7 @@ export function stateCard(
         sublabel,
         reason: 'This branch exists only on this host — it has no upstream to compare against.',
         verb: null,
+        icon: 'sync',
       };
 
     case 'upstream-gone':
@@ -393,6 +409,7 @@ export function stateCard(
         reason:
           'The upstream tracking ref is gone — merged and pruned, or never fetched — so ahead/behind can’t be measured.',
         verb: null,
+        icon: 'sync',
       };
 
     case 'tracking': {
@@ -406,6 +423,7 @@ export function stateCard(
           sublabel,
           reason: `Diverged: ${ahead} ahead, ${behind} behind. A fast-forward pull would refuse, and a push would be non-fast-forward, so neither is offered.`,
           verb: null,
+          icon: 'sync',
         };
       }
 
@@ -422,6 +440,7 @@ export function stateCard(
             sublabel,
             reason: `Committing unblocks Pull ${commitCount(behind)}.`,
             verb: 'commit',
+            icon: 'commitVerb',
           };
         }
         return {
@@ -431,6 +450,7 @@ export function stateCard(
           sublabel,
           reason: `${s.dirty_files} uncommitted file(s) on the host. Commit or stash there before pulling.`,
           verb: null,
+          icon: 'pullVerb',
         };
       }
 
@@ -438,9 +458,9 @@ export function stateCard(
         const blocked = verbBlocked(gates, 'sync');
         if (blocked) {
           const { tone, reason } = blocked;
-          return { action: 'blocked', tone, label: `Pull ${commitCount(behind)}`, sublabel, reason, verb: null };
+          return { action: 'blocked', tone, label: `Pull ${commitCount(behind)}`, sublabel, reason, verb: null , icon: "pullVerb" };
         }
-        return { action: 'ready', tone: 'none', label: `Pull ${commitCount(behind)}`, sublabel, verb: 'pull' };
+        return { action: 'ready', tone: 'none', label: `Pull ${commitCount(behind)}`, sublabel, verb: 'pull' , icon: "pullVerb" };
       }
 
       if (ahead > 0) {
@@ -449,9 +469,9 @@ export function stateCard(
         const blocked = verbBlocked(gates, 'push');
         if (blocked) {
           const { tone, reason } = blocked;
-          return { action: 'blocked', tone, label: `Push ${commitCount(ahead)}`, sublabel, reason, verb: null };
+          return { action: 'blocked', tone, label: `Push ${commitCount(ahead)}`, sublabel, reason, verb: null , icon: "pushVerb" };
         }
-        return { action: 'ready', tone: 'none', label: `Push ${commitCount(ahead)}`, sublabel, verb: 'push' };
+        return { action: 'ready', tone: 'none', label: `Push ${commitCount(ahead)}`, sublabel, verb: 'push' , icon: "pushVerb" };
       }
 
       // Nothing ahead, nothing behind, but the tree is dirty: a commit is
@@ -469,6 +489,7 @@ export function stateCard(
             label: `Commit ${fileCount(s.dirty_files)}`,
             sublabel,
             verb: 'commit',
+            icon: 'commitVerb',
           };
         }
       }
@@ -476,9 +497,9 @@ export function stateCard(
       const blocked = verbBlocked(gates, 'sync');
       if (blocked) {
         const { tone, reason } = blocked;
-        return { action: 'blocked', tone, label: 'Fetch origin', sublabel, reason, verb: null };
+        return { action: 'blocked', tone, label: 'Fetch origin', sublabel, reason, verb: null , icon: "sync" };
       }
-      return { action: 'ready', tone: 'none', label: 'Fetch origin', sublabel, verb: 'fetch' };
+      return { action: 'ready', tone: 'none', label: 'Fetch origin', sublabel, verb: 'fetch' , icon: "sync" };
     }
 
     default: {

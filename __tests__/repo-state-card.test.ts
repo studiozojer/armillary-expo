@@ -426,3 +426,38 @@ describe('deviceMayAct — the rule both screens consult', () => {
     expect(deviceMayAct('enrolled', 'unknown')).toBe(false);
   });
 });
+
+describe('stateCard — icon follows the verb the label names (design D1–D3)', () => {
+  const behind: RepoState = { ...base, position: { kind: 'tracking', upstream: 'origin/main', ahead: 0, behind: 2 } };
+  const ahead: RepoState = { ...base, position: { kind: 'tracking', upstream: 'origin/main', ahead: 1, behind: 0 } };
+
+  it('busy states carry the in-flight verb glyph', () => {
+    expect(stateCard(base, OPEN, 'fetch').icon).toBe('sync');
+    expect(stateCard(base, OPEN, 'pull').icon).toBe('pullVerb');
+    expect(stateCard(base, OPEN, 'push').icon).toBe('pushVerb');
+  });
+
+  it('ready rungs carry their own verb glyph', () => {
+    expect(stateCard(base, OPEN).icon).toBe('sync'); // Fetch origin
+    expect(stateCard(behind, OPEN).icon).toBe('pullVerb');
+    expect(stateCard(ahead, OPEN).icon).toBe('pushVerb');
+    expect(stateCard({ ...base, dirty_files: 2 }, ALL_GRANTED).icon).toBe('commitVerb'); // rule 10a
+    expect(stateCard({ ...behind, dirty_files: 2 }, ALL_GRANTED).icon).toBe('commitVerb'); // rule 8, commit granted
+  });
+
+  it('blocked-but-verb-shaped states keep their verb glyph (D3)', () => {
+    expect(stateCard(behind, CLOSED).icon).toBe('pullVerb'); // "Pull 2 commits", sync refused
+    expect(stateCard(ahead, CLOSED).icon).toBe('pushVerb'); // "Push 1 commit", push refused
+    expect(stateCard({ ...behind, dirty_files: 2 }, OPEN).icon).toBe('pullVerb'); // rule 8 dead end: label is "Pull 2 commits"
+    expect(stateCard(base, CLOSED).icon).toBe('sync'); // "Fetch origin", blocked
+  });
+
+  it('non-verb blocked states keep sync (D3)', () => {
+    expect(stateCard({ ...base, position: { kind: 'detached' } }, OPEN).icon).toBe('sync');
+    expect(stateCard({ ...base, position: { kind: 'no-upstream' } }, OPEN).icon).toBe('sync');
+    expect(stateCard({ ...base, position: { kind: 'upstream-gone' } }, OPEN).icon).toBe('sync');
+    expect(stateCard({ ...base, position: { kind: 'tracking', upstream: 'origin/main', ahead: 1, behind: 1 } }, OPEN).icon).toBe('sync'); // diverged
+    expect(stateCard({ ...base, read_error: 'fatal: not a git repository' }, OPEN).icon).toBe('sync');
+    expect(stateCard({ ...base, action_error: { kind: 'transport', message: 'x' } }, OPEN).icon).toBe('sync');
+  });
+});
