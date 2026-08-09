@@ -20,6 +20,9 @@ export type IconName =
   | 'mic'
   | 'gitBranch'
   | 'sync'
+  | 'pullVerb'
+  | 'pushVerb'
+  | 'commitVerb'
   | 'arrowUp'
   | 'squareDot'
   | 'squarePlus'
@@ -53,13 +56,19 @@ export const ICONS: Record<IconName, { ios: SFSymbol; web: AndroidSymbol }> = {
   check: { ios: 'checkmark', web: 'check' },
   eye: { ios: 'eye', web: 'visibility' },
   mic: { ios: 'mic', web: 'mic' },
-  // The repo state card's two glyphs (Task 11). Confirmed against Figma
-  // (`bbjHiHEBoR3xWWruoprPkH`, node 345:448, "State Card"): the SAME symbol
-  // renders for every Action variant and every verb — there is no
-  // fetch/pull/push-specific icon in this design, so one entry covers all
-  // three.
+  // The repo state card sync glyph (Task 11, v1). Figma node 345:448
+  // originally designed a single glyph for all verbs. Per-verb glyphs are the
+  // ratified divergence (git-ux-polish design D1, D4;
+  // `zojercommons/projects/harness/specs/2026-08-09-git-ux-polish-design.md`).
+  // Updating the Figma file is owed to David.
   gitBranch: { ios: 'arrow.triangle.branch', web: 'alt_route' },
   sync: { ios: 'arrow.triangle.2.circlepath', web: 'sync' },
+  // Per-verb State Card glyphs (git-ux-polish design D1). `.to.line` and not
+  // plain arrows: `arrow.up` already means "unpushed commit" on History rows
+  // (`arrowUp` below), and one glyph must not carry two unrelated meanings.
+  pullVerb: { ios: 'arrow.down.to.line', web: 'download' },
+  pushVerb: { ios: 'arrow.up.to.line', web: 'upload' },
+  commitVerb: { ios: 'smallcircle.filled.circle', web: 'commit' },
   // Task 12 (repo page tabs). The unpushed marker on a History row (Figma
   // `354:625`, node `364:5280`) — a commit `Commit.unpushed` is true for.
   arrowUp: { ios: 'arrow.up', web: 'arrow_upward' },

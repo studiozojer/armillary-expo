@@ -11,6 +11,7 @@ import { annotationsFor } from '@/lib/annotations';
 import type { Composition, TreeResponse } from '@/lib/daemon/types';
 import { useHost } from '@/lib/host-context';
 import { visibleEntries, useShowDotfiles } from '@/lib/preferences';
+import { useGitEpochFocusRefresh } from '@/lib/use-git-epoch-focus';
 import { useLoader } from '@/lib/use-loader';
 import { useTheme } from '@/theme';
 
@@ -34,10 +35,17 @@ export default function Explorer() {
 
   // `ready` gates the first fetch until the stored host has hydrated, so a cold
   // launch does not fire at the default host and then race its own correction.
-  const { state, refreshing, refresh, retry } = useLoader<{
+  const { state, refreshing, refresh, retry, revalidate } = useLoader<{
     tree: TreeResponse;
     composition: Composition | null;
   }>(`${host.id}:${generation}`, load, ready);
+
+  // Action-epoch focus refresh (git-ux design D5–D7): a pull elsewhere
+  // creates files this listing should show the moment focus returns —
+  // silently, with no gesture and no spinner. Each mounted depth of the
+  // stack revalidates as focus reaches it on the way back, one screen per
+  // back-press, never all at once.
+  useGitEpochFocusRefresh(host.id, revalidate);
 
   const router = useRouter();
 

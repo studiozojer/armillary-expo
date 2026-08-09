@@ -178,7 +178,7 @@ export function RepoStateCard({
             paddingRight: theme.space.lg,
             paddingVertical: theme.space.md,
           }}>
-          <Icon name="sync" size={16} color={actionIconColor} />
+          <Icon name={model.icon} size={16} color={actionIconColor} />
           <Stack style={{ flex: 1 }}>
             <Text color={actionTextColor} numberOfLines={1}>
               {model.label}

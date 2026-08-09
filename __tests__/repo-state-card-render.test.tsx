@@ -5,8 +5,24 @@ import { fireEvent, render, screen } from '@testing-library/react-native';
 import { StyleSheet } from 'react-native';
 
 import { RepoStateCard } from '../src/components/repo-state-card';
+import { ICONS } from '../src/components/ui/icon';
 import type { RepoState } from '../src/lib/daemon/types';
 import { themeFor } from '../src/theme';
+
+// toJSON()'s tree is the only stable way to reach the host SymbolView node's
+// props — same approach __tests__/ui-icon.test.tsx and __tests__/tree-list.test.tsx
+// use. The component under test does not expose testID on Icon calls (and should not —
+// testID is not a general concern of the component), so we query the rendered tree.
+type JsonNode = { type: string; props: Record<string, unknown>; children: JsonNode[] | null };
+
+function findAllByType(node: JsonNode | null, type: string, out: JsonNode[] = []): JsonNode[] {
+  if (!node) return out;
+  if (node.type === type) out.push(node);
+  for (const child of node.children ?? []) {
+    findAllByType(child, type, out);
+  }
+  return out;
+}
 
 function repo(overrides: Partial<RepoState> = {}): RepoState {
   return {
@@ -204,5 +220,24 @@ describe('<RepoStateCard>', () => {
     expect(pullButton.props.accessibilityState).toMatchObject({ disabled: false });
     await fireEvent.press(pullButton);
     expect(onAction).toHaveBeenCalledWith('pull');
+  });
+
+  it('the action glyph follows the verb: a behind repo renders the pull glyph, not sync (design D1)', async () => {
+    // Behind state: model.icon is 'pullVerb', with iOS symbol 'arrow.down.to.line'.
+    // The component reads model.icon to the Icon; verify by checking rendered SymbolView nodes.
+    await render(
+      <RepoStateCard state={repo({ position: { kind: 'tracking', upstream: 'origin/main', ahead: 0, behind: 2 } })} gates={OPEN} />,
+    );
+    const symbols = findAllByType(screen.toJSON() as JsonNode | null, 'ViewManagerAdapter_SymbolModule').map(
+      (node) => node.props.name,
+    );
+    // Pull glyph must be present.
+    expect(symbols).toContain(ICONS.pullVerb.ios);
+    // Sync glyph does not appear at all: the branch row uses gitBranch, and
+    // a behind repo's action button renders pullVerb, not sync.
+    const syncSymbols = symbols.filter((name) => name === ICONS.sync.ios);
+    const pullSymbols = symbols.filter((name) => name === ICONS.pullVerb.ios);
+    expect(pullSymbols.length).toBeGreaterThan(0);
+    expect(syncSymbols).toHaveLength(0);
   });
 });

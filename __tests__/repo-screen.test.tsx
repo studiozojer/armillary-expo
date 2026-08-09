@@ -8,6 +8,7 @@ import { Stack } from 'expo-router/stack';
 
 import RepoScreen from '../src/app/(tabs)/(explorer)/repo/[name]';
 import { DaemonClient } from '../src/lib/daemon/client';
+import { __clearGitEpochForTests, gitEpochOf } from '../src/lib/daemon/git-epoch';
 import { __clearReposCacheForTests, getCachedRepos } from '../src/lib/daemon/repos-cache';
 import { AuthProvider } from '../src/lib/auth/auth-context';
 import { __resetTokenCache } from '../src/lib/auth/token-store';
@@ -650,3 +651,123 @@ describe('Repo screen — final review IMPORTANT 2: a second card tap must not e
 // mid-flight (request log: POST at 0.3s, refresh GETs at 0.8s), busy cleared
 // on settle — driven via Argent on the iOS simulator, twice. The fix under
 // test is the unconditional `finally` in `onAction` (repo/[name].tsx).
+
+describe('Repo screen — git-ux D8a: a pull re-reads log and changes', () => {
+  beforeEach(async () => {
+    await AsyncStorage.clear();
+    seedEnrolled();
+    __resetTokenCache();
+    __clearReposCacheForTests();
+    __clearGitEpochForTests();
+  });
+
+  it('a successful pull fires GET /log and /changes again — the History tab must not show pre-pull history', async () => {
+    // A clean, behind-by-2 repo offers `pull` as the ready verb
+    // (`stateCard`'s rule 9). The pull answers a clean, caught-up state —
+    // the fold-in itself is already covered elsewhere; this test is about
+    // the SECOND round of `/log` and `/changes` reads the pull's own
+    // `reloadTabs` call fires.
+    const behind = repo({ position: { kind: 'tracking', upstream: 'origin/main', ahead: 0, behind: 2 } });
+    const pulled = repo({ position: { kind: 'tracking', upstream: 'origin/main', ahead: 0, behind: 0 } });
+    const fetcher = mockFetch({
+      state: behind,
+      commits: COMMITS,
+      changes: CHANGES,
+      onAction: (verb) => {
+        expect(verb).toBe('pull');
+        return pulled;
+      },
+    });
+    globalThis.fetch = fetcher;
+
+    await renderRouter(context, { initialUrl: '/repo/tycho' });
+    await screen.findByTestId('repo-state-card-action');
+    expect(screen.getByText('Pull 2 commits')).toBeTruthy();
+
+    const countOf = (needle: string) =>
+      (fetcher as jest.Mock).mock.calls.filter(([url]: [string]) => (url as string).includes(needle)).length;
+
+    // One `/log` and one `/changes` from the initial mount load.
+    expect(countOf('/log')).toBe(1);
+    expect(countOf('/changes')).toBe(1);
+
+    await fireEvent.press(screen.getByTestId('repo-state-card-action'));
+
+    await waitFor(() =>
+      expect(
+        (fetcher as jest.Mock).mock.calls.some(
+          ([url, init]: [string, RequestInit?]) =>
+            (url as string).endsWith('/repos/tycho/pull') && init?.method === 'POST',
+        ),
+      ).toBe(true),
+    );
+
+    // The pull's own `reloadTabs` fires a SECOND `/log` and `/changes` read —
+    // mount + post-pull re-read, and nothing more.
+    await waitFor(() => expect(countOf('/log')).toBe(2));
+    expect(countOf('/changes')).toBe(2);
+  });
+
+  it('a successful pull bumps the git epoch and invalidates the repos cache (D8b)', async () => {
+    const hostId = KNOWN_HOSTS[0].id;
+    const behind = repo({ position: { kind: 'tracking', upstream: 'origin/main', ahead: 0, behind: 2 } });
+    const pulled = repo({ position: { kind: 'tracking', upstream: 'origin/main', ahead: 0, behind: 0 } });
+    const fetcher = mockFetch({
+      state: behind,
+      commits: COMMITS,
+      changes: CHANGES,
+      onAction: () => pulled,
+    });
+    globalThis.fetch = fetcher;
+
+    await renderRouter(context, { initialUrl: '/repo/tycho' });
+    await screen.findByTestId('repo-state-card-action');
+
+    await fireEvent.press(screen.getByTestId('repo-state-card-action'));
+    await waitFor(() =>
+      expect(
+        (fetcher as jest.Mock).mock.calls.some(
+          ([url, init]: [string, RequestInit?]) =>
+            (url as string).endsWith('/repos/tycho/pull') && init?.method === 'POST',
+        ),
+      ).toBe(true),
+    );
+
+    await waitFor(() => expect(gitEpochOf(hostId)).toBe(1));
+
+    // One `GET /repos` sweep so far — the initial mount load's gates read.
+    const reposReads = () =>
+      (fetcher as jest.Mock).mock.calls.filter(([url]: [string]) => (url as string).endsWith('/repos')).length;
+    expect(reposReads()).toBe(1);
+
+    // Cache invalidation is observable without spying: the SAME host id +
+    // generation the route used must hit the network again now, rather than
+    // serving the stale (pre-pull) cache entry for up to the TTL.
+    await getCachedRepos(new DaemonClient(KNOWN_HOSTS[0].daemonUrl), hostId, 0);
+    expect(reposReads()).toBe(2);
+  });
+
+  it('a FAILED pull bumps nothing — a refusal is not a change', async () => {
+    const hostId = KNOWN_HOSTS[0].id;
+    const behind = repo({ position: { kind: 'tracking', upstream: 'origin/main', ahead: 0, behind: 2 } });
+    const fetcher = jest.fn((url: string, init?: RequestInit) => {
+      if (init?.method === 'POST') return jsonResponse(403, 'nope');
+      if (url.endsWith('/repos')) {
+        return jsonResponse(200, { enabled: true, push_enabled: true, repos: [behind], not_composed: [] });
+      }
+      if (url.includes('/log')) return jsonResponse(200, COMMITS);
+      if (url.includes('/changes')) return jsonResponse(200, CHANGES);
+      if (/\/repos\/[^/]+$/.test(url)) return jsonResponse(200, behind);
+      throw new Error(`unexpected fetch: ${url}`);
+    }) as unknown as typeof fetch;
+    globalThis.fetch = fetcher;
+
+    await renderRouter(context, { initialUrl: '/repo/tycho' });
+    await screen.findByTestId('repo-state-card-action');
+
+    await fireEvent.press(screen.getByTestId('repo-state-card-action'));
+    await waitFor(() => expect(screen.getByText('This host has not granted that action.')).toBeTruthy());
+
+    expect(gitEpochOf(hostId)).toBe(0);
+  });
+});

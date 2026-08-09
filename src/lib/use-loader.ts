@@ -45,7 +45,7 @@ export function useLoader<T>(
   const loaderRef = useRef(loader);
   loaderRef.current = loader;
 
-  const run = useCallback(async (isRefresh: boolean) => {
+  const run = useCallback(async (isRefresh: boolean, keepOnError = false): Promise<boolean> => {
     inflight.current?.abort();
     const controller = new AbortController();
     inflight.current = controller;
@@ -57,11 +57,22 @@ export function useLoader<T>(
 
     try {
       const data = await loaderRef.current(controller.signal);
-      if (epoch.current !== mine) return;
+      if (epoch.current !== mine) return false;
       setState({ status: 'ok', data });
+      return true;
     } catch (error) {
-      if (epoch.current !== mine || controller.signal.aborted) return;
-      setState({ status: 'error', error });
+      if (epoch.current !== mine || controller.signal.aborted) return false;
+      // `keepOnError` is the revalidate mode (git-ux-polish design D7): a
+      // focus-triggered re-read nobody asked for out loud must not replace
+      // good content with an error flash. It still surfaces the error when
+      // there is no good content to keep — retrying out of an error state
+      // should update the error, not hide it.
+      if (keepOnError) {
+        setState((prev) => (prev.status === 'ok' ? prev : { status: 'error', error }));
+      } else {
+        setState({ status: 'error', error });
+      }
+      return false;
     }
   }, []);
 
@@ -81,5 +92,9 @@ export function useLoader<T>(
     void run(false);
   }, [run]);
 
-  return { state, refreshing, refresh, retry };
+  /** Silent re-read: content-preserving, spinner-free (design D7). Resolves
+   *  `true` iff the fresh read landed. */
+  const revalidate = useCallback(() => run(true, true), [run]);
+
+  return { state, refreshing, refresh, retry, revalidate };
 }
