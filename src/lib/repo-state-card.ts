@@ -371,7 +371,7 @@ export function stateCard(
       // nothing exercised until now.
       reason: `This app doesn’t recognize this failure yet. ${s.action_error.message}`,
     };
-    return { action: "blocked", tone: ae.tone, label: ae.label, sublabel, reason: ae.reason, verb: null, icon: 'sync' };
+    return { action: 'blocked', tone: ae.tone, label: ae.label, sublabel, reason: ae.reason, verb: null, icon: 'sync' };
   }
 
   switch (s.position.kind) {
@@ -460,7 +460,7 @@ export function stateCard(
           const { tone, reason } = blocked;
           return { action: 'blocked', tone, label: `Pull ${commitCount(behind)}`, sublabel, reason, verb: null, icon: 'pullVerb' };
         }
-        return { action: 'ready', tone: 'none', label: `Pull ${commitCount(behind)}`, sublabel, verb: 'pull' , icon: 'pullVerb' };
+        return { action: 'ready', tone: 'none', label: `Pull ${commitCount(behind)}`, sublabel, verb: 'pull', icon: 'pullVerb' };
       }
 
       if (ahead > 0) {
@@ -471,7 +471,7 @@ export function stateCard(
           const { tone, reason } = blocked;
           return { action: 'blocked', tone, label: `Push ${commitCount(ahead)}`, sublabel, reason, verb: null, icon: 'pushVerb' };
         }
-        return { action: 'ready', tone: 'none', label: `Push ${commitCount(ahead)}`, sublabel, verb: 'push' , icon: 'pushVerb' };
+        return { action: 'ready', tone: 'none', label: `Push ${commitCount(ahead)}`, sublabel, verb: 'push', icon: 'pushVerb' };
       }
 
       // Nothing ahead, nothing behind, but the tree is dirty: a commit is

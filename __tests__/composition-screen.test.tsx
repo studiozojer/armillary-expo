@@ -7,8 +7,9 @@ import { act, fireEvent, renderRouter, screen, waitFor } from 'expo-router/testi
 import { Stack } from 'expo-router/stack';
 
 import CompositionScreen from '../src/app/(tabs)/(explorer)/composition';
+import { DaemonClient } from '../src/lib/daemon/client';
 import { __clearGitEpochForTests, bumpGitEpoch, gitEpochOf } from '../src/lib/daemon/git-epoch';
-import { __clearReposCacheForTests } from '../src/lib/daemon/repos-cache';
+import { __clearReposCacheForTests, getCachedRepos } from '../src/lib/daemon/repos-cache';
 import { AuthProvider } from '../src/lib/auth/auth-context';
 import { __resetTokenCache } from '../src/lib/auth/token-store';
 import { HostProvider } from '../src/lib/host-context';
@@ -133,7 +134,8 @@ describe('Composition screen — git-ux: fetch-all is a bump site; focus revalid
   });
 
   it('a successful fetch-all bumps the epoch and invalidates the repos cache', async () => {
-    globalThis.fetch = mockFetch({});
+    const fetcher = mockFetch({});
+    globalThis.fetch = fetcher;
 
     await renderRouter(context, { initialUrl: '/composition' });
 
@@ -143,6 +145,19 @@ describe('Composition screen — git-ux: fetch-all is a bump site; focus revalid
     await fireEvent.press(action);
 
     await waitFor(() => expect(gitEpochOf(KNOWN_HOSTS[0].id)).toBe(1));
+
+    // Cache invalidation is observable without spying: the SAME host id +
+    // generation the screen used must hit the network again now, rather
+    // than serving the stale (pre-fetch) cache entry for up to the TTL —
+    // mirrors `repo-screen.test.tsx`'s D8b assertion.
+    const reposReads = () =>
+      (fetcher as jest.Mock).mock.calls.filter(
+        ([url, init]: [string, RequestInit?]) => (url as string).endsWith('/repos') && init?.method !== 'POST',
+      ).length;
+    const readsAfterFetchAll = reposReads();
+
+    await getCachedRepos(new DaemonClient(KNOWN_HOSTS[0].daemonUrl), KNOWN_HOSTS[0].id, 0);
+    expect(reposReads()).toBe(readsAfterFetchAll + 1);
   });
 
   it('a failed fetch-all bumps nothing', async () => {
@@ -193,5 +208,54 @@ describe('Composition screen — git-ux: fetch-all is a bump site; focus revalid
     // `refreshControl.props.refreshing` off of, so that half is not
     // re-asserted screen-side here; `use-loader.test.ts`'s own suite already
     // covers `revalidate`'s silence directly.
+  });
+
+  it('a focus-triggered forced sweep that fails keeps prior statuses on screen, and the next focus retries', async () => {
+    const hostId = KNOWN_HOSTS[0].id;
+    // A distinctive, non-empty label (`rowLabel`'s dirty rung) so its
+    // survival on screen is a real assertion, not "still renders SOMETHING".
+    const dirtyRepo = repo({ dirty_files: 3 });
+    let reposReads = 0;
+    const fetcher = jest.fn((url: string, init?: RequestInit) => {
+      if (url.endsWith('/composition')) return jsonResponse(200, composition());
+      if (url.endsWith('/repos') && init?.method !== 'POST') {
+        reposReads += 1;
+        // Call #1 is the mount read; call #2 is the forced sweep the first
+        // focus revalidate fires — that one fails. Every other call (the
+        // retry a later focus fires) succeeds.
+        if (reposReads === 2) return jsonResponse(500, 'engine unavailable');
+        return jsonResponse(200, { enabled: true, push_enabled: true, repos: [dirtyRepo], not_composed: [] });
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    }) as unknown as typeof fetch;
+    globalThis.fetch = fetcher;
+
+    await renderRouter(context, { initialUrl: '/composition' });
+    await screen.findByText('3 changed');
+
+    // A repo page bumped the epoch elsewhere — this screen never fired the
+    // action itself, so the next focus must find itself stale.
+    bumpGitEpoch(hostId);
+
+    await act(async () => {
+      focusCallback?.();
+    });
+
+    // The forced sweep (repos read #2) failed with keepOnError set — the
+    // prior status stays on screen. No error flash, no blanking.
+    await waitFor(() => expect(reposReads).toBe(2));
+    expect(screen.getByText('3 changed')).toBeTruthy();
+    expect(screen.queryByText(/could not fetch|unreadable/)).toBeNull();
+
+    // A failed sweep must not advance the focus hook's stamp — the epoch
+    // this screen is stamped at is still behind the bumped one, so the
+    // NEXT focus retries rather than reading as fresh.
+    await act(async () => {
+      focusCallback?.();
+    });
+    await waitFor(() => expect(reposReads).toBe(3));
+    // The retry landed — the prior status is still correct (unchanged in
+    // this fixture), proving the retry actually re-read rather than no-op.
+    expect(screen.getByText('3 changed')).toBeTruthy();
   });
 });

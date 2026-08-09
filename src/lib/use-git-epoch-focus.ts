@@ -26,6 +26,7 @@ export function useGitEpochFocusRefresh(
   revalidate: () => Promise<boolean>,
 ): { markFresh: () => void } {
   const stamp = useRef({ hostId, epoch: gitEpochOf(hostId) });
+  // eslint-disable-next-line react-hooks/refs -- idempotent reset keyed on hostId change: once stamp.current.hostId matches, this stops writing, so it cannot loop.
   if (stamp.current.hostId !== hostId) stamp.current = { hostId, epoch: gitEpochOf(hostId) };
   const hasFocusedOnce = useRef(false);
 

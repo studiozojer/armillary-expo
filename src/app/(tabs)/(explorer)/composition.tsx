@@ -58,18 +58,30 @@ export default function CompositionScreen() {
   // module's doc for why a cache exists here at all (the sweep this screen
   // needs is exactly the request the repo page used to re-pay for two
   // booleans) and why it carries a TTL rather than none.
+  // `keepOnError` mirrors `useLoader`'s own revalidate mode (design D7): a
+  // focus-triggered forced sweep nobody asked for out loud must not blank
+  // the statuses already on screen just because the fresh read failed. The
+  // pull-to-refresh and mount call sites below deliberately omit it — a
+  // pull IS the user asking out loud, so a failure there stays loud too.
+  // The returned boolean is "landed": true only when THIS call's response
+  // both succeeded and was still current when it arrived — the same
+  // landed-iff-not-superseded contract `useLoader.revalidate` upholds, so a
+  // caller composing this with `revalidate()` can just `&&` the two.
   const loadRepos = useCallback(
-    (signal?: AbortSignal, force = false) => {
+    (signal?: AbortSignal, force = false, options: { keepOnError?: boolean } = {}): Promise<boolean> => {
       const epoch = ++reposEpoch.current;
       return getCachedRepos(daemonClientFor(host.id, host.daemonUrl), host.id, generation, {
         signal,
         force,
       })
         .then((response) => {
-          if (epoch === reposEpoch.current) setRepos(response);
+          if (epoch !== reposEpoch.current) return false;
+          setRepos(response);
+          return true;
         })
         .catch(() => {
-          if (epoch === reposEpoch.current) setRepos(undefined);
+          if (epoch === reposEpoch.current && !options.keepOnError) setRepos(undefined);
+          return false;
         });
     },
     [host.daemonUrl, host.id, generation],
@@ -87,8 +99,11 @@ export default function CompositionScreen() {
   // already invalidated the cache and a lazy read must not resurrect a TTL
   // hit under an older key.
   const revalidateAll = useCallback(async (): Promise<boolean> => {
-    const [ok] = await Promise.all([revalidate(), loadRepos(undefined, true)]);
-    return ok;
+    const [compositionOk, sweepOk] = await Promise.all([
+      revalidate(),
+      loadRepos(undefined, true, { keepOnError: true }),
+    ]);
+    return compositionOk && sweepOk;
   }, [revalidate, loadRepos]);
   const { markFresh } = useGitEpochFocusRefresh(host.id, revalidateAll);
 

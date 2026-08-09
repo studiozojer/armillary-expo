@@ -233,7 +233,8 @@ describe('<RepoStateCard>', () => {
     );
     // Pull glyph must be present.
     expect(symbols).toContain(ICONS.pullVerb.ios);
-    // Sync glyph appears once (branch chevron), not in the action button.
+    // Sync glyph does not appear at all: the branch row uses gitBranch, and
+    // a behind repo's action button renders pullVerb, not sync.
     const syncSymbols = symbols.filter((name) => name === ICONS.sync.ios);
     const pullSymbols = symbols.filter((name) => name === ICONS.pullVerb.ios);
     expect(pullSymbols.length).toBeGreaterThan(0);
