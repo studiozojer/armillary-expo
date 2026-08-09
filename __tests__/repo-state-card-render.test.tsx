@@ -158,4 +158,36 @@ describe('<RepoStateCard>', () => {
     await render(<RepoStateCard state={repo()} gates={OPEN} />);
     expect(screen.queryByTestId('repo-state-card-reason')).toBeNull();
   });
+
+  it('a ready "commit" card is announced disabled and does not call back — the guard against the push misfire', async () => {
+    // Task 7 (`repo-state-card.ts`) can now return `action: 'ready', verb:
+    // 'commit'` (a dirty tree, gates all granted). `onAction` here still only
+    // knows `'fetch' | 'pull' | 'push'`, and `repo/[name].tsx`'s `onAction`
+    // maps any unrecognised verb to `pushRepo` — so an unguarded commit tap
+    // would silently push. `not.toHaveBeenCalled()` alone would pass for a
+    // dead harness too (a mock wired to nothing never fires either) — same
+    // gap this file's chevron test names explicitly — so the SAME wiring is
+    // proven live below on a 'pull'-ready card, which DOES fire. The silence
+    // above is only evidence because the wiring underneath it is proven to
+    // work at all.
+    const onAction = jest.fn();
+    const dirty = repo({ dirty_files: 3 });
+    // `rerender` on ONE instance, not a second `render` — two independent
+    // mounts each need their own unmount to avoid overlapping `act()` calls,
+    // and the point here is the SAME wiring proven live, not a fresh one.
+    const { getByTestId, rerender } = await render(
+      <RepoStateCard state={dirty} gates={OPEN} onAction={onAction} />,
+    );
+    const commitButton = getByTestId('repo-state-card-action');
+    expect(commitButton.props.accessibilityState).toMatchObject({ disabled: true });
+    fireEvent.press(commitButton);
+    expect(onAction).not.toHaveBeenCalled();
+
+    const behind = repo({ position: { kind: 'tracking', upstream: 'origin/main', ahead: 0, behind: 2 } });
+    await rerender(<RepoStateCard state={behind} gates={OPEN} onAction={onAction} />);
+    const pullButton = getByTestId('repo-state-card-action');
+    expect(pullButton.props.accessibilityState).toMatchObject({ disabled: false });
+    fireEvent.press(pullButton);
+    expect(onAction).toHaveBeenCalledWith('pull');
+  });
 });
