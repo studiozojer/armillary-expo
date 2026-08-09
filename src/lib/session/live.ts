@@ -1,3 +1,5 @@
+import type { AgentConsentKey } from '../agent-permissions';
+import { getAgentConsent } from '../agent-permissions';
 import type { SessionAPI } from './api';
 import type {
   AttachInfo,
@@ -32,10 +34,18 @@ import { createSSEParser } from './sse';
 export class LiveSessionAPI implements SessionAPI {
   private readonly baseUrl: string;
   private readonly fetcher: typeof fetch;
+  private readonly hostId: string;
 
-  constructor(baseUrl: string, fetcher: typeof fetch = fetch) {
+  /**
+   * `hostId` is the key `agent-permissions.ts`'s consent store is keyed by
+   * (same id `sessionAPIFor` memoizes clients on) — carried here so `send()`
+   * can resolve consent itself, at the moment each turn is sent, rather than
+   * a caller threading it through every call.
+   */
+  constructor(baseUrl: string, fetcher: typeof fetch = fetch, hostId: string) {
     this.baseUrl = baseUrl;
     this.fetcher = fetcher;
+    this.hostId = hostId;
   }
 
   private async request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -69,11 +79,22 @@ export class LiveSessionAPI implements SessionAPI {
     return this.request<AttachInfo>(`/instances/${encodeURIComponent(instanceId)}`);
   }
 
-  send(instanceId: string, text: string, clientKey: string): Promise<SendReceipt> {
+  /**
+   * Consent is read HERE, not cached at attach — the engine resolves the
+   * toolset per turn (D2), so a toggle flipped between two sends must reach
+   * the very next one. `agentTools` carries the currently-consented grant
+   * words for this host, camelCase to match the engine's `SendRequest`
+   * (`#[serde(rename_all = "camelCase")]`, same convention as `clientKey`).
+   * An all-false store sends an explicit `[]`, not an absent field — the
+   * engine treats both as "no tools", but the client says which one it means.
+   */
+  async send(instanceId: string, text: string, clientKey: string): Promise<SendReceipt> {
+    const consent = await getAgentConsent(this.hostId);
+    const agentTools = (Object.keys(consent) as AgentConsentKey[]).filter((key) => consent[key]);
     return this.request<SendReceipt>(`/instances/${encodeURIComponent(instanceId)}/send`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text, clientKey }),
+      body: JSON.stringify({ text, clientKey, agentTools }),
     });
   }
 

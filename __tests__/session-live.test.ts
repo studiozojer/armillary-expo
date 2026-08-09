@@ -1,8 +1,18 @@
+import { setAgentConsent } from '../src/lib/agent-permissions';
 import { LiveSessionAPI } from '../src/lib/session/live';
 import { SessionError } from '../src/lib/session/events';
 import type { EventEnvelope, SubscriptionHandler } from '../src/lib/session/events';
 
 const BASE = 'http://host:9999';
+const DEFAULT_HOST = 'host-1';
+
+function secureMock() {
+  return jest.requireMock('expo-secure-store') as { __store: Map<string, string> };
+}
+
+beforeEach(() => {
+  secureMock().__store.clear();
+});
 
 /** A minimal Response-shaped object for the non-streaming methods. */
 function jsonResponse(status: number, body: unknown) {
@@ -29,8 +39,8 @@ function sseResponse(chunks: string[]): Response {
   return new Response(stream, { status: 200 });
 }
 
-function client(fetcher: jest.Mock) {
-  return new LiveSessionAPI(BASE, fetcher as unknown as typeof fetch);
+function client(fetcher: jest.Mock, hostId: string = DEFAULT_HOST) {
+  return new LiveSessionAPI(BASE, fetcher as unknown as typeof fetch, hostId);
 }
 
 function collectingHandler(): SubscriptionHandler & {
@@ -140,7 +150,7 @@ describe('LiveSessionAPI', () => {
       expect(result).toEqual(attachInfo);
     });
 
-    it('send() POSTs {text, clientKey} and returns the SendReceipt', async () => {
+    it('send() POSTs {text, clientKey, agentTools} and returns the SendReceipt', async () => {
       const receipt = { id: 'evt-1', seq: 5 };
       const fetcher = jest.fn().mockResolvedValue(jsonResponse(201, receipt));
 
@@ -149,9 +159,61 @@ describe('LiveSessionAPI', () => {
       expect(fetcher).toHaveBeenCalledWith(`${BASE}/instances/inst-1/send`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: 'hello', clientKey: 'ck-1' }),
+        body: JSON.stringify({ text: 'hello', clientKey: 'ck-1', agentTools: ['sync', 'push', 'commit'] }),
       });
       expect(result).toEqual(receipt);
+    });
+
+    it('(a) send body carries agentTools matching the store — a partial revocation narrows it', async () => {
+      await setAgentConsent(DEFAULT_HOST, 'push', false);
+      const fetcher = jest.fn().mockResolvedValue(jsonResponse(201, { id: 'evt-1', seq: 1 }));
+
+      await client(fetcher).send('inst-1', 'hello', 'ck-1');
+
+      const [, init] = fetcher.mock.calls[0];
+      expect(JSON.parse(init.body)).toEqual({
+        text: 'hello',
+        clientKey: 'ck-1',
+        agentTools: ['sync', 'commit'],
+      });
+    });
+
+    it('(b) resolves consent at send time, not at client construction — a toggle flipped between two sends reaches the next one', async () => {
+      const fetcher = jest.fn().mockResolvedValue(jsonResponse(201, { id: 'evt-1', seq: 1 }));
+      const c = client(fetcher);
+
+      await c.send('inst-1', 'first', 'ck-1');
+      const [, firstInit] = fetcher.mock.calls[0];
+      expect(JSON.parse(firstInit.body).agentTools).toEqual(['sync', 'push', 'commit']);
+
+      await setAgentConsent(DEFAULT_HOST, 'commit', false);
+      await c.send('inst-1', 'second', 'ck-2');
+      const [, secondInit] = fetcher.mock.calls[1];
+      expect(JSON.parse(secondInit.body).agentTools).toEqual(['sync', 'push']);
+    });
+
+    it('(c) an all-false store sends an explicit empty agentTools, not an absent field', async () => {
+      await setAgentConsent(DEFAULT_HOST, 'sync', false);
+      await setAgentConsent(DEFAULT_HOST, 'push', false);
+      await setAgentConsent(DEFAULT_HOST, 'commit', false);
+      const fetcher = jest.fn().mockResolvedValue(jsonResponse(201, { id: 'evt-1', seq: 1 }));
+
+      await client(fetcher).send('inst-1', 'hello', 'ck-1');
+
+      const [, init] = fetcher.mock.calls[0];
+      const parsed = JSON.parse(init.body) as Record<string, unknown>;
+      expect('agentTools' in parsed).toBe(true);
+      expect(parsed.agentTools).toEqual([]);
+    });
+
+    it('resolves consent per host — a revocation on one host does not leak onto another client', async () => {
+      await setAgentConsent('other-host', 'sync', false);
+      const fetcher = jest.fn().mockResolvedValue(jsonResponse(201, { id: 'evt-1', seq: 1 }));
+
+      await client(fetcher, DEFAULT_HOST).send('inst-1', 'hello', 'ck-1');
+
+      const [, init] = fetcher.mock.calls[0];
+      expect(JSON.parse(init.body).agentTools).toEqual(['sync', 'push', 'commit']);
     });
 
     it('interrupt() POSTs /instances/{id}/interrupt and resolves on 204', async () => {
