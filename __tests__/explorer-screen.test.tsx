@@ -1,10 +1,36 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { renderRouter, screen } from 'expo-router/testing-library';
+import { act, renderRouter, screen, waitFor } from 'expo-router/testing-library';
 import { Stack } from 'expo-router/stack';
 
 import Explorer from '../src/app/(tabs)/(explorer)/index';
+import { __clearGitEpochForTests, bumpGitEpoch } from '../src/lib/daemon/git-epoch';
 import { HostProvider } from '../src/lib/host-context';
+import { KNOWN_HOSTS } from '../src/lib/hosts';
 import { PreferencesProvider } from '../src/lib/preferences';
+
+/**
+ * Same trick `composition-screen.test.tsx` and `instances-screen.test.tsx`
+ * use: a real `useEffect` with an empty dependency array fires the callback
+ * once per mount (matching mount-is-a-focus), and the callback is stashed so
+ * a test can invoke it again directly to simulate a LATER focus (e.g.
+ * navigating back from `/browse/...`) without fighting `renderRouter`'s real
+ * navigator for a reliable push/pop cycle.
+ */
+let focusCallback: (() => void) | undefined;
+jest.mock('expo-router', () => {
+  const actual = jest.requireActual('expo-router');
+  const ReactActual = jest.requireActual('react');
+  return {
+    ...actual,
+    useFocusEffect: (callback: () => void) => {
+      focusCallback = callback;
+      ReactActual.useEffect(() => {
+        callback();
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- fire once per mount, by design (see comment above).
+      }, []);
+    },
+  };
+});
 
 function jsonResponse(status: number, body: unknown) {
   return Promise.resolve({
@@ -33,6 +59,12 @@ function TestRootLayout() {
 describe('Explorer screen', () => {
   beforeEach(async () => {
     await AsyncStorage.clear();
+    focusCallback = undefined;
+    // git-epoch.ts is module-level state, shared across every `it` in this
+    // file — same reasoning `composition-screen.test.tsx` gives for clearing
+    // it: without this, a later test can silently read an earlier test's
+    // bumped epoch and revalidate when it should not.
+    __clearGitEpochForTests();
   });
 
   it('the footer counts what the engine returned, not the client-filtered list', async () => {
@@ -179,5 +211,75 @@ describe('Explorer screen', () => {
 
     expect(await screen.findByRole('button', { name: 'Settings' })).toBeTruthy();
     expect(await screen.findByRole('button', { name: 'Capture' })).toBeTruthy();
+  });
+
+  it('regaining focus after a git action re-reads the tree silently — pulled files appear without a gesture', async () => {
+    const treeCalls: string[] = [];
+    globalThis.fetch = jest.fn((url: string) => {
+      if (url.includes('/tree')) {
+        treeCalls.push(url);
+        const entries =
+          treeCalls.length === 1
+            ? [{ name: 'CLAUDE.md', dir: false }]
+            : [
+                { name: 'CLAUDE.md', dir: false },
+                { name: 'PULLED.md', dir: false },
+              ];
+        return jsonResponse(200, {
+          path: '',
+          total: entries.length,
+          truncated: false,
+          entries,
+        });
+      }
+      if (url.includes('/composition')) return jsonResponse(404, 'not composed');
+      throw new Error(`unexpected fetch: ${url}`);
+    }) as unknown as typeof fetch;
+
+    await renderRouter({ _layout: TestRootLayout, index: Explorer }, { initialUrl: '/' });
+    expect(await screen.findByText('CLAUDE.md')).toBeTruthy();
+    // One `GET /tree` from the initial mount; the mocked `useFocusEffect`
+    // also fires once at mount (mount-is-a-focus), but
+    // `useGitEpochFocusRefresh` skips that first focus itself.
+    expect(treeCalls.length).toBe(1);
+
+    // A repo page elsewhere pulled — this screen never fired the action
+    // itself, so the next focus must find its stamp stale.
+    bumpGitEpoch(KNOWN_HOSTS[0].id);
+
+    await act(async () => {
+      focusCallback?.();
+    });
+
+    await waitFor(() => expect(treeCalls.length).toBe(2));
+    expect(await screen.findByText('PULLED.md')).toBeTruthy();
+  });
+
+  it('regaining focus with NO action since does not re-read', async () => {
+    const treeCalls: string[] = [];
+    globalThis.fetch = jest.fn((url: string) => {
+      if (url.includes('/tree')) {
+        treeCalls.push(url);
+        return jsonResponse(200, {
+          path: '',
+          total: 1,
+          truncated: false,
+          entries: [{ name: 'CLAUDE.md', dir: false }],
+        });
+      }
+      if (url.includes('/composition')) return jsonResponse(404, 'not composed');
+      throw new Error(`unexpected fetch: ${url}`);
+    }) as unknown as typeof fetch;
+
+    await renderRouter({ _layout: TestRootLayout, index: Explorer }, { initialUrl: '/' });
+    expect(await screen.findByText('CLAUDE.md')).toBeTruthy();
+    expect(treeCalls.length).toBe(1);
+
+    await act(async () => {
+      focusCallback?.();
+    });
+
+    // Nothing bumped the epoch, so the stamp is still current — no second read.
+    expect(treeCalls.length).toBe(1);
   });
 });

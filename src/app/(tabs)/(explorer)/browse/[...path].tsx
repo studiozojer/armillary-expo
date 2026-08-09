@@ -17,6 +17,7 @@ import {
 } from '@/lib/daemon/types';
 import { useHost } from '@/lib/host-context';
 import { visibleEntries, useShowDotfiles } from '@/lib/preferences';
+import { useGitEpochFocusRefresh } from '@/lib/use-git-epoch-focus';
 import { useLoader } from '@/lib/use-loader';
 import { markedStylesFor, markedThemeFor, useTheme } from '@/theme';
 
@@ -163,7 +164,18 @@ export default function Browse() {
     [host.daemonUrl, host.id, path],
   );
 
-  const { state, refreshing, refresh } = useLoader<Node>(`${host.id}:${path}`, load, ready);
+  const { state, refreshing, refresh, revalidate } = useLoader<Node>(
+    `${host.id}:${path}`,
+    load,
+    ready,
+  );
+
+  // Action-epoch focus refresh (git-ux design D5–D7): a pull elsewhere
+  // creates files this listing should show the moment focus returns —
+  // silently, with no gesture and no spinner. Each mounted depth of the
+  // stack revalidates as focus reaches it on the way back, one screen per
+  // back-press, never all at once.
+  useGitEpochFocusRefresh(host.id, revalidate);
 
   const title = path.split('/').pop() || 'Browse';
 
