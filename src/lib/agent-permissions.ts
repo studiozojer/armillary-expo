@@ -77,13 +77,48 @@ export async function getAgentConsent(hostId: string): Promise<AgentConsent> {
 }
 
 /**
- * Flips one key and persists the resulting whole-record snapshot, so a
- * partial write can never resurrect a key that was previously revoked by
- * silently reverting it to the default on the next read.
+ * Per-host write queue. `setAgentConsent` is read-modify-write, and
+ * `settings.tsx` fires it fire-and-forget on every tap — two quick toggles on
+ * the SAME host (revoke push, then revoke commit) used to race: both reads
+ * would land before either write, so whichever write finished last won
+ * wholesale and silently resurrected the other tap's revocation. That is the
+ * one direction this store must never fail in, so writes to a given host are
+ * chained here rather than left to interleave. A prior write's rejection does
+ * not stall the queue for the next host write — chaining onto a
+ * failure-swallowed copy of the previous promise lets writes keep flowing,
+ * while the ORIGINAL promise returned to that caller still rejects, so
+ * `settings.tsx` can still react to its own write failing.
  */
-export async function setAgentConsent(hostId: string, key: AgentConsentKey, value: boolean): Promise<void> {
+const writeChains = new Map<string, Promise<void>>();
+
+async function writeConsent(hostId: string, key: AgentConsentKey, value: boolean): Promise<void> {
   const current = await getAgentConsent(hostId);
   const next = { ...current, [key]: value };
   if (!secureStorageAvailable) return;
   await SecureStore.setItemAsync(keyFor(hostId), JSON.stringify(next));
+}
+
+/**
+ * Flips one key and persists the resulting whole-record snapshot, so a
+ * partial write can never resurrect a key that was previously revoked by
+ * silently reverting it to the default on the next read. Serialized per host
+ * — see `writeChains` above — so two writes fired without awaiting between
+ * them (as `settings.tsx`'s optimistic taps do) can never race each other's
+ * read.
+ */
+export function setAgentConsent(hostId: string, key: AgentConsentKey, value: boolean): Promise<void> {
+  const previous = writeChains.get(hostId) ?? Promise.resolve();
+  const settled = previous.then(
+    () => writeConsent(hostId, key, value),
+    () => writeConsent(hostId, key, value),
+  );
+  // The chained value future writes wait on must never itself reject — a
+  // rejection consumer already exists on `settled` (whoever awaits THIS
+  // call's own return value); this copy exists only to let the NEXT queued
+  // write proceed regardless of how this one landed.
+  writeChains.set(
+    hostId,
+    settled.catch(() => undefined),
+  );
+  return settled;
 }

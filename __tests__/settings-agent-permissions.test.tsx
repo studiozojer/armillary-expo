@@ -13,7 +13,7 @@ jest.mock('expo-router', () => ({
 }));
 
 function secureMock() {
-  return jest.requireMock('expo-secure-store') as { __store: Map<string, string> };
+  return jest.requireMock('expo-secure-store') as { __store: Map<string, string>; setItemAsync: jest.Mock };
 }
 
 function jsonResponse(status: number, body: unknown) {
@@ -135,6 +135,34 @@ describe('Settings — Agent permissions', () => {
     expect(screen.getByTestId('agent-permission-commit').props.accessibilityState).toMatchObject({
       disabled: false,
     });
+  });
+
+  it('(e) a rejected write reverts the optimistic flip — the UI never keeps claiming a revocation the store never held', async () => {
+    stubHealthOnly();
+    await renderSettings();
+
+    await waitFor(() => expect(screen.getByTestId('agent-permission-push')).toBeTruthy());
+
+    // The Keychain write behind this one tap fails — locked, full, whatever
+    // the reason. The optimistic flip must not be left standing once that's
+    // known, or the screen shows "revoked" over a store that is still fully
+    // consented (the same silent-widen shape as the interleaved-taps race).
+    // (Not asserted mid-flight: the optimistic set and its revert can both
+    // settle within the same microtask flush `fireEvent.press` awaits, so the
+    // only reliably observable state here is the settled one below.)
+    const setItemAsync = secureMock().setItemAsync;
+    setItemAsync.mockRejectedValueOnce(new Error('keychain locked'));
+    await fireEvent.press(screen.getByTestId('agent-permission-push'));
+
+    // The write was attempted...
+    expect(setItemAsync).toHaveBeenCalled();
+    // ...and having failed, the flip reverts: the store never actually
+    // recorded the revocation, so the UI must not keep claiming it did.
+    await waitFor(() =>
+      expect(screen.getByTestId('agent-permission-push').props.accessibilityState).toMatchObject({
+        checked: true,
+      }),
+    );
   });
 });
 

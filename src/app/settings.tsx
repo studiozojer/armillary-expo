@@ -251,12 +251,17 @@ function AgentPermissions({ host, facts }: { host: Host; facts: WhoamiResponse |
 
   const onToggle = useCallback(
     (key: AgentConsentKey, next: boolean) => {
-      // Optimistic: the store write is fire-and-forget the same way
-      // `setShowDotfiles` treats `saveShowDotfiles` — the UI reflects the tap
-      // immediately rather than waiting on a Keychain round trip for a value
-      // that, once written, never fails to have been the local truth.
+      // Optimistic: the UI reflects the tap immediately rather than waiting
+      // on a Keychain round trip. Unlike `setShowDotfiles`/`saveShowDotfiles`
+      // though, a failed write here can't be shrugged off — this store is
+      // what `send()` reads, so UI-says-revoked/store-says-consented is the
+      // same silent-widen shape a lost write would be. A rejection reverts
+      // the flip rather than leaving the screen claiming a state the store
+      // never actually holds.
       setConsent((prev) => (prev ? { ...prev, [key]: next } : prev));
-      void setAgentConsent(host.id, key, next);
+      setAgentConsent(host.id, key, next).catch(() => {
+        setConsent((prev) => (prev ? { ...prev, [key]: !next } : prev));
+      });
     },
     [host.id],
   );

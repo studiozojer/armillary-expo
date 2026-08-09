@@ -37,4 +37,29 @@ describe('agent-permissions store', () => {
     secureMock().getItemAsync.mockRejectedValueOnce(new Error('keychain locked'));
     await expect(getAgentConsent('benatky')).resolves.toEqual({ sync: true, push: true, commit: true });
   });
+
+  it('serializes two interleaved writes to the same host — a slow first read must never let a fast second write get clobbered', async () => {
+    // Reproduces the settings.tsx shape: two taps fire without awaiting
+    // between them (revoke push, then revoke commit). Each write is its own
+    // read-modify-write; if both reads race, whichever write LANDS LAST wins
+    // wholesale and silently resurrects the other tap's revocation — the one
+    // direction a consent surface must never fail (widening quietly).
+    //
+    // The first call's read captures its snapshot immediately (matching what
+    // a real Keychain read observes at call time) but doesn't RESOLVE until
+    // after the second call's entire read-modify-write would have finished
+    // uncontested — the shape that breaks an unserialized read-modify-write.
+    const mock = secureMock();
+    mock.getItemAsync.mockImplementationOnce((key: string) => {
+      const value = mock.__store.has(key) ? mock.__store.get(key) : null;
+      return new Promise((resolve) => setTimeout(() => resolve(value), 10));
+    });
+
+    const firstTap = setAgentConsent('benatky', 'push', false);
+    const secondTap = setAgentConsent('benatky', 'commit', false);
+    await Promise.all([firstTap, secondTap]);
+
+    // Both revocations must survive — neither write may resurrect the other.
+    await expect(getAgentConsent('benatky')).resolves.toEqual({ sync: true, push: false, commit: false });
+  });
 });
