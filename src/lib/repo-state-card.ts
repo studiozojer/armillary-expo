@@ -67,7 +67,11 @@ function commitCount(n: number): string {
   return pluralCount(n, 'commit');
 }
 
-function fileCount(n: number): string {
+/** Exported for `repo-tabs.tsx`'s `CommitForm` — the SAME "1 file"/"N files"
+ *  reading the State Card's own `Commit …` label uses, so the button above
+ *  the file list and the card that pointed at it never disagree on how they
+ *  count the same dirty tree. */
+export function fileCount(n: number): string {
   return pluralCount(n, 'file');
 }
 
