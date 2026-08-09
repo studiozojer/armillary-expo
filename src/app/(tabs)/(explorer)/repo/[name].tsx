@@ -44,7 +44,7 @@ type Loaded = {
   changes: ChangedFile[];
   /** The MANIFEST halves only — what `GET /repos` actually reported. The
    *  device half is local (the Keychain), merged in at the render site. */
-  gates: { enabled: GateState; pushEnabled: GateState };
+  gates: { enabled: GateState; pushEnabled: GateState; commitEnabled: GateState };
 };
 
 type ScreenState =
@@ -127,7 +127,11 @@ export default function RepoScreen() {
       // Held closed until auth has hydrated, for the same fail-closed reason
       // the gates read does it: offering a verb we cannot yet authenticate
       // produces a 401 that reads as an engine fault.
-      const gates = { enabled: gateState(repos, repos?.enabled), pushEnabled: gateState(repos, repos?.push_enabled) };
+      const gates = {
+        enabled: gateState(repos, repos?.enabled),
+        pushEnabled: gateState(repos, repos?.push_enabled),
+        commitEnabled: gateState(repos, repos?.commit_enabled),
+      };
       // `read_error` is a 200-with-a-field, not a thrown `DaemonError` (see
       // `types.ts`'s doc on `RepoState.read_error`), so `repo` above always
       // resolves for a name the manifest knows. An unreadable repo has
@@ -247,6 +251,7 @@ export default function RepoScreen() {
                         gates: {
                           enabled: gateState(repos, repos.enabled),
                           pushEnabled: gateState(repos, repos.push_enabled),
+                          commitEnabled: gateState(repos, repos.commit_enabled),
                         },
                       },
                     }

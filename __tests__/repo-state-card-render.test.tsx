@@ -21,8 +21,8 @@ function repo(overrides: Partial<RepoState> = {}): RepoState {
   };
 }
 
-const OPEN = { enabled: 'granted' as const, pushEnabled: 'granted' as const, device: 'enrolled' as const };
-const CLOSED = { enabled: 'refused' as const, pushEnabled: 'refused' as const, device: 'enrolled' as const };
+const OPEN = { enabled: 'granted' as const, pushEnabled: 'granted' as const, commitEnabled: 'granted' as const, device: 'enrolled' as const };
+const CLOSED = { enabled: 'refused' as const, pushEnabled: 'refused' as const, commitEnabled: 'refused' as const, device: 'enrolled' as const };
 
 describe('<RepoStateCard>', () => {
   it('shows the branch label and name', async () => {

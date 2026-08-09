@@ -47,7 +47,7 @@ export function RepoStateCard({
   testID = 'repo-state-card',
 }: {
   state: RepoState;
-  gates: { enabled: GateState; pushEnabled: GateState; device: DeviceGate };
+  gates: { enabled: GateState; pushEnabled: GateState; commitEnabled: GateState; device: DeviceGate };
   inFlight?: 'fetch' | 'pull' | 'push';
   onAction?: (verb: 'fetch' | 'pull' | 'push') => void;
   testID?: string;
@@ -149,11 +149,23 @@ export function RepoStateCard({
             guarantees `verb` is non-null only when `action === 'ready'`). */}
         <Pressable
           testID={`${testID}-action`}
-          disabled={model.verb === null}
-          onPress={model.verb ? () => onAction?.(model.verb as 'fetch' | 'pull' | 'push') : undefined}
+          // `'commit'` is a real, ready verb as of this task's ladder, but
+          // `onAction` here still only knows `'fetch' | 'pull' | 'push'` —
+          // wiring the commit call itself is Task 8's job. Guarded off
+          // rather than cast through: `repo/[name].tsx`'s `onAction` maps an
+          // unrecognised third verb to `pushRepo` (its own ternary's `else`
+          // branch), so casting `'commit'` through would silently fire a
+          // push on a tap of "Commit N files" — the wrong verb entirely, not
+          // just an untyped one.
+          disabled={model.verb === null || model.verb === 'commit'}
+          onPress={
+            model.verb && model.verb !== 'commit'
+              ? () => onAction?.(model.verb as 'fetch' | 'pull' | 'push')
+              : undefined
+          }
           accessibilityRole="button"
           accessibilityLabel={model.sublabel ? `${model.label}. ${model.sublabel}` : model.label}
-          accessibilityState={{ disabled: model.verb === null, busy }}
+          accessibilityState={{ disabled: model.verb === null || model.verb === 'commit', busy }}
           style={{
             flex: 1,
             flexDirection: 'row',
