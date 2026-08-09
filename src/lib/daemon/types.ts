@@ -136,6 +136,8 @@ export type ReposResponse = {
   enabled: boolean;
   /** The `push` grant — separate on purpose. */
   push_enabled: boolean;
+  /** The `commit` grant — authorship, separate from both. */
+  commit_enabled: boolean;
   repos: RepoState[];
   /**
    * Repo-relative paths of git checkouts on disk that no manifest declares —

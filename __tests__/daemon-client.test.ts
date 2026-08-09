@@ -14,6 +14,24 @@ function clientWith(fetcher: jest.Mock) {
   return new DaemonClient('http://host:7778', fetcher as unknown as typeof fetch);
 }
 
+/**
+ * Records every call's URL and `RequestInit` rather than only the last —
+ * `commitRepo`'s body lives in `init`, and `toHaveBeenCalledWith` alone
+ * can't distinguish "no Content-Type header" from "no body at all".
+ */
+function clientWithScriptedFetch(calls: { url: string; init?: RequestInit }[], body: unknown) {
+  const fetcher = jest.fn((url: string, init?: RequestInit) => {
+    calls.push({ url, init });
+    return Promise.resolve({
+      ok: true,
+      status: 200,
+      json: async () => body,
+      text: async () => JSON.stringify(body),
+    });
+  });
+  return new DaemonClient('http://host', fetcher as unknown as typeof fetch);
+}
+
 describe('DaemonClient', () => {
   it('encodes the path so spaces and slashes survive the query string', async () => {
     const fetcher = mockFetch(200, { path: 'a b/c', entries: [] });
@@ -180,6 +198,37 @@ describe('per-repo git', () => {
 
     await expect(client.pushRepo('jianyi')).rejects.toBeInstanceOf(DaemonError);
     await expect(client.pushRepo('jianyi')).rejects.toMatchObject({ status: 403 });
+  });
+
+  const REPO_STATE = {
+    name: 'zojercommons',
+    path: 'zojercommons',
+    head: 'abc',
+    branch: 'main',
+    position: { kind: 'tracking', upstream: 'origin/main', ahead: 0, behind: 0 },
+    dirty_files: 0,
+    worktrees: 0,
+    submodules: false,
+  };
+
+  it('commitRepo POSTs a JSON body with the message', async () => {
+    const calls: { url: string; init?: RequestInit }[] = [];
+    const client = clientWithScriptedFetch(calls, REPO_STATE);
+    await client.commitRepo('zojercommons', 'test: subject');
+
+    expect(calls[0].url).toContain('/repos/zojercommons/commit');
+    expect(calls[0].init?.method).toBe('POST');
+    expect(new Headers(calls[0].init?.headers).get('Content-Type')).toBe('application/json');
+    expect(JSON.parse(String(calls[0].init?.body))).toEqual({ message: 'test: subject' });
+  });
+
+  it('bodyless verbs still send no body', async () => {
+    // fetchRepo after the post() signature change: init.body must be undefined.
+    const calls: { url: string; init?: RequestInit }[] = [];
+    const client = clientWithScriptedFetch(calls, REPO_STATE);
+    await client.fetchRepo('zojercommons');
+
+    expect(calls[0].init?.body).toBeUndefined();
   });
 });
 
