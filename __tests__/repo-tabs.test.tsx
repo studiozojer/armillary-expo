@@ -130,6 +130,80 @@ describe('<RepoTabs> — Changes rows are read-only', () => {
   });
 });
 
+describe('<RepoTabs> — the commit form (Task 8)', () => {
+  it('appears above the file list when onCommit is provided', async () => {
+    await render(<RepoTabs commits={[]} changes={CHANGES} onCommit={jest.fn()} />);
+    await fireEvent.press(screen.getByTestId('repo-tabs-changes-tab'));
+
+    expect(screen.getByTestId('commit-message-input')).toBeTruthy();
+    expect(screen.getByText('Commit 2 files')).toBeTruthy();
+  });
+
+  it('the button is disabled until the message is non-empty', async () => {
+    // Prove-the-instrument (per-repo-git's own idiom): a mock that THROWS
+    // when called, not a plain `jest.fn()`. `not.toHaveBeenCalled()` alone
+    // would pass for a dead harness too — a control wired to nothing never
+    // fires either — so the disabled half's "silence" is only evidence
+    // because the SAME wiring is proven live below, once the message is
+    // non-empty. And the check itself goes through `fireEvent.press`, never
+    // `button.props.onPress` — Pressable never forwards `onPress` to the
+    // host node RN's test harness resolves `getByTestId` to, so an
+    // assertion on that prop cannot fail regardless of what actually
+    // happens on a tap.
+    const onCommit = jest.fn((message: string) => {
+      throw new Error(`onCommit fired with: ${message}`);
+    });
+    await render(<RepoTabs commits={[]} changes={CHANGES} onCommit={onCommit} />);
+    await fireEvent.press(screen.getByTestId('repo-tabs-changes-tab'));
+
+    const button = screen.getByTestId('commit-action');
+    expect(button.props.accessibilityState).toMatchObject({ disabled: true });
+    // Silence: a disabled `Pressable` never invokes `onPress` at all, so the
+    // throwing mock never runs — `fireEvent.press` here is async (this
+    // harness's own `render`/`fireEvent` are awaited throughout this file),
+    // so a plain `await` is the "did not throw" assertion: a rejection would
+    // surface right here and fail the test.
+    await fireEvent.press(button);
+    expect(onCommit).not.toHaveBeenCalled();
+
+    await fireEvent.changeText(screen.getByTestId('commit-message-input'), 'msg');
+    const enabled = screen.getByTestId('commit-action');
+    expect(enabled.props.accessibilityState).toMatchObject({ disabled: false });
+    // Live: the identical wiring now reaches the handler, and the throw it
+    // raises surfaces as a REJECTED promise (same reasoning
+    // `preferences-provider.test.tsx` uses for its own thrown-during-render
+    // case) — proof the silence above was the control, not a harness that
+    // could never fire.
+    await expect(fireEvent.press(enabled)).rejects.toThrow('onCommit fired with: msg');
+    expect(onCommit).toHaveBeenCalledTimes(1);
+    expect(onCommit).toHaveBeenCalledWith('msg');
+  });
+
+  it('no form renders when onCommit is absent', async () => {
+    // Ungated device (or any caller that hasn't wired the verb yet): the
+    // read-only rows render exactly as they did before this task, and the
+    // commit affordance simply doesn't exist rather than appearing disabled.
+    await render(<RepoTabs commits={[]} changes={CHANGES} />);
+    await fireEvent.press(screen.getByTestId('repo-tabs-changes-tab'));
+
+    expect(screen.queryByTestId('commit-message-input')).toBeNull();
+    expect(screen.queryByTestId('commit-action')).toBeNull();
+    expect(screen.getByTestId('repo-tabs-change-0-marker')).toBeTruthy();
+    expect(screen.getByTestId('repo-tabs-change-1-marker')).toBeTruthy();
+  });
+
+  it('opens directly on Changes when initialTab is set — the card-tap route', async () => {
+    // `repo/[name].tsx` forces this on a `'commit'` tap of the State Card
+    // (a remount keyed off `changesFocus`, seeding this prop) rather than
+    // reaching into `RepoTabs`'s own tab state some other way.
+    await render(<RepoTabs commits={[commit()]} changes={CHANGES} initialTab="changes" />);
+    expect(screen.getByTestId('repo-tabs-changes-tab').props.accessibilityState).toMatchObject({
+      selected: true,
+    });
+    expect(screen.getByText('crates/armillary-engine/src/git.rs')).toBeTruthy();
+  });
+});
+
 describe('commitAge', () => {
   const now = new Date(2026, 7, 5, 12, 0);
 

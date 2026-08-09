@@ -53,14 +53,26 @@ export type CardModel = {
   /** Rendered only when tone !== 'none'. Why the action is unavailable, and what unblocks it. */
   reason?: string;
   /** What to actually call. `null` whenever action !== 'ready'. */
-  verb: 'fetch' | 'pull' | 'push' | null;
+  verb: 'fetch' | 'pull' | 'push' | 'commit' | null;
 };
 
-/** "1 commit", "3 commits" — one-ahead/one-behind is the most common
- *  non-clean state, and "Push 1 commits" reads as broken English on exactly
- *  the case a user hits most often. */
+/** "1 commit", "3 commits", "1 file", "4 files" — one-ahead/one-behind (or
+ *  one dirty file) is the most common non-clean state, and "Push 1 commits"
+ *  reads as broken English on exactly the case a user hits most often. */
+function pluralCount(n: number, noun: string): string {
+  return `${n} ${noun}${n === 1 ? '' : 's'}`;
+}
+
 function commitCount(n: number): string {
-  return `${n} commit${n === 1 ? '' : 's'}`;
+  return pluralCount(n, 'commit');
+}
+
+/** Exported for `repo-tabs.tsx`'s `CommitForm` — the SAME "1 file"/"N files"
+ *  reading the State Card's own `Commit …` label uses, so the button above
+ *  the file list and the card that pointed at it never disagree on how they
+ *  count the same dirty tree. */
+export function fileCount(n: number): string {
+  return pluralCount(n, 'file');
 }
 
 /**
@@ -121,6 +133,21 @@ const ACTION_ERROR_CARD: Record<ActionErrorKind, { label: string; tone: 'warn' |
     tone: 'error',
     reason: 'The request to the remote timed out.',
   },
+  'nothing-to-commit': {
+    label: 'Nothing to commit',
+    tone: 'warn',
+    reason: 'Nothing to commit — the working tree is clean.',
+  },
+  detached: {
+    label: 'Refused — detached',
+    tone: 'warn',
+    reason: 'HEAD is detached on the host — commits need a branch.',
+  },
+  'commit-failed': {
+    label: 'Commit declined',
+    tone: 'warn',
+    reason: 'The commit was declined on the host.',
+  },
 };
 
 const IN_FLIGHT_LABEL: Record<'fetch' | 'pull' | 'push', string> = {
@@ -148,6 +175,14 @@ const PUSH_NOT_GRANTED =
 /** Push's counterpart to `SYNC_UNKNOWN` — the `push` grant could not be read. */
 const PUSH_UNKNOWN =
   'Couldn’t read this host’s grants, so push is held closed. Pull to refresh.';
+
+/** Shown when commit specifically would otherwise run but the host has REFUSED `commit`. */
+const COMMIT_NOT_GRANTED =
+  'Commit is not granted on this host (a separate "commit" grant from "sync" and "push"). Ask the host to enable it (`commit = true` under `[router]`).';
+
+/** Commit's counterpart to `SYNC_UNKNOWN`/`PUSH_UNKNOWN` — the `commit` grant could not be read. */
+const COMMIT_UNKNOWN =
+  'Couldn’t read this host’s grants, so commit is held closed. Pull to refresh.';
 
 /** Shown when the device holds no token for this host at all. */
 const DEVICE_UNENROLLED =
@@ -205,17 +240,17 @@ export function deviceMayAct(device: DeviceGate, manifest: GateState): boolean {
  * anomaly the user did not cause and should see flagged.
  */
 function verbBlocked(
-  gates: { enabled: GateState; pushEnabled: GateState; device: DeviceGate },
-  which: 'sync' | 'push',
+  gates: { enabled: GateState; pushEnabled: GateState; commitEnabled: GateState; device: DeviceGate },
+  which: 'sync' | 'push' | 'commit',
 ): { tone: CardTone; reason: string } | null {
   if (gates.device === 'unenrolled') return { tone: 'neutral', reason: DEVICE_UNENROLLED };
   if (gates.device === 'rejected') return { tone: 'warn', reason: DEVICE_REJECTED };
 
-  const gate = which === 'push' ? gates.pushEnabled : gates.enabled;
+  const gate = which === 'push' ? gates.pushEnabled : which === 'commit' ? gates.commitEnabled : gates.enabled;
   if (gate === 'granted') return null;
-  return which === 'push'
-    ? gateBlocked(gate, PUSH_NOT_GRANTED, PUSH_UNKNOWN)
-    : gateBlocked(gate, SYNC_NOT_GRANTED, SYNC_UNKNOWN);
+  if (which === 'push') return gateBlocked(gate, PUSH_NOT_GRANTED, PUSH_UNKNOWN);
+  if (which === 'commit') return gateBlocked(gate, COMMIT_NOT_GRANTED, COMMIT_UNKNOWN);
+  return gateBlocked(gate, SYNC_NOT_GRANTED, SYNC_UNKNOWN);
 }
 
 /**
@@ -248,7 +283,12 @@ function verbBlocked(
  * 8. `behind > 0 && dirty_files > 0` — a pull is theoretically possible but
  *    `--ff-only` still touches the working tree's ref, and a dirty tree
  *    means uncommitted work sits between HEAD and the merge. The common
- *    friction state, named plainly.
+ *    friction state, named plainly. **No longer a pure dead end**: when the
+ *    `commit` grant is real (`gates.commitEnabled`), committing the dirty
+ *    tree is exactly what unblocks rule 9's pull, so this rung offers
+ *    `Commit N file(s)` with a reason naming what it unblocks; when the
+ *    grant is not real, the dead-end copy from before this rule existed is
+ *    unchanged verbatim.
  * 9. `behind > 0`, clean — a pull is genuinely safe. Gated on `gates.enabled`
  *    (the `sync` grant) at the point it would otherwise run, not earlier:
  *    a detached HEAD or a diverged branch is exactly as true whether or not
@@ -260,6 +300,12 @@ function verbBlocked(
  *    blocks a pull (rule 8) has no analog here. Gated on `gates.pushEnabled`
  *    specifically (design D7: push is its own grant, separate from `sync`),
  *    at the same "point of use" as rule 9.
+ * 10a. Plain dirty (`dirty_files > 0`, nothing ahead or behind) — a commit is
+ *    offered on its own, immediately ahead of rule 11, with no reason line
+ *    (nothing else is being unblocked, so there is nothing more to say).
+ *    Gated on `gates.commitEnabled`; falls through to rule 11 rather than
+ *    blocking when the grant is not real — there is no dead end to preserve
+ *    here, since this rung did not exist before this feature.
  * 11. Otherwise — nothing ahead, nothing behind, nothing dirty: a plain
  *    fetch, gated on `gates.enabled` like rule 9.
  *
@@ -271,7 +317,7 @@ function verbBlocked(
  */
 export function stateCard(
   s: RepoState,
-  gates: { enabled: GateState; pushEnabled: GateState; device: DeviceGate },
+  gates: { enabled: GateState; pushEnabled: GateState; commitEnabled: GateState; device: DeviceGate },
   inFlight?: 'fetch' | 'pull' | 'push',
 ): CardModel {
   const sublabel = s.last_fetch ? relative(s.last_fetch, new Date()) : 'No fetch recorded';
@@ -364,6 +410,20 @@ export function stateCard(
       }
 
       if (behind > 0 && s.dirty_files > 0) {
+        // The commit gate is real: committing the dirty tree is what
+        // unblocks the pull rule 9 would otherwise offer, so — when granted
+        // — this rung becomes a live offer rather than the dead end below.
+        const commitBlocked = verbBlocked(gates, 'commit');
+        if (!commitBlocked) {
+          return {
+            action: 'ready',
+            tone: 'neutral',
+            label: `Commit ${fileCount(s.dirty_files)}`,
+            sublabel,
+            reason: `Committing unblocks Pull ${commitCount(behind)}.`,
+            verb: 'commit',
+          };
+        }
         return {
           action: 'blocked',
           tone: 'warn',
@@ -392,6 +452,25 @@ export function stateCard(
           return { action: 'blocked', tone, label: `Push ${commitCount(ahead)}`, sublabel, reason, verb: null };
         }
         return { action: 'ready', tone: 'none', label: `Push ${commitCount(ahead)}`, sublabel, verb: 'push' };
+      }
+
+      // Nothing ahead, nothing behind, but the tree is dirty: a commit is
+      // offered plainly, ahead of the freshness rung below. No `reason` line
+      // — unlike rule 8's commit offer, nothing else is being unblocked by
+      // it, so there is nothing more to say than the button already says.
+      // Falls through to today's behavior (rule 11, below) when the commit
+      // gate is blocked, rather than surfacing a new dead end of its own.
+      if (s.dirty_files > 0) {
+        const commitBlocked = verbBlocked(gates, 'commit');
+        if (!commitBlocked) {
+          return {
+            action: 'ready',
+            tone: 'none',
+            label: `Commit ${fileCount(s.dirty_files)}`,
+            sublabel,
+            verb: 'commit',
+          };
+        }
       }
 
       const blocked = verbBlocked(gates, 'sync');

@@ -1,12 +1,13 @@
-import { useState } from 'react';
-import { Pressable } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Pressable, TextInput } from 'react-native';
 
 import type { ChangedFile, Commit } from '@/lib/daemon/types';
+import { fileCount } from '@/lib/repo-state-card';
 import { useTheme, type ColorRole } from '@/theme';
 
-import { Box, Icon, Inline, Stack, Text, type IconName } from './ui';
+import { Box, Button, Icon, Inline, Stack, Text, type IconName } from './ui';
 
-type Tab = 'changes' | 'history';
+export type Tab = 'changes' | 'history';
 
 /** The underline's thickness. Not a `theme.space` value — same reasoning as
  *  `repo-state-card.tsx`'s `PROGRESS_HEIGHT`: Figma's 2px lands between the
@@ -115,12 +116,15 @@ function TabButton({
 }
 
 /** The 28px tinted glyph box every row (History's unpushed marker, every
- *  Changes row) trails with. A status indicator, not a control — there is no
- *  verb behind it (force-pushing an unpushed commit and staging/unstaging a
- *  change are both out of v1, D6), so it is a plain `Box`, never a
- *  `Pressable`: giving it a press target would announce an affordance this
- *  build does not honor, the exact defect the Changes tab's read-only rule
- *  exists to end. */
+ *  Changes row) trails with. A status indicator, not a control — force-
+ *  pushing an unpushed commit and staging/unstaging a SINGLE change are both
+ *  still out of v1 (D6), so this marker itself carries no verb and stays a
+ *  plain `Box`, never a `Pressable`: giving it a press target would announce
+ *  a per-row affordance this build does not honor, the exact defect the
+ *  Changes tab's read-only-ROWS rule exists to end. Staging stays out;
+ *  committing now lives in the form above (`CommitForm`, Task 8) — that verb
+ *  acts on the whole dirty tree at once, from a message field and button
+ *  rendered ABOVE this list, never from a tap on any one row's marker. */
 function Marker({ icon, color, testID }: { icon: IconName; color: ColorRole; testID?: string }) {
   return (
     <Box
@@ -219,6 +223,70 @@ function EmptyState({ text }: { text: string }) {
 }
 
 /**
+ * The message field and its button (Task 8; Figma's Changes tab siblings) —
+ * rendered above the file list ONLY when there is something to commit and a
+ * caller has actually wired `onCommit` (an ungated device sees the read-only
+ * rows and nothing else, same as before this task).
+ *
+ * Owns the draft message itself, same idiom the rest of this file uses for a
+ * subcomponent's own concern (`TabButton` owns nothing, `HistoryRow` owns
+ * nothing — this is the first row in this file with something local to keep,
+ * so it is the first to need its own `useState`). `disabled` is computed
+ * from the TRIMMED message — a string of only spaces is not a message — and
+ * from `commitInFlight`, so a second tap cannot fire a second commit while
+ * the first is still in flight.
+ *
+ * The button itself is daoUI's own `Button`, not a bare `Pressable`: it
+ * already wires `onPress={disabled ? undefined : onPress}` — the exact
+ * "control genuinely cannot fire" guarantee `repo-state-card.tsx`'s own
+ * disabled action button relies on (see that file's Pressable, and this
+ * task's witness test), rather than a second hand-rolled version of it here.
+ */
+function CommitForm({
+  fileCountLabel,
+  commitInFlight,
+  onCommit,
+}: {
+  fileCountLabel: string;
+  commitInFlight: boolean;
+  onCommit: (message: string) => void;
+}) {
+  const theme = useTheme();
+  const [message, setMessage] = useState('');
+  const trimmed = message.trim();
+
+  return (
+    <Stack gap="sm" style={{ width: '100%', paddingBottom: theme.space.md }}>
+      <TextInput
+        testID="commit-message-input"
+        value={message}
+        onChangeText={setMessage}
+        placeholder="What shifted?"
+        placeholderTextColor={theme.color.txTertiary}
+        multiline
+        style={{
+          color: theme.color.txPrimary,
+          backgroundColor: theme.color.bgSolidCard,
+          borderRadius: theme.radius.md,
+          borderWidth: theme.border.thin,
+          borderColor: theme.color.bdBase,
+          paddingHorizontal: theme.space.md,
+          paddingVertical: theme.space.sm,
+          minHeight: 72,
+          textAlignVertical: 'top',
+        }}
+      />
+      <Button
+        testID="commit-action"
+        label={`Commit ${fileCountLabel}`}
+        onPress={() => onCommit(trimmed)}
+        disabled={trimmed.length === 0 || commitInFlight}
+      />
+    </Stack>
+  );
+}
+
+/**
  * The repo page's Changes/History section (Task 12; Figma `342:5002` and
  * siblings). Owns its own tab state — the route hands it the two lists it
  * already loaded and nothing about which tab is showing.
@@ -235,6 +303,10 @@ export function RepoTabs({
   changes,
   now = new Date(),
   testID = 'repo-tabs',
+  onCommit,
+  commitInFlight = false,
+  initialTab = 'history',
+  focusChanges,
 }: {
   commits: Commit[];
   changes: ChangedFile[];
@@ -245,8 +317,42 @@ export function RepoTabs({
    *  just be a second false claim standing in for the fix.) */
   now?: Date;
   testID?: string;
+  /** Absent on an ungated device (or wherever the caller has not wired the
+   *  commit verb yet) — the form below renders ONLY when this is set, so a
+   *  build that hasn't wired it still shows exactly the read-only rows it
+   *  showed before this task (see the second required test). */
+  onCommit?: (message: string) => void;
+  /** Disables the form's own button independently of the message's content —
+   *  `repo/[name].tsx` sets this from the SAME `inFlight === 'commit'` fact
+   *  that drives the State Card's busy reading elsewhere on that screen. */
+  commitInFlight?: boolean;
+  /** Seeds which tab is showing on MOUNT only (a plain `useState` initial
+   *  value, not a live binding). Still used directly by callers that want a
+   *  tab pre-selected from first render (this component's own test suite);
+   *  `repo/[name].tsx` no longer uses it for the card-tap route — see
+   *  `focusChanges` below, which replaced a keyed remount that used to seed
+   *  this prop instead. */
+  initialTab?: Tab;
+  /** Bumped by the caller to focus the Changes tab WITHOUT remounting this
+   *  component (whole-branch review IMPORTANT-2). `repo/[name].tsx` used to
+   *  force this by changing `key` on `<RepoTabs>`, which remounted the
+   *  WHOLE subtree — including `CommitForm`'s own `useState('')` — so a
+   *  second tap of the State Card's `'commit'` verb while a message was
+   *  already half-typed silently erased it. A prop read by an effect can
+   *  flip `active` without touching any other local state underneath it.
+   *  `0`/`undefined` never fires (the caller's own counter starts at `0`
+   *  and only bumps on a real tap), so a page that never taps `'commit'`
+   *  still opens on `initialTab`/`'history'` exactly as before. Firing the
+   *  effect again on a REPEAT bump (the same target value, `'changes'`) is
+   *  harmless — `setActive('changes')` when already on `'changes'` is a
+   *  no-op re-render, not a remount, so nothing downstream resets. */
+  focusChanges?: number;
 }) {
-  const [active, setActive] = useState<Tab>('history');
+  const [active, setActive] = useState<Tab>(initialTab);
+
+  useEffect(() => {
+    if (focusChanges !== undefined && focusChanges > 0) setActive('changes');
+  }, [focusChanges]);
 
   return (
     <Stack style={{ width: '100%' }} testID={testID}>
@@ -269,14 +375,23 @@ export function RepoTabs({
         changes.length === 0 ? (
           <EmptyState text="No uncommitted changes." />
         ) : (
-          changes.map((file, i) => (
-            <ChangeRow
-              key={file.path}
-              file={file}
-              last={i === changes.length - 1}
-              testID={`${testID}-change-${i}`}
-            />
-          ))
+          <>
+            {onCommit ? (
+              <CommitForm
+                fileCountLabel={fileCount(changes.length)}
+                commitInFlight={commitInFlight}
+                onCommit={onCommit}
+              />
+            ) : null}
+            {changes.map((file, i) => (
+              <ChangeRow
+                key={file.path}
+                file={file}
+                last={i === changes.length - 1}
+                testID={`${testID}-change-${i}`}
+              />
+            ))}
+          </>
         )
       ) : commits.length === 0 ? (
         <EmptyState text="No commits yet." />

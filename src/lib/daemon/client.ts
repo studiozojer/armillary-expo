@@ -40,13 +40,20 @@ export class DaemonClient {
   }
 
   /**
-   * The per-repo git verbs are POSTs with no body — the name is in the path
-   * and there is nothing else to say. A 403 here is meaningful rather than
-   * generic: the host has not granted the `sync` or `push` gate, and the
-   * screen hides the action rather than showing an error.
+   * The per-repo git verbs are POSTs. Most carry no body — the name is in the
+   * path and there is nothing else to say — but `commitRepo` is the first
+   * with something to say (the message), hence the trailing optional `body`.
+   * A 403 here is meaningful rather than generic: the host has not granted
+   * the `sync`/`push`/`commit` gate, and the screen hides the action rather
+   * than showing an error.
    */
-  private async post<T>(path: string, signal?: AbortSignal): Promise<T> {
-    const response = await this.fetcher(`${this.baseUrl}${path}`, { method: 'POST', signal });
+  private async post<T>(path: string, signal?: AbortSignal, body?: unknown): Promise<T> {
+    const init: RequestInit = { method: 'POST', signal };
+    if (body !== undefined) {
+      init.headers = { 'Content-Type': 'application/json' };
+      init.body = JSON.stringify(body);
+    }
+    const response = await this.fetcher(`${this.baseUrl}${path}`, init);
     if (!response.ok) {
       throw new DaemonError(response.status, await response.text());
     }
@@ -121,6 +128,15 @@ export class DaemonClient {
 
   pushRepo(name: string, signal?: AbortSignal): Promise<RepoState> {
     return this.post<RepoState>(`/repos/${encodeURIComponent(name)}/push`, signal);
+  }
+
+  /**
+   * The first repo verb with a body: the commit message. Same 200-with-
+   * `action_error` contract as its siblings — a refusal (clean tree, detached
+   * HEAD, declined hook) is a fact about the repo, not a failed request.
+   */
+  commitRepo(name: string, message: string, signal?: AbortSignal): Promise<RepoState> {
+    return this.post<RepoState>(`/repos/${encodeURIComponent(name)}/commit`, signal, { message });
   }
 
   /** Fetches every composed repo in one round trip; returns each repo's new state. */

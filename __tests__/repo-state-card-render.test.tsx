@@ -21,8 +21,8 @@ function repo(overrides: Partial<RepoState> = {}): RepoState {
   };
 }
 
-const OPEN = { enabled: 'granted' as const, pushEnabled: 'granted' as const, device: 'enrolled' as const };
-const CLOSED = { enabled: 'refused' as const, pushEnabled: 'refused' as const, device: 'enrolled' as const };
+const OPEN = { enabled: 'granted' as const, pushEnabled: 'granted' as const, commitEnabled: 'granted' as const, device: 'enrolled' as const };
+const CLOSED = { enabled: 'refused' as const, pushEnabled: 'refused' as const, commitEnabled: 'refused' as const, device: 'enrolled' as const };
 
 describe('<RepoStateCard>', () => {
   it('shows the branch label and name', async () => {
@@ -157,5 +157,52 @@ describe('<RepoStateCard>', () => {
     // guards the render side of that, not just stateCard's own unit test.
     await render(<RepoStateCard state={repo()} gates={OPEN} />);
     expect(screen.queryByTestId('repo-state-card-reason')).toBeNull();
+  });
+
+  it('a ready "commit" card is ENABLED and relays exactly "commit" — never the old push fallback', async () => {
+    // Task 7 (`repo-state-card.ts`) can return `action: 'ready', verb:
+    // 'commit'` (a dirty tree, gates all granted). Before Task 8 this button
+    // was DISABLED by a deliberate guard, because `repo/[name].tsx`'s
+    // `onAction` back then mapped any verb it didn't recognise to
+    // `pushRepo`'s `else` branch — an unguarded tap would have silently
+    // pushed. Task 8 removed that guard on both ends: this card no longer
+    // special-cases `'commit'` at all (it relays whatever `stateCard` handed
+    // it, exactly like every other ready verb), and `repo/[name].tsx`'s
+    // `onAction` is now a total, exhaustive router that sends `'commit'` to
+    // the Changes tab rather than falling through to a POST (see
+    // `repo-screen.test.tsx`'s own test proving that route never reaches
+    // `pushRepo` or any other mutating request).
+    //
+    // What THIS test still guards, at the card's own boundary: the verb
+    // relayed on a press is the LITERAL string `'commit'`, never `'push'`
+    // (or anything else) — a future regression that reintroduces a
+    // cast-to-push here would go red on the `toHaveBeenCalledWith('commit')`
+    // line below before a single request could fire.
+    const onAction = jest.fn();
+    const dirty = repo({ dirty_files: 3 });
+    // `rerender` on ONE instance, not a second `render` — two independent
+    // mounts each need their own unmount to avoid overlapping `act()` calls,
+    // and the point here is the SAME wiring proven live on a second verb
+    // too (prove-the-instrument's other half — a mock that only ever saw
+    // `'commit'` above could still belong to a control nobody ever presses).
+    const { getByTestId, rerender } = await render(
+      <RepoStateCard state={dirty} gates={OPEN} onAction={onAction} />,
+    );
+    const commitButton = getByTestId('repo-state-card-action');
+    expect(commitButton.props.accessibilityState).toMatchObject({ disabled: false });
+    // Awaited — this button is enabled now (unlike before Task 8), so the
+    // press actually flushes a state update; leaving it unawaited raced the
+    // `rerender` just below into an overlapping `act()` scope.
+    await fireEvent.press(commitButton);
+    expect(onAction).toHaveBeenCalledTimes(1);
+    expect(onAction).toHaveBeenCalledWith('commit');
+    expect(onAction).not.toHaveBeenCalledWith('push');
+
+    const behind = repo({ position: { kind: 'tracking', upstream: 'origin/main', ahead: 0, behind: 2 } });
+    await rerender(<RepoStateCard state={behind} gates={OPEN} onAction={onAction} />);
+    const pullButton = getByTestId('repo-state-card-action');
+    expect(pullButton.props.accessibilityState).toMatchObject({ disabled: false });
+    await fireEvent.press(pullButton);
+    expect(onAction).toHaveBeenCalledWith('pull');
   });
 });

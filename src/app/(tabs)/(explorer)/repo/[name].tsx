@@ -5,7 +5,7 @@ import { ActivityIndicator, RefreshControl, ScrollView } from 'react-native';
 import { RepoStateCard } from '@/components/repo-state-card';
 import { RepoTabs } from '@/components/repo-tabs';
 import { Box, Screen, Text } from '@/components/ui';
-import { daemonClientFor } from '@/lib/daemon/client';
+import { DaemonClient, daemonClientFor } from '@/lib/daemon/client';
 import { getCachedRepos, invalidateReposCache } from '@/lib/daemon/repos-cache';
 import { type DeviceGate, type GateState } from '@/lib/repo-state-card';
 import { DaemonError, type ChangedFile, type Commit, type ReposResponse, type RepoState } from '@/lib/daemon/types';
@@ -36,7 +36,35 @@ function gateState(repos: ReposResponse | undefined, granted: boolean | undefine
   return granted ? 'granted' : 'refused';
 }
 
-type Verb = 'fetch' | 'pull' | 'push';
+type Verb = 'fetch' | 'pull' | 'push' | 'commit';
+
+/** The three verbs `onAction` still POSTs directly — everything `Verb` names
+ *  except `'commit'`, which routes to the Changes tab instead (see
+ *  `onAction`'s own doc). A named exclusion type, not `Verb` reused as-is,
+ *  so `networkVerb` below is a compile error the day a FIFTH verb joins
+ *  `Verb` without this file deciding what it does — the exhaustive `switch`
+ *  in that function has no `default` to fall through to `pushRepo` on. */
+type NetworkVerb = Exclude<Verb, 'commit'>;
+
+/**
+ * `Verb` → the client call it fires. A `switch` with no `default`, not the
+ * nested ternary this replaced — the whole reason for the change (whole-
+ * branch review, this task): a ternary's final `else` is silent about WHICH
+ * verb it means, so a verb added to `Verb` without a new branch here used to
+ * fall through to `pushRepo` rather than fail to compile. `NetworkVerb`
+ * excludes `'commit'` at the type level, so this function is never even
+ * asked to route it — `onAction` peels that case off before calling in.
+ */
+function networkVerb(client: DaemonClient, name: string, verb: NetworkVerb): Promise<RepoState> {
+  switch (verb) {
+    case 'fetch':
+      return client.fetchRepo(name);
+    case 'pull':
+      return client.pullRepo(name);
+    case 'push':
+      return client.pushRepo(name);
+  }
+}
 
 type Loaded = {
   repo: RepoState;
@@ -44,7 +72,7 @@ type Loaded = {
   changes: ChangedFile[];
   /** The MANIFEST halves only — what `GET /repos` actually reported. The
    *  device half is local (the Keychain), merged in at the render site. */
-  gates: { enabled: GateState; pushEnabled: GateState };
+  gates: { enabled: GateState; pushEnabled: GateState; commitEnabled: GateState };
 };
 
 type ScreenState =
@@ -93,6 +121,16 @@ export default function RepoScreen() {
   const [inFlight, setInFlight] = useState<Verb | undefined>(undefined);
   const [actionError, setActionError] = useState<string | undefined>(undefined);
   const [refreshing, setRefreshing] = useState(false);
+  // Bumped whenever the State Card's `'commit'` verb is tapped — `RepoTabs`
+  // reads this back as its `focusChanges` prop, whose own effect flips its
+  // internal tab state to `'changes'` WITHOUT remounting (see that
+  // component's `focusChanges` doc). This used to drive a `key={changesFocus}`
+  // remount instead — whole-branch review IMPORTANT-2: a remount re-seeds
+  // EVERY piece of local state under it, including `CommitForm`'s own draft
+  // message, so a second card tap while a message was already half-typed
+  // silently erased it. A `0` value never triggers the focus effect either
+  // way: the page still opens on History, exactly as it did before this task.
+  const [changesFocus, setChangesFocus] = useState(0);
 
   // Bumped on every load this screen starts. Same reasoning as
   // `composition.tsx`'s `reposEpoch`: an aborted request can still resolve
@@ -127,7 +165,11 @@ export default function RepoScreen() {
       // Held closed until auth has hydrated, for the same fail-closed reason
       // the gates read does it: offering a verb we cannot yet authenticate
       // produces a 401 that reads as an engine fault.
-      const gates = { enabled: gateState(repos, repos?.enabled), pushEnabled: gateState(repos, repos?.push_enabled) };
+      const gates = {
+        enabled: gateState(repos, repos?.enabled),
+        pushEnabled: gateState(repos, repos?.push_enabled),
+        commitEnabled: gateState(repos, repos?.commit_enabled),
+      };
       // `read_error` is a 200-with-a-field, not a thrown `DaemonError` (see
       // `types.ts`'s doc on `RepoState.read_error`), so `repo` above always
       // resolves for a name the manifest knows. An unreadable repo has
@@ -193,8 +235,99 @@ export default function RepoScreen() {
       });
   }, [load]);
 
+  // The two write handlers' shared catch — extracted rather than forked so
+  // the refusal/403/generic-message ladder can only read one way. `mine` is
+  // the CALLER's own epoch snapshot (taken before its own `await`), passed
+  // in rather than re-read here, since by the time a catch runs the current
+  // epoch may already have moved past it — the very case this whole guard
+  // exists to detect.
+  const handleVerbError = useCallback(
+    (error: unknown, mine: number) => {
+      if (epoch.current !== mine) return;
+      // A device refusal is checked FIRST, and is not a manifest fact: the
+      // engine authenticates before it reads either registry or ceiling, so
+      // re-reading the gates here would answer a question that was never
+      // asked. `noteRefusal` is what lets a REVOKE land — the registry is
+      // read per request on the host, so being told no is the only way this
+      // app learns its token died.
+      const refusal = error instanceof DaemonError ? deviceRefusalOf(error.message) : null;
+      if (refusal) {
+        noteRefusal(refusal);
+        setActionError(REFUSAL_REASON[refusal]);
+        return;
+      }
+      if (error instanceof DaemonError && error.status === 403) {
+        // A 403 here is PROOF the cached grant was wrong — not a reason to
+        // keep offering a button the engine just refused. Clear the cache
+        // key and re-read the gates, so the card reflects reality on the
+        // very next render rather than for up to `TTL_MS` more.
+        invalidateReposCache(host.id, generation);
+        getCachedRepos(daemonClientFor(host.id, host.daemonUrl), host.id, generation, { force: true })
+          .then((repos) => {
+            if (epoch.current !== mine) return;
+            setState((prev) =>
+              prev.status === 'ok'
+                ? {
+                    status: 'ok',
+                    data: {
+                      ...prev.data,
+                      gates: {
+                        enabled: gateState(repos, repos.enabled),
+                        pushEnabled: gateState(repos, repos.push_enabled),
+                        commitEnabled: gateState(repos, repos.commit_enabled),
+                      },
+                    },
+                  }
+                : prev,
+            );
+          })
+          .catch(() => undefined);
+      }
+      setActionError(
+        error instanceof DaemonError
+          ? error.status === 403
+            ? 'This host has not granted that action.'
+            : error.message || 'The request failed.'
+          : 'The request failed.',
+      );
+    },
+    [host.daemonUrl, host.id, generation, noteRefusal],
+  );
+
+  // Re-reads ONLY `/log` and `/changes` — the two lists a commit changes
+  // that its own folded `RepoState` cannot carry (a new HEAD entry, a
+  // shorter dirty list). Best-effort: the commit itself already succeeded
+  // and is already folded into `state` by the caller before this runs, so a
+  // failed re-read here leaves the tabs stale until the next pull-to-
+  // refresh, not the commit itself reading as failed.
+  const reloadTabs = useCallback(
+    async (mine: number) => {
+      try {
+        const client = daemonClientFor(host.id, host.daemonUrl);
+        const [commits, changes] = await Promise.all([client.getLog(name), client.getChanges(name)]);
+        if (epoch.current !== mine) return;
+        setState((prev) =>
+          prev.status === 'ok' ? { status: 'ok', data: { ...prev.data, commits, changes } } : prev,
+        );
+      } catch {
+        // Best-effort — see above.
+      }
+    },
+    [host.daemonUrl, host.id, name],
+  );
+
   const onAction = useCallback(
     async (verb: Verb) => {
+      if (verb === 'commit') {
+        // The State Card's own `'commit'` verb has no message to send — it
+        // cannot collect one, and must not invent one — so a tap routes to
+        // the Changes tab, where the message form actually lives, instead of
+        // POSTing. Bumping this (rather than setting a boolean) means a
+        // SECOND tap while already on the Changes tab still re-focuses it
+        // (see `changesFocus`'s own doc above).
+        setChangesFocus((n) => n + 1);
+        return;
+      }
       const mine = epoch.current;
       setInFlight(verb);
       setActionError(undefined);
@@ -204,64 +337,13 @@ export default function RepoScreen() {
         // the mutation methods) — folded straight in below, never re-read.
         // A second `getRepo` here would be a second source of truth for the
         // exact fact this response already carries.
-        const updated =
-          verb === 'fetch'
-            ? await client.fetchRepo(name)
-            : verb === 'pull'
-              ? await client.pullRepo(name)
-              : await client.pushRepo(name);
+        const updated = await networkVerb(client, name, verb);
         if (epoch.current !== mine) return;
         setState((prev) =>
           prev.status === 'ok' ? { status: 'ok', data: { ...prev.data, repo: updated } } : prev,
         );
       } catch (error) {
-        if (epoch.current !== mine) return;
-        // A device refusal is checked FIRST, and is not a manifest fact: the
-        // engine authenticates before it reads either registry or ceiling, so
-        // re-reading the gates here would answer a question that was never
-        // asked. `noteRefusal` is what lets a REVOKE land — the registry is
-        // read per request on the host, so being told no is the only way this
-        // app learns its token died.
-        const refusal =
-          error instanceof DaemonError ? deviceRefusalOf(error.message) : null;
-        if (refusal) {
-          noteRefusal(refusal);
-          setActionError(REFUSAL_REASON[refusal]);
-          return;
-        }
-        if (error instanceof DaemonError && error.status === 403) {
-          // A 403 here is PROOF the cached grant was wrong — not a reason to
-          // keep offering a button the engine just refused. Clear the cache
-          // key and re-read the gates, so the card reflects reality on the
-          // very next render rather than for up to `TTL_MS` more.
-          invalidateReposCache(host.id, generation);
-          getCachedRepos(daemonClientFor(host.id, host.daemonUrl), host.id, generation, { force: true })
-            .then((repos) => {
-              if (epoch.current !== mine) return;
-              setState((prev) =>
-                prev.status === 'ok'
-                  ? {
-                      status: 'ok',
-                      data: {
-                        ...prev.data,
-                        gates: {
-                          enabled: gateState(repos, repos.enabled),
-                          pushEnabled: gateState(repos, repos.push_enabled),
-                        },
-                      },
-                    }
-                  : prev,
-              );
-            })
-            .catch(() => undefined);
-        }
-        setActionError(
-          error instanceof DaemonError
-            ? error.status === 403
-              ? 'This host has not granted that action.'
-              : error.message || 'The request failed.'
-            : 'The request failed.',
-        );
+        handleVerbError(error, mine);
       } finally {
         // UNCONDITIONAL, unlike the writes above — the epoch guard's job is
         // "don't write a stale repo into a screen that has moved on," never
@@ -276,7 +358,39 @@ export default function RepoScreen() {
         setInFlight(undefined);
       }
     },
-    [host.daemonUrl, host.id, generation, name, noteRefusal],
+    [host.daemonUrl, host.id, name, handleVerbError],
+  );
+
+  // `RepoTabs`'s own `CommitForm` — never the State Card, which cannot
+  // supply a message (see `onAction`'s `'commit'` arm above). Same
+  // epoch/`inFlight`/`finally` discipline as `onAction`, and the SAME shared
+  // `handleVerbError` on failure, not a second copy of that ladder.
+  const onCommit = useCallback(
+    async (message: string) => {
+      const mine = epoch.current;
+      setInFlight('commit');
+      setActionError(undefined);
+      try {
+        const client = daemonClientFor(host.id, host.daemonUrl);
+        const updated = await client.commitRepo(name, message);
+        if (epoch.current !== mine) return;
+        setState((prev) =>
+          prev.status === 'ok' ? { status: 'ok', data: { ...prev.data, repo: updated } } : prev,
+        );
+        // The commit changed both tabs' content; the folded `RepoState`
+        // above cannot carry the file list or the new log entry, so re-read
+        // them separately.
+        void reloadTabs(mine);
+      } catch (error) {
+        handleVerbError(error, mine);
+      } finally {
+        // Unconditional — matches `onAction`'s own `finally` exactly (see
+        // its comment for why: stopping the spinner is correct regardless of
+        // which epoch is current).
+        setInFlight(undefined);
+      }
+    },
+    [host.daemonUrl, host.id, name, handleVerbError, reloadTabs],
   );
 
   // `unenrolled` until auth hydrates: fail closed. Stated rather than relying
@@ -340,7 +454,12 @@ export default function RepoScreen() {
           <RepoStateCard
             state={state.data.repo}
             gates={{ ...state.data.gates, device: deviceGate }}
-            inFlight={inFlight}
+            // `'commit'` is excluded here on purpose: the card's OWN
+            // `'commit'` verb never POSTs (see `onAction`'s `'commit'` arm),
+            // so it has no busy reading of its own to show — the busy state
+            // that matters while a commit is in flight is `CommitForm`'s own
+            // button, driven by `commitInFlight` below.
+            inFlight={inFlight === 'commit' ? undefined : inFlight}
             onAction={onAction}
           />
           {actionError ? (
@@ -357,7 +476,37 @@ export default function RepoScreen() {
               repo is merely quiet rather than unreadable. */}
           {state.data.repo.read_error ? null : (
             <Box style={{ paddingTop: theme.space.lg }}>
-              <RepoTabs commits={state.data.commits} changes={state.data.changes} />
+              <RepoTabs
+                // No `key` here (whole-branch review IMPORTANT-2) — this
+                // instance stays mounted across a `changesFocus` bump, and
+                // `RepoTabs`'s own effect flips its tab state without
+                // resetting anything else underneath it (its `focusChanges`
+                // doc). An ordinary reload's fresh `commits`/`changes` arrays
+                // update this instance in place either way, exactly as
+                // before.
+                focusChanges={changesFocus}
+                commits={state.data.commits}
+                changes={state.data.changes}
+                // `onCommit` is offered only when this device could actually
+                // fire it (whole-branch review IMPORTANT-1) — mirrors how
+                // `RepoStateCard`'s own verbs are gated: `verbBlocked` in
+                // `repo-state-card.ts` checks the device enrollment THEN the
+                // manifest's `commit` grant, in that order, because the
+                // engine authenticates before it reads the manifest ceiling.
+                // Passing `onCommit` unconditionally rendered a live
+                // `CommitForm` — a message box and a "Commit" button that
+                // POSTs on press — regardless of whether either half of that
+                // authority was real, on an old-engine gates payload that
+                // omits `commit_enabled` entirely (reads `'refused'`, not
+                // `'granted'` — `gateState`'s own doc above) exactly as much
+                // as on a host that said no outright.
+                onCommit={
+                  state.data.gates.commitEnabled === 'granted' && deviceGate === 'enrolled'
+                    ? onCommit
+                    : undefined
+                }
+                commitInFlight={inFlight === 'commit'}
+              />
             </Box>
           )}
         </ScrollView>

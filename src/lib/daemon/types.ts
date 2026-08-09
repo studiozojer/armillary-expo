@@ -101,7 +101,10 @@ export type ActionErrorKind =
   | 'not-fast-forwardable' // refused: history diverged
   | 'refused-by-remote' // the remote deliberately declined (protected branch, pre-receive hook)
   | 'transport' // could not reach the remote
-  | 'timeout';
+  | 'timeout'
+  | 'nothing-to-commit' // refused: a commit was attempted with nothing staged/dirty on the host
+  | 'detached' // refused: HEAD is not on a branch, so there is nothing for a commit to land on
+  | 'commit-failed'; // the host declined the commit for a reason not covered above
 
 export type ActionError = { kind: ActionErrorKind; message: string };
 
@@ -136,6 +139,8 @@ export type ReposResponse = {
   enabled: boolean;
   /** The `push` grant — separate on purpose. */
   push_enabled: boolean;
+  /** The `commit` grant — authorship, separate from both. */
+  commit_enabled: boolean;
   repos: RepoState[];
   /**
    * Repo-relative paths of git checkouts on disk that no manifest declares —

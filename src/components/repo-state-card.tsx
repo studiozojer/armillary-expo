@@ -47,9 +47,14 @@ export function RepoStateCard({
   testID = 'repo-state-card',
 }: {
   state: RepoState;
-  gates: { enabled: GateState; pushEnabled: GateState; device: DeviceGate };
+  gates: { enabled: GateState; pushEnabled: GateState; commitEnabled: GateState; device: DeviceGate };
   inFlight?: 'fetch' | 'pull' | 'push';
-  onAction?: (verb: 'fetch' | 'pull' | 'push') => void;
+  // `'commit'` is a real, callable verb as of Task 8 — the card itself never
+  // POSTs it (it has no way to collect a message and must not invent one),
+  // but it fires the SAME `onAction` every other verb does, and it is the
+  // caller's job to route a `'commit'` tap to wherever a message can be
+  // typed (`repo/[name].tsx`'s `onAction` sends it to the Changes tab).
+  onAction?: (verb: 'fetch' | 'pull' | 'push' | 'commit') => void;
   testID?: string;
 }) {
   const theme = useTheme();
@@ -149,8 +154,18 @@ export function RepoStateCard({
             guarantees `verb` is non-null only when `action === 'ready'`). */}
         <Pressable
           testID={`${testID}-action`}
+          // `'commit'` is a real, ready verb as of Task 8 — it fires
+          // `onAction` exactly like `'fetch'`/`'pull'`/`'push'` do. What it
+          // fires is no longer this component's problem: the card cannot
+          // collect a message (there is nowhere here to type one) and must
+          // not invent one, so `repo/[name].tsx`'s `onAction` is the one that
+          // decides what a `'commit'` tap actually does (routes to the
+          // Changes tab rather than POSTing) — this Pressable just relays
+          // the verb `stateCard` handed it, same as every other one.
           disabled={model.verb === null}
-          onPress={model.verb ? () => onAction?.(model.verb as 'fetch' | 'pull' | 'push') : undefined}
+          onPress={
+            model.verb ? () => onAction?.(model.verb as 'fetch' | 'pull' | 'push' | 'commit') : undefined
+          }
           accessibilityRole="button"
           accessibilityLabel={model.sublabel ? `${model.label}. ${model.sublabel}` : model.label}
           accessibilityState={{ disabled: model.verb === null, busy }}

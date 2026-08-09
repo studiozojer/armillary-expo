@@ -15,13 +15,21 @@ const base: RepoState = {
 // forget it and silently offer verbs to a device with no credential — the
 // failure would look like an engine refusal, not a client omission.
 const ENROLLED = { device: 'enrolled' as const };
-const OPEN = { enabled: 'granted' as const, pushEnabled: 'granted' as const, ...ENROLLED };
-const SYNC_ONLY = { enabled: 'granted' as const, pushEnabled: 'refused' as const, ...ENROLLED };
-const CLOSED = { enabled: 'refused' as const, pushEnabled: 'refused' as const, ...ENROLLED };
+// `OPEN` keeps its original scope — sync/push granted — and now also states
+// `commitEnabled` explicitly as REFUSED, so every pre-existing test built on
+// it (none of which knew about a `commit` grant) keeps its original meaning
+// unchanged: `OPEN` alone is "gates without commit," the brief's
+// `gatesWithout('commit')`. `ALL_GRANTED` below is the one fixture that adds
+// commit on top, for the new commit-rung tests.
+const OPEN = { enabled: 'granted' as const, pushEnabled: 'granted' as const, commitEnabled: 'refused' as const, ...ENROLLED };
+const SYNC_ONLY = { enabled: 'granted' as const, pushEnabled: 'refused' as const, commitEnabled: 'refused' as const, ...ENROLLED };
+const CLOSED = { enabled: 'refused' as const, pushEnabled: 'refused' as const, commitEnabled: 'refused' as const, ...ENROLLED };
 // N1 (whole-branch re-review): a failed GATES READ is a different fact from
 // a REFUSED grant, and must read differently — see the "gate reads as
 // unknown" describe block below.
-const GATES_UNKNOWN = { enabled: 'unknown' as const, pushEnabled: 'unknown' as const, ...ENROLLED };
+const GATES_UNKNOWN = { enabled: 'unknown' as const, pushEnabled: 'unknown' as const, commitEnabled: 'unknown' as const, ...ENROLLED };
+// Every grant open, including commit — the brief's `gatesAllGranted()`.
+const ALL_GRANTED = { ...OPEN, commitEnabled: 'granted' as const };
 
 /** Same trick `repo-label.test.ts` uses: build the ISO string from LOCAL
  *  components so the assertion is independent of the test runner's TZ. */
@@ -140,6 +148,48 @@ describe('stateCard — rule 8: behind + dirty is the common friction state', ()
   });
 });
 
+describe('stateCard — the commit rung: the dead end becomes an offer when the grant is real', () => {
+  function repoWith(overrides: Partial<RepoState>): RepoState {
+    return { ...base, ...overrides };
+  }
+
+  it('behind + dirty offers Commit when the commit gate is open', () => {
+    const s = repoWith({ position: { kind: 'tracking', upstream: 'origin/main', ahead: 0, behind: 3 }, dirty_files: 4 });
+    const m = stateCard(s, ALL_GRANTED);
+    expect(m.action).toBe('ready');
+    expect(m.verb).toBe('commit');
+    expect(m.label).toBe('Commit 4 files');
+  });
+
+  it('behind + dirty keeps the off-device dead-end copy when commit is not granted', () => {
+    const s = repoWith({ position: { kind: 'tracking', upstream: 'origin/main', ahead: 0, behind: 3 }, dirty_files: 4 });
+    const m = stateCard(s, OPEN);
+    expect(m.action).toBe('blocked');
+    expect(m.verb).toBeNull();
+    expect(m.reason).toContain('on the host'); // the existing copy survives ungate
+  });
+
+  it('dirty alone offers Commit ahead of freshness', () => {
+    const s = repoWith({ dirty_files: 1 });
+    const m = stateCard(s, ALL_GRANTED);
+    expect(m.verb).toBe('commit');
+    expect(m.label).toBe('Commit 1 file');
+  });
+
+  it('diverged stays blocked even when dirty and commit is granted', () => {
+    const s = repoWith({ position: { kind: 'tracking', upstream: 'origin/main', ahead: 2, behind: 3 }, dirty_files: 4 });
+    const m = stateCard(s, ALL_GRANTED);
+    expect(m.action).toBe('blocked'); // v1: diverged is diverged; commit reachable via the Changes tab
+  });
+
+  it('the plain-dirty rung falls through to today\'s behavior (fetch, ready) when commit is not granted', () => {
+    // `OPEN` grants sync/push but not commit — the fall-through this rung
+    // promises, not a new dead end of its own.
+    const m = stateCard(repoWith({ dirty_files: 2 }), OPEN);
+    expect(m).toMatchObject({ action: 'ready', label: 'Fetch origin', verb: 'fetch' });
+  });
+});
+
 describe('stateCard — rule 9: behind, clean -> ready to pull, gated on sync', () => {
   const behind3: RepoState = { ...base, position: { kind: 'tracking', upstream: 'origin/main', ahead: 0, behind: 3 } };
 
@@ -224,7 +274,7 @@ describe('stateCard — N1 (whole-branch re-review): an unread gate is not the s
   });
 
   it('an unknown push gate reads "held closed" — never "is not granted" — for a push', () => {
-    const model = stateCard(ahead2, { enabled: 'granted', pushEnabled: 'unknown', ...ENROLLED });
+    const model = stateCard(ahead2, { enabled: 'granted', pushEnabled: 'unknown', commitEnabled: 'granted', ...ENROLLED });
     expect(model).toMatchObject({ action: 'blocked', label: 'Push 2 commits', verb: null });
     expect(model.reason).toMatch(/held closed/i);
     expect(model.reason).not.toMatch(/is not granted/i);
@@ -294,8 +344,8 @@ describe('stateCard — degrades on a wire value this client does not recognise,
 });
 
 describe('stateCard — the device gate', () => {
-  const UNENROLLED = { enabled: 'granted' as const, pushEnabled: 'granted' as const, device: 'unenrolled' as const };
-  const REJECTED = { enabled: 'granted' as const, pushEnabled: 'granted' as const, device: 'rejected' as const };
+  const UNENROLLED = { enabled: 'granted' as const, pushEnabled: 'granted' as const, commitEnabled: 'granted' as const, device: 'unenrolled' as const };
+  const REJECTED = { enabled: 'granted' as const, pushEnabled: 'granted' as const, commitEnabled: 'granted' as const, device: 'rejected' as const };
   const ahead2 = { ...base, position: { kind: 'tracking' as const, upstream: 'origin/main', ahead: 2, behind: 0 } };
   const behind2 = { ...base, position: { kind: 'tracking' as const, upstream: 'origin/main', ahead: 0, behind: 2 } };
 
@@ -339,7 +389,7 @@ describe('stateCard — the device gate', () => {
   it('checks the device BEFORE the manifest, matching the engine’s own order', () => {
     // Both refuse. The engine would answer `no_principal` (401) and never
     // reach its ceiling check, so the device's reason is the true one.
-    const bothClosed = { enabled: 'refused' as const, pushEnabled: 'refused' as const, device: 'unenrolled' as const };
+    const bothClosed = { enabled: 'refused' as const, pushEnabled: 'refused' as const, commitEnabled: 'refused' as const, device: 'unenrolled' as const };
     expect(stateCard(base, bothClosed).reason).toMatch(/isn’t enrolled/i);
   });
 

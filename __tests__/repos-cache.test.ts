@@ -7,7 +7,7 @@ import {
 import type { ReposResponse } from '../src/lib/daemon/types';
 
 function response(overrides: Partial<ReposResponse> = {}): ReposResponse {
-  return { enabled: true, push_enabled: true, repos: [], not_composed: [], ...overrides };
+  return { enabled: true, push_enabled: true, commit_enabled: false, repos: [], not_composed: [], ...overrides };
 }
 
 function clientReturning(...responses: ReposResponse[]) {

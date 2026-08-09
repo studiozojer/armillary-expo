@@ -433,6 +433,212 @@ describe('Repo screen — 403 invalidation', () => {
   });
 });
 
+describe('Repo screen — Task 8: the "commit" verb routes to the Changes tab, never a POST', () => {
+  beforeEach(async () => {
+    await AsyncStorage.clear();
+    seedEnrolled();
+    __resetTokenCache();
+    __clearReposCacheForTests();
+  });
+
+  it('a ready commit card press opens the Changes tab (where the form lives) and fires no mutating request', async () => {
+    // Dirty tree, nothing ahead/behind, `commit` granted — `stateCard`'s
+    // rule 10a offers `Commit N file(s)` as the READY verb (Task 7). This is
+    // the exact state the pre-Task-8 push-misfire guard existed to protect:
+    // `repo/[name].tsx`'s OLD `onAction` ternary mapped any verb it didn't
+    // recognise to `pushRepo`'s `else` branch, so an unguarded tap here
+    // would have silently pushed. This is the round-trip proof that the
+    // NEW, total router (an early `'commit'` return, no fall-through) never
+    // reaches the network at all for this verb — the card-level witness in
+    // `repo-state-card-render.test.tsx` proves the verb relayed is the
+    // literal string `'commit'`; this proves what the SCREEN does with it.
+    const fetcher = jest.fn((url: string, init?: RequestInit) => {
+      if (init?.method === 'POST') throw new Error(`unexpected POST: ${url}`);
+      if (url.endsWith('/repos')) {
+        return jsonResponse(200, {
+          enabled: true,
+          push_enabled: true,
+          commit_enabled: true,
+          repos: [repo({ dirty_files: 2 })],
+          not_composed: [],
+        });
+      }
+      if (url.includes('/log')) return jsonResponse(200, COMMITS);
+      if (url.includes('/changes')) return jsonResponse(200, CHANGES);
+      if (/\/repos\/[^/]+$/.test(url)) return jsonResponse(200, repo({ dirty_files: 2 }));
+      throw new Error(`unexpected fetch: ${url}`);
+    }) as unknown as typeof fetch;
+    globalThis.fetch = fetcher;
+
+    await renderRouter(context, { initialUrl: '/repo/tycho' });
+    await screen.findByTestId('repo-state-card-action');
+    expect(screen.getByText('Commit 2 files')).toBeTruthy();
+    const action = screen.getByTestId('repo-state-card-action');
+    expect(action.props.accessibilityState).toMatchObject({ disabled: false });
+
+    // History is the default tab (`RepoTabs`'s own rule) — the form is not
+    // on screen yet.
+    expect(screen.queryByTestId('commit-message-input')).toBeNull();
+
+    await fireEvent.press(action);
+
+    // The card's tap routed to the Changes tab, where the message field
+    // actually lives — the card itself has no way to collect one.
+    await waitFor(() => expect(screen.getByTestId('commit-message-input')).toBeTruthy());
+    expect(screen.getByTestId('repo-tabs-changes-tab').props.accessibilityState).toMatchObject({
+      selected: true,
+    });
+
+    // And the negative half: nothing POSTed as a result of that tap — not
+    // `/push`, not `/fetch`, not `/pull`, not even `/commit` (there is no
+    // message yet to send). `fetcher`'s own POST branch above would have
+    // thrown synchronously had one gone out; this is the direct count too.
+    const mutations = (fetcher as jest.Mock).mock.calls.filter(
+      ([, init]: [string, RequestInit?]) => (init as RequestInit | undefined)?.method === 'POST',
+    );
+    expect(mutations).toHaveLength(0);
+  });
+
+  it('commits from the form, folds the returned state, and re-reads log + changes', async () => {
+    const committed = repo({ dirty_files: 0 });
+    const newCommit = { ...COMMITS[0], sha: 'b2', subject: 'the message just typed' };
+    let commitPosted = false;
+    const fetcher = jest.fn((url: string, init?: RequestInit) => {
+      if (init?.method === 'POST' && url.endsWith('/repos/tycho/commit')) {
+        commitPosted = true;
+        expect(JSON.parse(init.body as string)).toEqual({ message: 'a real message' });
+        return jsonResponse(200, committed);
+      }
+      if (init?.method === 'POST') throw new Error(`unexpected POST: ${url}`);
+      if (url.endsWith('/repos')) {
+        return jsonResponse(200, {
+          enabled: true,
+          push_enabled: true,
+          commit_enabled: true,
+          repos: [repo({ dirty_files: 2 })],
+          not_composed: [],
+        });
+      }
+      if (url.includes('/log')) return jsonResponse(200, commitPosted ? [newCommit, ...COMMITS] : COMMITS);
+      if (url.includes('/changes')) return jsonResponse(200, commitPosted ? [] : CHANGES);
+      if (/\/repos\/[^/]+$/.test(url)) return jsonResponse(200, repo({ dirty_files: 2 }));
+      throw new Error(`unexpected fetch: ${url}`);
+    }) as unknown as typeof fetch;
+    globalThis.fetch = fetcher;
+
+    await renderRouter(context, { initialUrl: '/repo/tycho' });
+    await fireEvent.press(await screen.findByTestId('repo-state-card-action'));
+    await screen.findByTestId('commit-message-input');
+
+    await fireEvent.changeText(screen.getByTestId('commit-message-input'), 'a real message');
+    await fireEvent.press(screen.getByTestId('commit-action'));
+
+    await waitFor(() => expect(commitPosted).toBe(true));
+    // The re-read changes (Task 8's `reloadTabs`) — the folded `RepoState`
+    // alone cannot carry the file list, and the Changes tab (still active —
+    // committing does not itself switch tabs) shows the CLEARED list.
+    await waitFor(() => expect(screen.getByText('No uncommitted changes.')).toBeTruthy());
+    expect(screen.queryByText('notes/scratch.md')).toBeNull();
+
+    // The re-read LOG (the other half `reloadTabs` covers) — switch to
+    // History to see it, since committing does not itself change tabs.
+    await fireEvent.press(screen.getByTestId('repo-tabs-history-tab'));
+    expect(screen.getByText('the message just typed')).toBeTruthy();
+  });
+});
+
+describe('Repo screen — final review IMPORTANT 1: onCommit is gated, not offered unconditionally', () => {
+  beforeEach(async () => {
+    await AsyncStorage.clear();
+    seedEnrolled();
+    __resetTokenCache();
+    __clearReposCacheForTests();
+  });
+
+  it('an old-engine gates payload (no commit_enabled field at all) renders the Changes tab with NO commit-message-input', async () => {
+    // `mockFetch`'s default `gates` carries only `enabled`/`push_enabled` —
+    // exactly the shape an engine that predates the `commit` grant sends.
+    // `gateState` reads that absent field as `repos?.commit_enabled` ===
+    // `undefined`, which is falsy, so `commitEnabled` comes back `'refused'`,
+    // never `'granted'` — the "commit_enabled: undefined renders the ungated
+    // copy" case this test doubles as. Before this fix, `onCommit` was passed
+    // to `<RepoTabs>` UNCONDITIONALLY, so the message field and its button
+    // rendered regardless of what this payload actually granted.
+    globalThis.fetch = mockFetch({
+      state: repo({ dirty_files: 2 }),
+      commits: COMMITS,
+      changes: CHANGES,
+    });
+
+    await renderRouter(context, { initialUrl: '/repo/tycho' });
+    await screen.findByTestId('repo-state-card');
+
+    // The card itself falls through to `Fetch origin` here — `commit` reads
+    // refused, so `stateCard`'s rule 10a does not offer it, and the plain
+    // dirty tree lands on the freshness rung instead (a separate, already-
+    // covered ladder fact, not what this test is about).
+    await fireEvent.press(screen.getByTestId('repo-tabs-changes-tab'));
+
+    expect(screen.queryByTestId('commit-message-input')).toBeNull();
+    expect(screen.queryByTestId('commit-action')).toBeNull();
+    // The read-only rows still render — an ungated device sees exactly what
+    // it saw before Task 8, not an empty tab.
+    expect(screen.getByTestId('repo-tabs-change-0')).toBeTruthy();
+  });
+});
+
+describe('Repo screen — final review IMPORTANT 2: a second card tap must not erase a half-typed draft', () => {
+  beforeEach(async () => {
+    await AsyncStorage.clear();
+    seedEnrolled();
+    __resetTokenCache();
+    __clearReposCacheForTests();
+  });
+
+  it('types into the form after the first tap, taps "commit" again, and the draft survives', async () => {
+    // Same granted/enrolled/dirty arrangement Task 8's own tests use — the
+    // State Card offers `Commit 2 files` as its READY verb throughout.
+    const fetcher = jest.fn((url: string, init?: RequestInit) => {
+      if (init?.method === 'POST') throw new Error(`unexpected POST: ${url}`);
+      if (url.endsWith('/repos')) {
+        return jsonResponse(200, {
+          enabled: true,
+          push_enabled: true,
+          commit_enabled: true,
+          repos: [repo({ dirty_files: 2 })],
+          not_composed: [],
+        });
+      }
+      if (url.includes('/log')) return jsonResponse(200, COMMITS);
+      if (url.includes('/changes')) return jsonResponse(200, CHANGES);
+      if (/\/repos\/[^/]+$/.test(url)) return jsonResponse(200, repo({ dirty_files: 2 }));
+      throw new Error(`unexpected fetch: ${url}`);
+    }) as unknown as typeof fetch;
+    globalThis.fetch = fetcher;
+
+    await renderRouter(context, { initialUrl: '/repo/tycho' });
+    const action = await screen.findByTestId('repo-state-card-action');
+
+    // First tap: card routes to the Changes tab, where the form lives.
+    await fireEvent.press(action);
+    await screen.findByTestId('commit-message-input');
+    await fireEvent.changeText(screen.getByTestId('commit-message-input'), 'half-typed draft');
+
+    // Second tap of the SAME card action — before this fix, `[name].tsx`
+    // bumped `changesFocus` and passed it as `<RepoTabs key={changesFocus}>`,
+    // remounting the whole subtree and re-seeding `CommitForm`'s own
+    // `useState('')` back to empty. The fix replaces that with a prop-driven
+    // focus effect (`RepoTabs`'s `focusChanges`) that flips the active tab
+    // without unmounting anything underneath it.
+    await fireEvent.press(action);
+
+    expect(screen.getByTestId('commit-message-input').props.value).toBe('half-typed draft');
+    expect(screen.getByTestId('repo-tabs-changes-tab').props.accessibilityState).toMatchObject({
+      selected: true,
+    });
+  });
+});
+
 // The N3 regression ("an epoch bump mid-action must not strand the spinner")
 // had a test here that was committed RED, then DELETED — not skipped — on
 // 2026-08-06. It deadlocked structurally: this @testing-library/react-native
