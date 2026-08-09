@@ -122,10 +122,14 @@ export default function RepoScreen() {
   const [actionError, setActionError] = useState<string | undefined>(undefined);
   const [refreshing, setRefreshing] = useState(false);
   // Bumped whenever the State Card's `'commit'` verb is tapped — `RepoTabs`
-  // reads this back as its `key`, forcing a remount that re-seeds its
-  // internal tab state at `'changes'` (see that component's `initialTab`
-  // doc). A `0` value never triggers this: the page still opens on History,
-  // exactly as it did before this task.
+  // reads this back as its `focusChanges` prop, whose own effect flips its
+  // internal tab state to `'changes'` WITHOUT remounting (see that
+  // component's `focusChanges` doc). This used to drive a `key={changesFocus}`
+  // remount instead — whole-branch review IMPORTANT-2: a remount re-seeds
+  // EVERY piece of local state under it, including `CommitForm`'s own draft
+  // message, so a second card tap while a message was already half-typed
+  // silently erased it. A `0` value never triggers the focus effect either
+  // way: the page still opens on History, exactly as it did before this task.
   const [changesFocus, setChangesFocus] = useState(0);
 
   // Bumped on every load this screen starts. Same reasoning as
@@ -473,16 +477,34 @@ export default function RepoScreen() {
           {state.data.repo.read_error ? null : (
             <Box style={{ paddingTop: theme.space.lg }}>
               <RepoTabs
-                // Remounts (re-seeding `initialTab`) only when `changesFocus`
-                // itself changes — an ordinary reload's fresh `commits`/
-                // `changes` arrays do not carry a new `key`, so they update
-                // this instance in place rather than resetting whichever tab
-                // the user is already looking at.
-                key={changesFocus}
-                initialTab={changesFocus > 0 ? 'changes' : undefined}
+                // No `key` here (whole-branch review IMPORTANT-2) — this
+                // instance stays mounted across a `changesFocus` bump, and
+                // `RepoTabs`'s own effect flips its tab state without
+                // resetting anything else underneath it (its `focusChanges`
+                // doc). An ordinary reload's fresh `commits`/`changes` arrays
+                // update this instance in place either way, exactly as
+                // before.
+                focusChanges={changesFocus}
                 commits={state.data.commits}
                 changes={state.data.changes}
-                onCommit={onCommit}
+                // `onCommit` is offered only when this device could actually
+                // fire it (whole-branch review IMPORTANT-1) — mirrors how
+                // `RepoStateCard`'s own verbs are gated: `verbBlocked` in
+                // `repo-state-card.ts` checks the device enrollment THEN the
+                // manifest's `commit` grant, in that order, because the
+                // engine authenticates before it reads the manifest ceiling.
+                // Passing `onCommit` unconditionally rendered a live
+                // `CommitForm` — a message box and a "Commit" button that
+                // POSTs on press — regardless of whether either half of that
+                // authority was real, on an old-engine gates payload that
+                // omits `commit_enabled` entirely (reads `'refused'`, not
+                // `'granted'` — `gateState`'s own doc above) exactly as much
+                // as on a host that said no outright.
+                onCommit={
+                  state.data.gates.commitEnabled === 'granted' && deviceGate === 'enrolled'
+                    ? onCommit
+                    : undefined
+                }
                 commitInFlight={inFlight === 'commit'}
               />
             </Box>

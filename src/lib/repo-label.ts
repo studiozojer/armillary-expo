@@ -73,6 +73,9 @@ const ACTION_ERROR: Record<ActionErrorKind, Label> = {
   'refused-by-remote': { text: 'refused by remote', tone: 'warn' },
   transport: { text: 'fetch failed', tone: 'error' },
   timeout: { text: 'timed out', tone: 'error' },
+  'nothing-to-commit': { text: 'nothing to commit', tone: 'warn' },
+  detached: { text: 'refused — detached', tone: 'warn' },
+  'commit-failed': { text: 'commit declined', tone: 'warn' },
 };
 
 /**

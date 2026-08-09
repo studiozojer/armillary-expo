@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Pressable, TextInput } from 'react-native';
 
 import type { ChangedFile, Commit } from '@/lib/daemon/types';
@@ -306,6 +306,7 @@ export function RepoTabs({
   onCommit,
   commitInFlight = false,
   initialTab = 'history',
+  focusChanges,
 }: {
   commits: Commit[];
   changes: ChangedFile[];
@@ -326,15 +327,32 @@ export function RepoTabs({
    *  that drives the State Card's busy reading elsewhere on that screen. */
   commitInFlight?: boolean;
   /** Seeds which tab is showing on MOUNT only (a plain `useState` initial
-   *  value, not a live binding) — `repo/[name].tsx` forces a remount with
-   *  this set to `'changes'` when the State Card's own `'commit'` verb is
-   *  tapped, since that card cannot supply a message and must route to
-   *  where one can be typed instead of POSTing. Ordinary re-renders (a
-   *  fresh `commits`/`changes` array after a reload) do NOT change which tab
-   *  is showing — only a remount, keyed by the screen, does. */
+   *  value, not a live binding). Still used directly by callers that want a
+   *  tab pre-selected from first render (this component's own test suite);
+   *  `repo/[name].tsx` no longer uses it for the card-tap route — see
+   *  `focusChanges` below, which replaced a keyed remount that used to seed
+   *  this prop instead. */
   initialTab?: Tab;
+  /** Bumped by the caller to focus the Changes tab WITHOUT remounting this
+   *  component (whole-branch review IMPORTANT-2). `repo/[name].tsx` used to
+   *  force this by changing `key` on `<RepoTabs>`, which remounted the
+   *  WHOLE subtree — including `CommitForm`'s own `useState('')` — so a
+   *  second tap of the State Card's `'commit'` verb while a message was
+   *  already half-typed silently erased it. A prop read by an effect can
+   *  flip `active` without touching any other local state underneath it.
+   *  `0`/`undefined` never fires (the caller's own counter starts at `0`
+   *  and only bumps on a real tap), so a page that never taps `'commit'`
+   *  still opens on `initialTab`/`'history'` exactly as before. Firing the
+   *  effect again on a REPEAT bump (the same target value, `'changes'`) is
+   *  harmless — `setActive('changes')` when already on `'changes'` is a
+   *  no-op re-render, not a remount, so nothing downstream resets. */
+  focusChanges?: number;
 }) {
   const [active, setActive] = useState<Tab>(initialTab);
+
+  useEffect(() => {
+    if (focusChanges !== undefined && focusChanges > 0) setActive('changes');
+  }, [focusChanges]);
 
   return (
     <Stack style={{ width: '100%' }} testID={testID}>

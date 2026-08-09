@@ -133,6 +133,21 @@ const ACTION_ERROR_CARD: Record<ActionErrorKind, { label: string; tone: 'warn' |
     tone: 'error',
     reason: 'The request to the remote timed out.',
   },
+  'nothing-to-commit': {
+    label: 'Nothing to commit',
+    tone: 'warn',
+    reason: 'Nothing to commit — the working tree is clean.',
+  },
+  detached: {
+    label: 'Refused — detached',
+    tone: 'warn',
+    reason: 'HEAD is detached on the host — commits need a branch.',
+  },
+  'commit-failed': {
+    label: 'Commit declined',
+    tone: 'warn',
+    reason: 'The commit was declined on the host.',
+  },
 };
 
 const IN_FLIGHT_LABEL: Record<'fetch' | 'pull' | 'push', string> = {
