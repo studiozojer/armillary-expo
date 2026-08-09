@@ -97,16 +97,19 @@ export function Icon({
   name,
   size = 20,
   color = 'icPrimary',
+  testID,
 }: {
   name: IconName;
   size?: number;
   color?: ColorRole;
+  testID?: string;
 }) {
   const theme = useTheme();
   const spec = ICONS[name];
 
   return (
     <SymbolView
+      testID={testID}
       name={{ ios: spec.ios, web: spec.web, android: spec.web }}
       size={size}
       tintColor={theme.color[color]}

@@ -8,6 +8,19 @@ import { RepoStateCard } from '../src/components/repo-state-card';
 import type { RepoState } from '../src/lib/daemon/types';
 import { themeFor } from '../src/theme';
 
+// Mock Icon to verify what name props it receives.
+jest.mock('../src/components/ui', () => {
+  const actual = jest.requireActual('../src/components/ui');
+  return {
+    ...actual,
+    Icon: jest.fn((props) => {
+      // Call through to the real Icon for rendering, but track calls.
+      const RealIcon = actual.Icon;
+      return RealIcon(props);
+    }),
+  };
+});
+
 function repo(overrides: Partial<RepoState> = {}): RepoState {
   return {
     name: 'jianyi',
@@ -204,5 +217,25 @@ describe('<RepoStateCard>', () => {
     expect(pullButton.props.accessibilityState).toMatchObject({ disabled: false });
     await fireEvent.press(pullButton);
     expect(onAction).toHaveBeenCalledWith('pull');
+  });
+
+  it('the action glyph follows the verb: a behind repo renders the pull glyph, not sync (design D1)', async () => {
+    // A repo with commits behind: model.icon should be 'pullVerb', not 'sync'.
+    // The component currently hardcodes 'sync' on line 181, so this test fails.
+    // After fixing line 181 to read model.icon, this test passes.
+    const { Icon: IconMock } = require('../src/components/ui');
+    IconMock.mockClear();
+    await render(
+      <RepoStateCard state={repo({ position: { kind: 'tracking', upstream: 'origin/main', ahead: 0, behind: 2 } })} gates={OPEN} />,
+    );
+    // Icon is called multiple times (branch chevron + action button icons).
+    // Find the call to the action icon by its testID.
+    const actionIconCall = IconMock.mock.calls.find(
+      (args: [props: Record<string, unknown>]) => args[0]?.testID === 'repo-state-card-action-icon',
+    );
+    expect(actionIconCall).toBeDefined();
+    // The action icon should receive 'pullVerb', not the hardcoded 'sync'.
+    expect(actionIconCall![0].name).toBe('pullVerb');
+    expect(actionIconCall![0].name).not.toBe('sync');
   });
 });
