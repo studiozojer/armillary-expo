@@ -455,7 +455,7 @@ describe('stateCard — icon follows the verb the label names (design D1–D3)',
   it('non-verb blocked states keep sync (D3)', () => {
     expect(stateCard({ ...base, position: { kind: 'detached' } }, OPEN).icon).toBe('sync');
     expect(stateCard({ ...base, position: { kind: 'no-upstream' } }, OPEN).icon).toBe('sync');
-    expect(stateCard({ ...base, position: { kind: 'upstream-gone' } }, OPEN).icon).toBe('sync');
+    expect(stateCard({ ...base, position: { kind: 'upstream-gone', upstream: 'origin/x' } }, OPEN).icon).toBe('sync');
     expect(stateCard({ ...base, position: { kind: 'tracking', upstream: 'origin/main', ahead: 1, behind: 1 } }, OPEN).icon).toBe('sync'); // diverged
     expect(stateCard({ ...base, read_error: 'fatal: not a git repository' }, OPEN).icon).toBe('sync');
     expect(stateCard({ ...base, action_error: { kind: 'transport', message: 'x' } }, OPEN).icon).toBe('sync');

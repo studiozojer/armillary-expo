@@ -371,7 +371,7 @@ export function stateCard(
       // nothing exercised until now.
       reason: `This app doesn’t recognize this failure yet. ${s.action_error.message}`,
     };
-    return { action: "blocked", tone: ae.tone, label: ae.label, sublabel, reason: ae.reason, verb: null, icon: "sync" };
+    return { action: "blocked", tone: ae.tone, label: ae.label, sublabel, reason: ae.reason, verb: null, icon: 'sync' };
   }
 
   switch (s.position.kind) {
@@ -458,9 +458,9 @@ export function stateCard(
         const blocked = verbBlocked(gates, 'sync');
         if (blocked) {
           const { tone, reason } = blocked;
-          return { action: 'blocked', tone, label: `Pull ${commitCount(behind)}`, sublabel, reason, verb: null , icon: "pullVerb" };
+          return { action: 'blocked', tone, label: `Pull ${commitCount(behind)}`, sublabel, reason, verb: null, icon: 'pullVerb' };
         }
-        return { action: 'ready', tone: 'none', label: `Pull ${commitCount(behind)}`, sublabel, verb: 'pull' , icon: "pullVerb" };
+        return { action: 'ready', tone: 'none', label: `Pull ${commitCount(behind)}`, sublabel, verb: 'pull' , icon: 'pullVerb' };
       }
 
       if (ahead > 0) {
@@ -469,9 +469,9 @@ export function stateCard(
         const blocked = verbBlocked(gates, 'push');
         if (blocked) {
           const { tone, reason } = blocked;
-          return { action: 'blocked', tone, label: `Push ${commitCount(ahead)}`, sublabel, reason, verb: null , icon: "pushVerb" };
+          return { action: 'blocked', tone, label: `Push ${commitCount(ahead)}`, sublabel, reason, verb: null, icon: 'pushVerb' };
         }
-        return { action: 'ready', tone: 'none', label: `Push ${commitCount(ahead)}`, sublabel, verb: 'push' , icon: "pushVerb" };
+        return { action: 'ready', tone: 'none', label: `Push ${commitCount(ahead)}`, sublabel, verb: 'push' , icon: 'pushVerb' };
       }
 
       // Nothing ahead, nothing behind, but the tree is dirty: a commit is
@@ -497,9 +497,9 @@ export function stateCard(
       const blocked = verbBlocked(gates, 'sync');
       if (blocked) {
         const { tone, reason } = blocked;
-        return { action: 'blocked', tone, label: 'Fetch origin', sublabel, reason, verb: null , icon: "sync" };
+        return { action: 'blocked', tone, label: 'Fetch origin', sublabel, reason, verb: null, icon: 'sync' };
       }
-      return { action: 'ready', tone: 'none', label: 'Fetch origin', sublabel, verb: 'fetch' , icon: "sync" };
+      return { action: 'ready', tone: 'none', label: 'Fetch origin', sublabel, verb: 'fetch', icon: 'sync' };
     }
 
     default: {
@@ -521,6 +521,7 @@ export function stateCard(
         sublabel,
         reason: 'This app doesn’t recognize this repository’s state yet. Update the app to see git actions here.',
         verb: null,
+        icon: 'sync',
       };
     }
   }
