@@ -57,7 +57,7 @@ export function sessionAPIFor(host: Host): SessionAPI {
       // map memoizes one client per host for the life of the app, so a token
       // captured here instead would leave a device enrolled-but-refused until
       // relaunch.
-      new LiveSessionAPI(host.daemonUrl, authedFetch(host.id, resolveStreamingFetch()));
+      new LiveSessionAPI(host.daemonUrl, authedFetch(host.id, resolveStreamingFetch()), host.id);
   instances.set(key, created);
   return created;
 }
