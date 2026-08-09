@@ -42,7 +42,7 @@ export class LiveSessionAPI implements SessionAPI {
    * can resolve consent itself, at the moment each turn is sent, rather than
    * a caller threading it through every call.
    */
-  constructor(baseUrl: string, fetcher: typeof fetch = fetch, hostId: string = '') {
+  constructor(baseUrl: string, fetcher: typeof fetch = fetch, hostId: string) {
     this.baseUrl = baseUrl;
     this.fetcher = fetcher;
     this.hostId = hostId;
