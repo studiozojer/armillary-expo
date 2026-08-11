@@ -1,7 +1,7 @@
 import { useFocusEffect, useRouter } from 'expo-router';
 import { Stack } from 'expo-router/stack';
-import { useCallback, useMemo, useRef } from 'react';
-import { ActivityIndicator, FlatList, Pressable, Text } from 'react-native';
+import { useCallback, useMemo, useRef, useState } from 'react';
+import { ActionSheetIOS, ActivityIndicator, Alert, FlatList, Platform, Pressable, Text } from 'react-native';
 
 import { ChromeZone } from '@/components/chrome-zone';
 import { InstanceCard } from '@/components/instance-card';
@@ -59,20 +59,27 @@ function CreatePill({ disabled = false }: { disabled?: boolean }) {
   );
 }
 
-/** The `All ⌄` filter, disabled until filtering is designed (spec § stubs). */
-function FilterStub() {
+/** The two-state instance filter — Active by default, Archived on toggle
+ *  (design 2026-08-11 D3: no "All" state). Occupies the seat FilterStub
+ *  reserved. */
+function InstanceFilter({
+  value,
+  onToggle,
+}: {
+  value: 'active' | 'archived';
+  onToggle: () => void;
+}) {
   return (
     <Pressable
-      testID="filter-stub"
-      disabled
+      testID="instance-filter"
       accessibilityRole="button"
-      accessibilityLabel="Filter instances"
-      accessibilityState={{ disabled: true }}>
+      accessibilityLabel={`Filter instances, showing ${value}`}
+      onPress={onToggle}>
       <Inline gap="xs">
-        <UIText variant="label" color="txDisabled">
-          All
+        <UIText variant="label" color="txPrimary">
+          {value === 'active' ? 'Active' : 'Archived'}
         </UIText>
-        <Icon name="chevronDown" size={14} color="txDisabled" />
+        <Icon name="chevronDown" size={14} color="icSecondary" />
       </Inline>
     </Pressable>
   );
@@ -116,6 +123,40 @@ export default function Instances() {
       }
       void refresh();
     }, [refresh]),
+  );
+
+  const [filter, setFilter] = useState<'active' | 'archived'>('active');
+
+  // D4: no confirm — the sheet's verb acts immediately; the Archived filter is
+  // the undo path. D5: unarchive is explicit, only offered where archived rows
+  // show. Errors surface verbatim (SessionError carries the engine's machine
+  // code) — the same never-swallow posture as the chat screen's mutations.
+  const onLongPressInstance = useCallback(
+    (instance: Instance) => {
+      const verb = instance.archived ? 'Unarchive' : 'Archive';
+      const act = () => {
+        void (instance.archived ? api.unarchive(instance.id) : api.archive(instance.id))
+          .then(() => refresh())
+          .catch((e: unknown) => {
+            Alert.alert(`${verb} failed`, e instanceof Error ? e.message : String(e));
+          });
+      };
+      if (Platform.OS === 'ios') {
+        ActionSheetIOS.showActionSheetWithOptions(
+          { options: [verb, 'Cancel'], cancelButtonIndex: 1 },
+          (index) => {
+            if (index === 0) act();
+          },
+        );
+      } else {
+        // Android: Alert as the sheet, same shape as the chat screen's message
+        // menu — tap-outside/back dismisses.
+        Alert.alert(instance.operator ?? 'dispatcher', undefined, [{ text: verb, onPress: act }], {
+          cancelable: true,
+        });
+      }
+    },
+    [api, refresh],
   );
 
   // The header used to own the gear and the create control; now `ChromeZone`
@@ -180,6 +221,12 @@ export default function Instances() {
   }
 
   const instances = state.status === 'ok' ? state.data : [];
+  // `Instance.archived` is a compile-time claim only — `live.ts` casts the
+  // wire JSON without validation, so against an older engine that never
+  // wrote the key, `i.archived` arrives `undefined`. Boolean(...) reads that
+  // as not-archived rather than letting `false === undefined` fail closed
+  // and blank the default Active view.
+  const shown = instances.filter((i) => (filter === 'archived') === Boolean(i.archived));
 
   return (
     <Screen edges={['top']}>
@@ -197,14 +244,22 @@ export default function Instances() {
         </Box>
       ) : null}
 
-      <SectionHeader trailing={<FilterStub />}>Instances</SectionHeader>
+      <SectionHeader
+        trailing={
+          <InstanceFilter
+            value={filter}
+            onToggle={() => setFilter((f) => (f === 'active' ? 'archived' : 'active'))}
+          />
+        }>
+        Instances
+      </SectionHeader>
 
       {state.status === 'loading' ? (
         <ActivityIndicator style={{ marginTop: theme.space.xl }} />
       ) : (
         <FlatList
           testID="instances-list"
-          data={instances}
+          data={shown}
           keyExtractor={(instance) => instance.id}
           contentContainerStyle={{
             paddingHorizontal: theme.space.lg,
@@ -213,7 +268,7 @@ export default function Instances() {
           }}
           refreshing={refreshing}
           onRefresh={refresh}
-          renderItem={({ item }) => <InstanceCard instance={item} />}
+          renderItem={({ item }) => <InstanceCard instance={item} onLongPress={onLongPressInstance} />}
         />
       )}
     </Screen>

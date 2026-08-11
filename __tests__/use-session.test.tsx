@@ -47,11 +47,22 @@ function scriptedApi(stream: string) {
     send: sendMock,
     interrupt: jest.fn(() => Promise.resolve()),
     evict: jest.fn(() => Promise.resolve()),
+    archive: jest.fn(() => Promise.resolve()),
+    unarchive: jest.fn(() => Promise.resolve()),
   };
 
   function resolveAttach(overrides: Partial<AttachInfo> = {}) {
     attachDeferred.resolve({
-      instance: { id: 'inst-1', operator: null, stream, startedAt: '2026-07-28T00:00:00.000Z', lastSeq: 0, model: null },
+      instance: {
+        id: 'inst-1',
+        operator: null,
+        stream,
+        startedAt: '2026-07-28T00:00:00.000Z',
+        lastSeq: 0,
+        model: null,
+        mayWriteComposition: false,
+        archived: false,
+      },
       earliestSeq: 1,
       headSeq: 0,
       ...overrides,

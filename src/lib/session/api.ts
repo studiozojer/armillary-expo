@@ -32,4 +32,12 @@ export interface SessionAPI {
   send(instanceId: string, text: string, clientKey: string): Promise<SendReceipt>;
   interrupt(instanceId: string): Promise<void>;
   evict(instanceId: string, eventId: string): Promise<void>;
+  /**
+   * Appends `instance_archived` to the instance's own stream. Hides it from
+   * the default list and bars NOTHING — send/attach/subscribe still work
+   * (design 2026-08-11 D1, constitution A-3). Reversed by `unarchive`;
+   * sending does not unarchive (D5).
+   */
+  archive(instanceId: string): Promise<void>;
+  unarchive(instanceId: string): Promise<void>;
 }

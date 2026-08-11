@@ -181,6 +181,14 @@ export function projectSession(
         rows.push(systemRow(e, 'removed from context'));
         break;
       }
+      case 'instance_archived':
+      case 'instance_unarchived': {
+        // Deliberately no row (design 2026-08-11 D6): the marker governs the
+        // Instances LIST, not this transcript. An explicit case rather than
+        // the default arm — handled-by-skipping is still handled; the default
+        // arm renders "[unhandled event type: …]", which is for genuine gaps.
+        break;
+      }
       case 'dispatch': {
         const data = e.data as DispatchData;
         rows.push(systemRow(e, `dispatched to ${data.child}`));

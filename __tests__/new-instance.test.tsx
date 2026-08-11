@@ -50,7 +50,16 @@ jest.mock('../src/lib/session/instance', () => ({
 }));
 
 function instanceFor(id: string, operator: string | null, model: string | null = null): Instance {
-  return { id, operator, stream: id, startedAt: new Date().toISOString(), lastSeq: 0, model };
+  return {
+    id,
+    operator,
+    stream: id,
+    startedAt: new Date().toISOString(),
+    lastSeq: 0,
+    model,
+    mayWriteComposition: false,
+    archived: false,
+  };
 }
 
 /** Stands in for the session screen at the navigation destination. This

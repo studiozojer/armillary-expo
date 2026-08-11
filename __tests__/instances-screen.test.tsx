@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { act, cleanup, renderRouter, screen, fireEvent } from 'expo-router/testing-library';
+import { act, cleanup, renderRouter, screen, fireEvent, waitFor } from 'expo-router/testing-library';
 import { Stack } from 'expo-router/stack';
-import { Text } from 'react-native';
+import { ActionSheetIOS, Text } from 'react-native';
 
 import InstancesLayout from '../src/app/(tabs)/(instances)/_layout';
 import Instances from '../src/app/(tabs)/(instances)/index';
@@ -50,6 +50,8 @@ function makeMockApi(overrides: Partial<SessionAPI> = {}): SessionAPI {
     send: jest.fn(),
     interrupt: jest.fn(),
     evict: jest.fn(),
+    archive: jest.fn(async () => {}),
+    unarchive: jest.fn(async () => {}),
     ...overrides,
   } as unknown as SessionAPI;
 }
@@ -61,8 +63,17 @@ jest.mock('../src/lib/session/instance', () => ({
   sessionAPIFor: () => mockApi,
 }));
 
-function instanceFor(id: string, operator: string | null): Instance {
-  return { id, operator, stream: id, startedAt: new Date().toISOString(), lastSeq: 0, model: null };
+function instanceFor(id: string, operator: string | null, archived = false): Instance {
+  return {
+    id,
+    operator,
+    stream: id,
+    startedAt: new Date().toISOString(),
+    lastSeq: 0,
+    model: null,
+    mayWriteComposition: false,
+    archived,
+  };
 }
 
 function RootLayout() {
@@ -179,19 +190,99 @@ describe('Instances list screen', () => {
     expect(screen.getByRole('button', { name: 'Settings' })).toBeTruthy();
   });
 
-  it('the filter and overflow are announced disabled', async () => {
+  it('the overflow is announced disabled', async () => {
     const list = jest.fn(async () => [instanceFor('inst-1', 'tycho')]);
     mockApi = makeMockApi({ list });
 
     await renderRouter(routes, { initialUrl: '/' });
     expect(await screen.findByText('tycho')).toBeTruthy();
 
-    expect(screen.getByTestId('filter-stub').props.accessibilityState).toMatchObject({
-      disabled: true,
-    });
     expect(screen.getByTestId('more-stub').props.accessibilityState).toMatchObject({
       disabled: true,
     });
+  });
+
+  it('hides archived instances by default and shows them under the Archived filter', async () => {
+    const list = jest.fn(async () => [
+      instanceFor('a1', 'tycho'),
+      instanceFor('a2', 'kepler', true),
+    ]);
+    mockApi = makeMockApi({ list });
+
+    await renderRouter(routes, { initialUrl: '/' });
+    expect(await screen.findByText('tycho')).toBeTruthy();
+    expect(screen.queryByText('kepler')).toBeNull();
+
+    // Wrapped in `act` (not a bare `fireEvent.press`): a filter toggle
+    // changes FlatList's `data`, and VirtualizedList's own post-update
+    // bookkeeping schedules a timer of its own. Left unflushed, this was
+    // observed to bleed into the next test's `renderRouter` (which re-arms
+    // fake timers on every call — see
+    // https://github.com/expo/expo/issues/46864 — colliding with the
+    // still-pending one here).
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('instance-filter'));
+    });
+    expect(await screen.findByText('kepler')).toBeTruthy();
+    expect(screen.queryByText('tycho')).toBeNull();
+  });
+
+  it('shows an instance in the default Active view when `archived` is absent from the wire payload', async () => {
+    // `Instance.archived` is a compile-time claim only — an older engine
+    // omits the key entirely. `live.ts` casts the JSON without validation, so
+    // this simulates that shape rather than assuming the field is always
+    // present. `false === undefined` would blank the default Active view;
+    // this pins that it must not.
+    const instance = instanceFor('a1', 'tycho');
+    delete (instance as { archived?: boolean }).archived;
+    const list = jest.fn(async () => [instance]);
+    mockApi = makeMockApi({ list });
+
+    await renderRouter(routes, { initialUrl: '/' });
+    expect(await screen.findByText('tycho')).toBeTruthy();
+  });
+
+  it('long-press offers Archive with no confirm, calls the API, and refreshes', async () => {
+    // D4: no confirmation dialog — the sheet's Archive acts immediately.
+    const sheet = jest
+      .spyOn(ActionSheetIOS, 'showActionSheetWithOptions')
+      .mockImplementation((_opts, cb) => cb(0));
+    const list = jest.fn(async () => [instanceFor('a1', 'tycho')]);
+    mockApi = makeMockApi({ list });
+
+    await renderRouter(routes, { initialUrl: '/' });
+    await fireEvent(await screen.findByRole('button', { name: /^tycho\./ }), 'longPress');
+
+    expect(sheet).toHaveBeenCalledWith(
+      expect.objectContaining({ options: ['Archive', 'Cancel'] }),
+      expect.any(Function),
+    );
+    expect(mockApi.archive).toHaveBeenCalledWith('a1');
+    // initial load + the post-archive refresh
+    await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
+    sheet.mockRestore();
+  });
+
+  it('long-press in the Archived view offers Unarchive', async () => {
+    const sheet = jest
+      .spyOn(ActionSheetIOS, 'showActionSheetWithOptions')
+      .mockImplementation((_opts, cb) => cb(0));
+    const list = jest.fn(async () => [instanceFor('a2', 'kepler', true)]);
+    mockApi = makeMockApi({ list });
+
+    await renderRouter(routes, { initialUrl: '/' });
+    // Same `act` wrap as the filter test above, and for the same reason.
+    await act(async () => {
+      fireEvent.press(await screen.findByTestId('instance-filter'));
+    });
+    await fireEvent(await screen.findByRole('button', { name: /^kepler\./ }), 'longPress');
+
+    expect(sheet).toHaveBeenCalledWith(
+      expect.objectContaining({ options: ['Unarchive', 'Cancel'] }),
+      expect.any(Function),
+    );
+    expect(mockApi.unarchive).toHaveBeenCalledWith('a2');
+    sheet.mockRestore();
   });
 
   it('rows carry the operator roundel and the honest note line', async () => {
@@ -202,6 +293,8 @@ describe('Instances list screen', () => {
       startedAt: new Date().toISOString(),
       lastSeq: 12,
       model: null,
+      mayWriteComposition: false,
+      archived: false,
     };
     const list = jest.fn(async () => [instance]);
     mockApi = makeMockApi({ list });
@@ -222,6 +315,8 @@ describe('Instances list screen', () => {
         startedAt: '2026-08-07T00:00:00.000Z',
         lastSeq: 3,
         model: 'zen/deepseek-v4-flash',
+        mayWriteComposition: false,
+        archived: false,
       },
       {
         id: 'i2',
@@ -230,6 +325,8 @@ describe('Instances list screen', () => {
         startedAt: '2026-08-07T00:00:00.000Z',
         lastSeq: 1,
         model: null,
+        mayWriteComposition: false,
+        archived: false,
       },
     ];
     const list = jest.fn(async () => instances);

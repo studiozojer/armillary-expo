@@ -148,6 +148,8 @@ export class MockSessionAPI implements SessionAPI {
       startedAt: new Date().toISOString(),
       lastSeq: 0,
       model,
+      mayWriteComposition: false,
+      archived: false,
     };
     this.instances.set(id, instance);
 
@@ -264,5 +266,23 @@ export class MockSessionAPI implements SessionAPI {
     // Evict never removes anything (P-1) — it appends a marker the context
     // reducer honors; the target stays in the stream untouched.
     this.append<ContextEvictData>(instance.stream, 'context_evict', { target: eventId }, { role: 'user' });
+  }
+
+  async archive(instanceId: string): Promise<void> {
+    const instance = this.instances.get(instanceId);
+    if (!instance) throw new Error('unknown_instance');
+
+    // Like evict: state changes by APPENDING a marker, never by deleting
+    // (P-1). The flag on the summary is the projection of the latest marker.
+    instance.archived = true;
+    this.append<Record<string, never>>(instance.stream, 'instance_archived', {}, { role: 'user' });
+  }
+
+  async unarchive(instanceId: string): Promise<void> {
+    const instance = this.instances.get(instanceId);
+    if (!instance) throw new Error('unknown_instance');
+
+    instance.archived = false;
+    this.append<Record<string, never>>(instance.stream, 'instance_unarchived', {}, { role: 'user' });
   }
 }

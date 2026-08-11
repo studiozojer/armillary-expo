@@ -258,6 +258,20 @@ describe('LiveSessionAPI', () => {
     });
   });
 
+  describe('archive / unarchive', () => {
+    it('POSTs the archive route, id encoded', async () => {
+      const fetcher = jest.fn().mockResolvedValue(new Response(null, { status: 204 }));
+      await client(fetcher).archive('a b');
+      expect(fetcher).toHaveBeenCalledWith(`${BASE}/instances/a%20b/archive`, { method: 'POST' });
+    });
+
+    it('POSTs the unarchive route', async () => {
+      const fetcher = jest.fn().mockResolvedValue(new Response(null, { status: 204 }));
+      await client(fetcher).unarchive('i1');
+      expect(fetcher).toHaveBeenCalledWith(`${BASE}/instances/i1/unarchive`, { method: 'POST' });
+    });
+  });
+
   describe('subscribe()', () => {
     it('GETs the stream URL with the from cursor', async () => {
       const fetcher = jest.fn().mockResolvedValue(sseResponse(['event: caught-up\ndata: {"headSeq":0}\n\n']));
