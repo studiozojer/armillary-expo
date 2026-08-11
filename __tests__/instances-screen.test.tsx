@@ -61,8 +61,17 @@ jest.mock('../src/lib/session/instance', () => ({
   sessionAPIFor: () => mockApi,
 }));
 
-function instanceFor(id: string, operator: string | null): Instance {
-  return { id, operator, stream: id, startedAt: new Date().toISOString(), lastSeq: 0, model: null };
+function instanceFor(id: string, operator: string | null, archived = false): Instance {
+  return {
+    id,
+    operator,
+    stream: id,
+    startedAt: new Date().toISOString(),
+    lastSeq: 0,
+    model: null,
+    mayWriteComposition: false,
+    archived,
+  };
 }
 
 function RootLayout() {
@@ -202,6 +211,8 @@ describe('Instances list screen', () => {
       startedAt: new Date().toISOString(),
       lastSeq: 12,
       model: null,
+      mayWriteComposition: false,
+      archived: false,
     };
     const list = jest.fn(async () => [instance]);
     mockApi = makeMockApi({ list });
@@ -222,6 +233,8 @@ describe('Instances list screen', () => {
         startedAt: '2026-08-07T00:00:00.000Z',
         lastSeq: 3,
         model: 'zen/deepseek-v4-flash',
+        mayWriteComposition: false,
+        archived: false,
       },
       {
         id: 'i2',
@@ -230,6 +243,8 @@ describe('Instances list screen', () => {
         startedAt: '2026-08-07T00:00:00.000Z',
         lastSeq: 1,
         model: null,
+        mayWriteComposition: false,
+        archived: false,
       },
     ];
     const list = jest.fn(async () => instances);

@@ -181,6 +181,14 @@ export function projectSession(
         rows.push(systemRow(e, 'removed from context'));
         break;
       }
+      case 'instance_archived': {
+        rows.push(systemRow(e, 'archived'));
+        break;
+      }
+      case 'instance_unarchived': {
+        rows.push(systemRow(e, 'unarchived'));
+        break;
+      }
       case 'dispatch': {
         const data = e.data as DispatchData;
         rows.push(systemRow(e, `dispatched to ${data.child}`));

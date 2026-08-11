@@ -317,6 +317,8 @@ describe('Session screen', () => {
           startedAt: '2026-07-28T00:00:00.000Z',
           lastSeq: 0,
           model: null,
+          mayWriteComposition: false,
+          archived: false,
         },
         earliestSeq: 1,
         headSeq: 0,
@@ -329,6 +331,8 @@ describe('Session screen', () => {
       send: jest.fn(),
       interrupt: jest.fn(),
       evict: jest.fn(),
+      archive: jest.fn(),
+      unarchive: jest.fn(),
     };
     mockApi = fakeApi;
     mockInstanceId = 'inst-err';

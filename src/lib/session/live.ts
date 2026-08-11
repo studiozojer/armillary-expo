@@ -112,6 +112,18 @@ export class LiveSessionAPI implements SessionAPI {
     });
   }
 
+  async archive(instanceId: string): Promise<void> {
+    await this.request<void>(`/instances/${encodeURIComponent(instanceId)}/archive`, {
+      method: 'POST',
+    });
+  }
+
+  async unarchive(instanceId: string): Promise<void> {
+    await this.request<void>(`/instances/${encodeURIComponent(instanceId)}/unarchive`, {
+      method: 'POST',
+    });
+  }
+
   /**
    * Single-connection semantics: this method does not retry. A dropped
    * connection (server close, network error, or the returned unsubscribe

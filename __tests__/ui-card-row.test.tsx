@@ -187,6 +187,8 @@ describe('<CardRow>', () => {
         startedAt: new Date().toISOString(),
         lastSeq: 3,
         model: 'claude-sonnet-5',
+        mayWriteComposition: false,
+        archived: false,
       };
       await render(<InstanceCard instance={instance} />);
 

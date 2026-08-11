@@ -39,12 +39,20 @@ export type Instance = {
   lastSeq: number;
   /** Pinned at creation; null when the engine's default pilots. */
   model: string | null;
+  /** WD-9 — the per-session manifest-write grant. Served by the engine all
+   *  along; modeled here 2026-08-11 (the standing type drift, fixed in the
+   *  archive pass). */
+  mayWriteComposition: boolean;
+  /** Latest lifecycle marker wins; false for anything recorded before the
+   *  archive verbs existed (instance-archive design, 2026-08-11). */
+  archived: boolean;
 };
 
 export const DURABLE_TYPES = [
   'instance_created', 'boot', 'composition', 'user_message', 'assistant_message',
   'interrupt', 'context_evict', 'dispatch', 'return',
   'tool_use', 'tool_result',
+  'instance_archived', 'instance_unarchived',
 ] as const;
 export type DurableType = (typeof DURABLE_TYPES)[number];
 

@@ -183,4 +183,28 @@ describe('MockSessionAPI honesty obligations', () => {
     expect(seen.filter((e) => (e.data as Partial<UserMessageData>).text === 'race')).toHaveLength(1);
     expect(statuses).toEqual(['replaying', 'live']);
   });
+
+  it('archive appends the marker and flips the listing flag; unarchive restores it', async () => {
+    const api = new MockSessionAPI();
+    const inst = await api.create('tycho', null);
+    const seen: EventEnvelope[] = [];
+    api.subscribe(inst.stream, 0, handlerCollecting(seen));
+
+    await api.archive(inst.id);
+    expect((await api.list())[0].archived).toBe(true);
+
+    await api.unarchive(inst.id);
+    expect((await api.list())[0].archived).toBe(false);
+
+    // P-1 shape: state changed by APPENDING, never by rewriting — both
+    // markers are durable events in the stream, in order.
+    await new Promise((r) => queueMicrotask(() => r(undefined)));
+    const markers = seen.filter((e) => e.type.startsWith('instance_') && e.type !== 'instance_created');
+    expect(markers.map((e) => e.type)).toEqual(['instance_archived', 'instance_unarchived']);
+  });
+
+  it('archive on an unknown instance throws unknown_instance', async () => {
+    const api = new MockSessionAPI();
+    await expect(api.archive('nope')).rejects.toThrow('unknown_instance');
+  });
 });

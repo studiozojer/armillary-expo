@@ -105,6 +105,10 @@ function plausibleDataFor(type: DurableType): object {
       return { id: 'toolu_01A', name: 'read_file', input: { path: 'CLAUDE.md' } };
     case 'tool_result':
       return { toolUseId: 'toolu_01A', status: 'ok', content: '# armillary', isError: false };
+    case 'instance_archived':
+      return {};
+    case 'instance_unarchived':
+      return {};
   }
 }
 
