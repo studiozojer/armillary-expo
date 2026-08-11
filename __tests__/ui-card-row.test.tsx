@@ -81,6 +81,13 @@ describe('<CardRow>', () => {
     expect(screen.getByText('◐')).toBeTruthy();
   });
 
+  it('fires onLongPress when held', async () => {
+    const onLongPress = jest.fn();
+    await render(<CardRow label="tycho" onPress={() => {}} onLongPress={onLongPress} testID="row" />);
+    fireEvent(screen.getByTestId('row'), 'longPress');
+    expect(onLongPress).toHaveBeenCalledTimes(1);
+  });
+
   it('is not announced as a button when it does not press', async () => {
     await render(<CardRow label="tycho" />);
     expect(screen.queryByRole('button')).toBeNull();

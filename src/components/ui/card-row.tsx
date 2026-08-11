@@ -24,6 +24,7 @@ export function CardRow({
   noteVariant = 'caption',
   trailing,
   onPress,
+  onLongPress,
   testID,
 }: {
   leading?: ReactNode;
@@ -32,6 +33,9 @@ export function CardRow({
   noteVariant?: 'caption' | 'mono';
   trailing?: ReactNode;
   onPress?: () => void;
+  /** Long-press affordance (the instance card's archive sheet). Optional and
+   *  orthogonal to onPress — a row can have either, both, or neither. */
+  onLongPress?: () => void;
   testID?: string;
 }) {
   const theme = useTheme();
@@ -40,6 +44,7 @@ export function CardRow({
     <Pressable
       testID={testID}
       onPress={onPress}
+      onLongPress={onLongPress}
       accessibilityRole={onPress ? 'button' : undefined}
       accessibilityLabel={note ? `${label}. ${note}` : label}
       style={({ pressed }) => ({

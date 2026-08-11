@@ -125,6 +125,10 @@ function isSystemRow(r: SessionRow): r is Extract<SessionRow, { kind: 'system' }
   return r.kind === 'system';
 }
 
+// Design 2026-08-11 D6: these two markers govern the Instances list, not the
+// transcript — projectSession deliberately emits no row for them.
+const NO_ROW_TYPES = new Set<DurableType>(['instance_archived', 'instance_unarchived']);
+
 describe('projectSession', () => {
   it('is total over every durable type', () => {
     for (const type of DURABLE_TYPES) {
@@ -132,9 +136,27 @@ describe('projectSession', () => {
       expect(() => {
         rows = projectSession([envelopeOf(type)], new Map(), []);
       }).not.toThrow();
-      // no durable type may vanish silently — each yields a visible row.
-      expect(rows.length).toBeGreaterThan(0);
+      if (NO_ROW_TYPES.has(type)) {
+        expect(rows.length).toBe(0);
+      } else {
+        // no other durable type may vanish silently — each yields a visible row.
+        expect(rows.length).toBeGreaterThan(0);
+      }
     }
+  });
+
+  it('archive markers produce no rows — list-level metadata, not transcript', () => {
+    const rows = projectSession(
+      [
+        makeEnvelope('user_message', { text: 'hi' }),
+        makeEnvelope('instance_archived', {}),
+        makeEnvelope('instance_unarchived', {}),
+      ],
+      new Map(),
+      [],
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0].kind).toBe('message');
   });
 
   it('has a reducer arm for every type it claims to know', () => {
