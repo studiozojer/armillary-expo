@@ -221,7 +221,12 @@ export default function Instances() {
   }
 
   const instances = state.status === 'ok' ? state.data : [];
-  const shown = instances.filter((i) => (filter === 'archived') === i.archived);
+  // `Instance.archived` is a compile-time claim only — `live.ts` casts the
+  // wire JSON without validation, so against an older engine that never
+  // wrote the key, `i.archived` arrives `undefined`. Boolean(...) reads that
+  // as not-archived rather than letting `false === undefined` fail closed
+  // and blank the default Active view.
+  const shown = instances.filter((i) => (filter === 'archived') === Boolean(i.archived));
 
   return (
     <Screen edges={['top']}>

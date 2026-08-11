@@ -227,6 +227,21 @@ describe('Instances list screen', () => {
     expect(screen.queryByText('tycho')).toBeNull();
   });
 
+  it('shows an instance in the default Active view when `archived` is absent from the wire payload', async () => {
+    // `Instance.archived` is a compile-time claim only — an older engine
+    // omits the key entirely. `live.ts` casts the JSON without validation, so
+    // this simulates that shape rather than assuming the field is always
+    // present. `false === undefined` would blank the default Active view;
+    // this pins that it must not.
+    const instance = instanceFor('a1', 'tycho');
+    delete (instance as { archived?: boolean }).archived;
+    const list = jest.fn(async () => [instance]);
+    mockApi = makeMockApi({ list });
+
+    await renderRouter(routes, { initialUrl: '/' });
+    expect(await screen.findByText('tycho')).toBeTruthy();
+  });
+
   it('long-press offers Archive with no confirm, calls the API, and refreshes', async () => {
     // D4: no confirmation dialog — the sheet's Archive acts immediately.
     const sheet = jest
