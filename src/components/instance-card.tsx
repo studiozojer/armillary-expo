@@ -15,7 +15,15 @@ import { CardRow, Roundel, Text } from './ui';
  * `'engine default'` when none was pinned at creation — replacing the
  * chevron per CardRow's trailing contract (Task 8, per-instance-model plan).
  */
-export function InstanceCard({ instance }: { instance: Instance }) {
+export function InstanceCard({
+  instance,
+  onLongPress,
+}: {
+  instance: Instance;
+  /** The archive sheet's entry point (design D2). The card stays dumb: the
+   *  screen owns the sheet, this just reports the hold with its instance. */
+  onLongPress?: (instance: Instance) => void;
+}) {
   const router = useRouter();
   const operator = instance.operator ?? 'dispatcher';
 
@@ -36,6 +44,7 @@ export function InstanceCard({ instance }: { instance: Instance }) {
         </Text>
       }
       onPress={() => router.push(`/instance/${instance.id}`)}
+      onLongPress={onLongPress ? () => onLongPress(instance) : undefined}
     />
   );
 }
