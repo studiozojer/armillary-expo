@@ -22,6 +22,31 @@ jest.mock('react-native-safe-area-context', () => {
   return mocked.default ?? mocked;
 });
 
+// react-native-drawer-layout drives its pan gesture through Reanimated, whose
+// worklets layer calls into a native module on import (`loadUnpackers`), so the
+// import alone fails under jest — `TypeError: Cannot read properties of
+// undefined (reading 'loadUnpackers')`, taking down every suite that renders
+// the chat screen.
+//
+// The mock keeps the OBSERVABLE contract rather than stubbing the component to
+// nothing: closed renders only the children, open renders the children *and*
+// the drawer content. That is the whole of what a test can legitimately assert
+// about this component — the gesture and the animation are the library's, and
+// a test that pretended to cover them would be asserting against this mock.
+jest.mock('react-native-drawer-layout', () => {
+  const React = require('react');
+  const { View } = require('react-native');
+  return {
+    Drawer: ({ open, children, renderDrawerContent }) =>
+      React.createElement(
+        React.Fragment,
+        null,
+        children,
+        open ? React.createElement(View, { testID: 'drawer' }, renderDrawerContent()) : null,
+      ),
+  };
+});
+
 // expo-secure-store reaches for the Keychain through a native binding that
 // does not exist under jest. Same treatment as AsyncStorage above, and for the
 // same reason: without it every suite that renders a screen fails, because the

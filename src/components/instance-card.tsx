@@ -24,7 +24,7 @@ export function InstanceCard({ instance }: { instance: Instance }) {
       leading={<Roundel name={operator} />}
       label={operator}
       note={`${instance.stream} · seq ${instance.lastSeq}`}
-      noteVariant="mono"
+      register="instrument"
       trailing={
         // `flexShrink: 1` — `numberOfLines={1}` alone stops the caption
         // WRAPPING but not SHRINKING: RN's default `flexShrink: 0` (and

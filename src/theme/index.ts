@@ -83,6 +83,16 @@ export const type = {
   // a render in the meantime.
   whyteXs: { fontSize: 13, lineHeight: 16, fontFamily: families.whyte.book },
   mono: { fontSize: 13, lineHeight: 20, fontFamily: families.fraktion.book },
+  // The instrument register's own xs rung, named for `fraktion/xs` in `☯︎ daoUI`
+  // (PP Fraktion Mono, 13, line-height 16) exactly as `whyteXs` above is named
+  // for `whyte/xs` — same reason, same day's ruling: Figma is canonical for
+  // type, so the correspondence should be checkable rather than remembered.
+  //
+  // It exists rather than `mono` being retuned because `mono` is 13/20 and is
+  // what MarkdownView renders fenced blocks and inline code with, where the
+  // looser leading is doing real work. Two rungs, two jobs. `CardRow` takes
+  // this one; running code keeps `mono`.
+  fraktionXs: { fontSize: 13, lineHeight: 16, fontFamily: families.fraktion.book },
   // Section headers in the instrument register: NEW INSTANCE, INSTANCES.
   monoLabel: { fontSize: 12, lineHeight: 16, fontFamily: families.fraktion.book, letterSpacing: 1.2 },
 } as const;
