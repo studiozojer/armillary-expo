@@ -3,6 +3,7 @@ import { ThemeProvider } from 'expo-router/react-navigation';
 import { Stack } from 'expo-router/stack';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect, type ReactNode } from 'react';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { AuthProvider } from '@/lib/auth/auth-context';
 import { HostProvider } from '@/lib/host-context';
@@ -77,8 +78,15 @@ export default function RootLayout() {
   if (!ready) return null;
 
   return (
-    <ThemeModeProvider>
-      <NavigationChrome>
+    // Required by the instance panel's drawer (react-native-drawer-layout drives
+    // its pan gesture through react-native-gesture-handler, which needs this at
+    // the root). Absent until now because the native stack gets its own
+    // gestures from UIKit and never asked for it — so this is new load, not a
+    // fix: if a swipe anywhere in the app starts behaving oddly, this wrapper
+    // is the thing that changed.
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <ThemeModeProvider>
+        <NavigationChrome>
         <HostProvider>
           {/* Inside HostProvider on purpose: the credential is per host —
               the engine's registry is host-local, so a token minted on one
@@ -113,7 +121,8 @@ export default function RootLayout() {
             </PreferencesProvider>
           </AuthProvider>
         </HostProvider>
-      </NavigationChrome>
-    </ThemeModeProvider>
+        </NavigationChrome>
+      </ThemeModeProvider>
+    </GestureHandlerRootView>
   );
 }

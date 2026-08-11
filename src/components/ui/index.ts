@@ -7,6 +7,7 @@ export { CircleButton } from './circle-button';
 export { Icon, ICONS, type IconName } from './icon';
 export { Inline, Stack } from './stack';
 export { ListRow } from './list-row';
+export { PanelHeader } from './panel-header';
 export { Roundel, roundelGlyph } from './roundel';
 export { ROW_ICON_LANE, Rule } from './rule';
 export { Screen } from './screen';

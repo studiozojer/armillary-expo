@@ -11,6 +11,8 @@ export type IconName =
   | 'search'
   | 'more'
   | 'back'
+  | 'close'
+  | 'panel'
   | 'settings'
   | 'inbox'
   | 'plus'
@@ -49,6 +51,12 @@ export const ICONS: Record<IconName, { ios: SFSymbol; web: AndroidSymbol }> = {
   search: { ios: 'magnifyingglass', web: 'search' },
   more: { ios: 'ellipsis', web: 'more_horiz' },
   back: { ios: 'chevron.left', web: 'chevron_left' },
+  // The panel dismiss. Distinct from `back` on purpose: a panel is presented
+  // over where you are rather than navigated to, so there is nothing behind it
+  // to return to — the mark has to say "close", not "go back".
+  close: { ios: 'xmark', web: 'close' },
+  // The panel's open affordance, on the chat header.
+  panel: { ios: 'sidebar.right', web: 'view_sidebar' },
   settings: { ios: 'gearshape', web: 'settings' },
   inbox: { ios: 'tray', web: 'inbox' },
   plus: { ios: 'plus', web: 'add' },

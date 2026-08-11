@@ -15,8 +15,11 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { Drawer } from 'react-native-drawer-layout';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { InstancePanel } from '@/components/instance-panel';
+import { Icon } from '@/components/ui';
 import { MarkdownView } from '@/components/markdown-view';
 import { SelectTextSheet } from '@/components/select-text-sheet';
 import { useHost } from '@/lib/host-context';
@@ -46,6 +49,15 @@ type MessageRow = Extract<SessionRow, { kind: 'message' }>;
  * title), this constant needs to grow with it.
  */
 const ESTIMATED_HEADER_HEIGHT = 44;
+
+/**
+ * The instance panel's width, from the drawing (`bbjHiHEBoR3xWWruoprPkH`,
+ * `444:194`). Fixed rather than a fraction of the screen: the panel's contents
+ * are a two-column CONTEXT block and rows that truncate, both of which were
+ * measured at this width, and a percentage would re-open that at every device
+ * size for no gain.
+ */
+const PANEL_WIDTH = 350;
 
 /** One key per row, by kind — the same identity project.ts's own rows carry,
  *  plus the synthetic gap row this screen (not the reducer) injects. */
@@ -116,6 +128,7 @@ function SessionView({
     noteRefusal,
   );
   const [draft, setDraft] = useState('');
+  const [panelOpen, setPanelOpen] = useState(false);
 
   const streaming = rows.some((r) => r.kind === 'streaming');
 
@@ -212,232 +225,283 @@ function SessionView({
   );
 
   return (
-    <SafeAreaView style={{ flex: 1 }} edges={[]}>
-      {instance ? (
-        // Set only once attach() resolves — before that, `_layout.tsx`'s
-        // static "Instance" fallback title holds. `@operator`/`dispatcher`
-        // names who's actually attached (vocabulary: an operator is a
-        // composed identity, not "a session") — matching how the app already
-        // names dispatcher-routed instances elsewhere (project.ts's
-        // `instance_created` system row).
-        <Stack.Screen options={{ title: instance.operator ? `@${instance.operator}` : 'dispatcher' }} />
-      ) : null}
+    /*
+      `react-native-drawer-layout`, NOT expo-router's `Drawer`. The panel is not
+      a route: it has no URL, no history entry, and going "back" from it is
+      meaningless. Registering it as a navigator would buy the same gesture and
+      animation — they share this very library underneath — at the cost of
+      claiming a navigation relationship that does not exist.
 
-      {status !== 'live' ? (
-        <Text
-          style={{
-            ...theme.type.caption,
-            color: theme.color.txWarning,
-            textAlign: 'center',
-            paddingVertical: theme.space.xs,
-          }}>
-          {status === 'replaying'
-            ? 'Loading…'
-            : // 'closed' only ever reaches here from an attach() failure
-              // (use-session.ts's onStatus handler converts a dropped live
-              // connection's 'closed' into 'reconnecting' before it gets
-              // this far) — so unlike 'reconnecting', nothing is retrying,
-              // and saying "Reconnecting…" would be dishonest. Name the
-              // refusal instead, using the message attach() rejected with.
-              status === 'closed'
-              ? `Couldn't reach the instance — ${sendError ?? 'unknown error'}`
-              : 'Reconnecting…'}
-        </Text>
-      ) : null}
-
-      {instance ? (
-        // Minimal id surface: identifiable without curl-ing the daemon. Not a
-        // metadata panel (that's a designed future pass) — just the short id,
-        // txTertiary, one line.
-        <Text
-          style={{
-            ...theme.type.caption,
-            color: theme.color.txTertiary,
-            textAlign: 'center',
-            paddingBottom: theme.space.xs,
-          }}>
-          {instance.id.slice(0, 8)}
-        </Text>
-      ) : null}
-
-      {/*
-        Clears the composer from the native bottom tab bar and rises it with
-        the keyboard. Wrapping from here (not just the composer row) so the
-        FlatList — flex: 1 — is what actually shrinks when the keyboard
-        appears, with the composer staying pinned just above it.
-      */}
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top + ESTIMATED_HEADER_HEIGHT : 0}>
-        <FlatList
-          inverted
-          data={displayRows}
-          keyExtractor={rowKey}
-          contentContainerStyle={{ paddingHorizontal: theme.space.lg, paddingVertical: theme.space.md }}
-          renderItem={({ item }) => {
-            switch (item.kind) {
-              case 'message': {
-                if (item.evicted) {
-                  return (
-                    <Pressable
-                      onLongPress={() => onLongPressMessage(item)}
-                      style={{ paddingVertical: theme.space.sm }}>
-                      <Text style={{ ...theme.type.body, color: theme.color.txDisabled }}>{item.text}</Text>
-                      <Text
-                        style={{
-                          ...theme.type.caption,
-                          color: theme.color.txDisabled,
-                          paddingTop: theme.space.xxs,
-                        }}>
-                        removed from context
-                      </Text>
-                    </Pressable>
-                  );
-                }
-                if (item.error) {
-                  // The failure-shaped assistant_message the engine's fail_turn
-                  // appends always carries text: "" alongside the error code
-                  // (see events.ts's AssistantMessageData comment) — rendering
-                  // the normal text branch below on an empty string is exactly
-                  // the invisible-row bug this exists to fix, so this checks
-                  // `error` first and never falls through to it. Named verbatim
-                  // (house rule): the machine code, not a paraphrase.
-                  return (
-                    <View style={{ paddingVertical: theme.space.sm }}>
-                      <Text style={{ ...theme.type.caption, color: theme.color.txWarning }}>
-                        {`turn failed: ${item.error}`}
-                      </Text>
-                    </View>
-                  );
-                }
-                return (
-                  <Pressable onLongPress={() => onLongPressMessage(item)} style={{ paddingVertical: theme.space.sm }}>
-                    {item.role === 'operator' ? (
-                      <MarkdownView source={item.text} theme={markedThemeFor(theme)} />
-                    ) : (
-                      <Text style={{ ...theme.type.body, color: theme.color.txPrimary }}>{item.text}</Text>
-                    )}
-                  </Pressable>
-                );
-              }
-              case 'pending':
-                return (
-                  <View style={{ paddingVertical: theme.space.sm }}>
-                    <Text style={{ ...theme.type.body, color: theme.color.txPrimary }}>{item.text}</Text>
-                  </View>
-                );
-              case 'streaming':
-                return (
-                  <View style={{ paddingVertical: theme.space.sm }}>
-                    <Text style={{ ...theme.type.body, color: theme.color.txPrimary }}>{item.text}…</Text>
-                  </View>
-                );
-              case 'system':
-              case 'gap':
-                return (
-                  <Text
-                    style={{
-                      ...theme.type.caption,
-                      color: theme.color.txTertiary,
-                      textAlign: 'center',
-                      paddingVertical: theme.space.sm,
-                    }}>
-                    {item.label}
-                  </Text>
-                );
-            }
+      It mounts INSIDE the screen, so it covers the content and not the native
+      header. That is a visible deviation from the drawing, where the panel is
+      full-bleed: the nav bar stays put above it. Covering the bar would mean
+      hoisting the drawer above the Stack, which makes it global rather than
+      this instance's. Flagged rather than chosen silently.
+    */
+    <Drawer
+      open={panelOpen}
+      onOpen={() => setPanelOpen(true)}
+      onClose={() => setPanelOpen(false)}
+      drawerPosition="right"
+      drawerType="front"
+      drawerStyle={{ width: PANEL_WIDTH }}
+      renderDrawerContent={() => (
+        <InstancePanel
+          instance={instance}
+          onDismiss={() => setPanelOpen(false)}
+          onInterrupt={() => {
+            setPanelOpen(false);
+            void interrupt();
+          }}
+          canInterrupt={streaming}
+        />
+      )}>
+      <SafeAreaView style={{ flex: 1 }} edges={[]}>
+        <Stack.Screen
+          options={{
+            // Title is set only once attach() resolves — before that,
+            // `_layout.tsx`'s static "Instance" fallback holds.
+            // `@operator`/`dispatcher` names who's actually attached
+            // (vocabulary: an operator is a composed identity, not "a
+            // session") — matching how the app already names
+            // dispatcher-routed instances elsewhere (project.ts's
+            // `instance_created` system row).
+            ...(instance
+              ? { title: instance.operator ? `@${instance.operator}` : 'dispatcher' }
+              : null),
+            // The panel's open affordance. Unconditional, unlike the title: a
+            // panel that only appears once attach() resolves would be missing
+            // in exactly the states — reconnecting, refused — where knowing
+            // which model and stream you are attached to matters most.
+            headerRight: () => (
+              <Pressable
+                onPress={() => setPanelOpen(true)}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel="Open instance panel"
+                testID="open-instance-panel">
+                <Icon name="panel" size={20} color="icPrimary" />
+              </Pressable>
+            ),
           }}
         />
 
-        {sendError && status !== 'closed' ? (
-          // Suppressed when status is 'closed': that's an attach failure,
-          // already named by the status caption above — this banner is for a
-          // rejected send() on an otherwise-live session, not a second copy of
-          // the same message.
+        {status !== 'live' ? (
           <Text
             style={{
               ...theme.type.caption,
               color: theme.color.txWarning,
-              paddingHorizontal: theme.space.lg,
-              paddingBottom: theme.space.xs,
+              textAlign: 'center',
+              paddingVertical: theme.space.xs,
             }}>
-            {sendError}
+            {status === 'replaying'
+              ? 'Loading…'
+              : // 'closed' only ever reaches here from an attach() failure
+                // (use-session.ts's onStatus handler converts a dropped live
+                // connection's 'closed' into 'reconnecting' before it gets
+                // this far) — so unlike 'reconnecting', nothing is retrying,
+                // and saying "Reconnecting…" would be dishonest. Name the
+                // refusal instead, using the message attach() rejected with.
+                status === 'closed'
+                ? `Couldn't reach the instance — ${sendError ?? 'unknown error'}`
+                : 'Reconnecting…'}
           </Text>
         ) : null}
 
-        <View
-          testID="composer-row"
-          style={{
-            flexDirection: 'row',
-            alignItems: 'center',
-            gap: theme.space.sm,
-            paddingTop: theme.space.md,
-            paddingHorizontal: theme.space.md,
-            // The static (keyboard-down) clearance from the home indicator,
-            // and nothing else. This screen is registered on the ROOT stack,
-            // above the tab bar, so no bar sits beneath it and `insets.bottom`
-            // is the bare safe-area value.
-            //
-            // `edges={[]}` on this screen's outer SafeAreaView means no bottom
-            // inset is applied there, so this is still the only place the
-            // clearance can live.
-            //
-            // This replaces a comment that could not settle whether a *pushed*
-            // stack screen inside a tab controller inherits the controller's
-            // reduced inset or just the bare home-indicator value — iOS 26's
-            // floating-capsule tab bar made it a device question, and there is
-            // no `useBottomTabBarHeight()` equivalent for NativeTabs to
-            // cross-check against. Moving the chat above the bar closed that
-            // question rather than answering it: there is no capsule beneath
-            // this screen to be ambiguous about.
-            paddingBottom: theme.space.md + insets.bottom,
-            borderTopWidth: theme.border.hairline,
-            borderTopColor: theme.color.bdPrimary,
-          }}>
-          <TextInput
-            value={draft}
-            onChangeText={setDraft}
-            placeholder="Message"
-            placeholderTextColor={theme.color.txTertiary}
+        {instance ? (
+          // Minimal id surface: identifiable without curl-ing the daemon. Not a
+          // metadata panel (that's a designed future pass) — just the short id,
+          // txTertiary, one line.
+          <Text
             style={{
-              flex: 1,
-              ...theme.type.body,
-              color: theme.color.txPrimary,
-              paddingVertical: theme.space.sm,
-              paddingHorizontal: theme.space.md,
-              borderRadius: theme.radius.md,
-              borderWidth: theme.border.thin,
-              borderColor: theme.color.bdBase,
+              ...theme.type.caption,
+              color: theme.color.txTertiary,
+              textAlign: 'center',
+              paddingBottom: theme.space.xs,
+            }}>
+            {instance.id.slice(0, 8)}
+          </Text>
+        ) : null}
+
+        {/*
+          Clears the composer from the native bottom tab bar and rises it with
+          the keyboard. Wrapping from here (not just the composer row) so the
+          FlatList — flex: 1 — is what actually shrinks when the keyboard
+          appears, with the composer staying pinned just above it.
+        */}
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top + ESTIMATED_HEADER_HEIGHT : 0}>
+          <FlatList
+            inverted
+            data={displayRows}
+            keyExtractor={rowKey}
+            contentContainerStyle={{ paddingHorizontal: theme.space.lg, paddingVertical: theme.space.md }}
+            renderItem={({ item }) => {
+              switch (item.kind) {
+                case 'message': {
+                  if (item.evicted) {
+                    return (
+                      <Pressable
+                        onLongPress={() => onLongPressMessage(item)}
+                        style={{ paddingVertical: theme.space.sm }}>
+                        <Text style={{ ...theme.type.body, color: theme.color.txDisabled }}>{item.text}</Text>
+                        <Text
+                          style={{
+                            ...theme.type.caption,
+                            color: theme.color.txDisabled,
+                            paddingTop: theme.space.xxs,
+                          }}>
+                          removed from context
+                        </Text>
+                      </Pressable>
+                    );
+                  }
+                  if (item.error) {
+                    // The failure-shaped assistant_message the engine's fail_turn
+                    // appends always carries text: "" alongside the error code
+                    // (see events.ts's AssistantMessageData comment) — rendering
+                    // the normal text branch below on an empty string is exactly
+                    // the invisible-row bug this exists to fix, so this checks
+                    // `error` first and never falls through to it. Named verbatim
+                    // (house rule): the machine code, not a paraphrase.
+                    return (
+                      <View style={{ paddingVertical: theme.space.sm }}>
+                        <Text style={{ ...theme.type.caption, color: theme.color.txWarning }}>
+                          {`turn failed: ${item.error}`}
+                        </Text>
+                      </View>
+                    );
+                  }
+                  return (
+                    <Pressable onLongPress={() => onLongPressMessage(item)} style={{ paddingVertical: theme.space.sm }}>
+                      {item.role === 'operator' ? (
+                        <MarkdownView source={item.text} theme={markedThemeFor(theme)} />
+                      ) : (
+                        <Text style={{ ...theme.type.body, color: theme.color.txPrimary }}>{item.text}</Text>
+                      )}
+                    </Pressable>
+                  );
+                }
+                case 'pending':
+                  return (
+                    <View style={{ paddingVertical: theme.space.sm }}>
+                      <Text style={{ ...theme.type.body, color: theme.color.txPrimary }}>{item.text}</Text>
+                    </View>
+                  );
+                case 'streaming':
+                  return (
+                    <View style={{ paddingVertical: theme.space.sm }}>
+                      <Text style={{ ...theme.type.body, color: theme.color.txPrimary }}>{item.text}…</Text>
+                    </View>
+                  );
+                case 'system':
+                case 'gap':
+                  return (
+                    <Text
+                      style={{
+                        ...theme.type.caption,
+                        color: theme.color.txTertiary,
+                        textAlign: 'center',
+                        paddingVertical: theme.space.sm,
+                      }}>
+                      {item.label}
+                    </Text>
+                  );
+              }
             }}
           />
-          {streaming ? (
-            <Pressable
-              onPress={() => void interrupt()}
-              style={{
-                paddingVertical: theme.space.sm,
-                paddingHorizontal: theme.space.lg,
-                borderRadius: theme.radius.md,
-                backgroundColor: theme.color.bgError,
-              }}>
-              <Text style={{ ...theme.type.label, color: theme.color.txError }}>Stop</Text>
-            </Pressable>
-          ) : (
-            <Pressable
-              onPress={onSend}
-              style={{
-                paddingVertical: theme.space.sm,
-                paddingHorizontal: theme.space.lg,
-                borderRadius: theme.radius.md,
-                backgroundColor: theme.color.bgAccent,
-              }}>
-              <Text style={{ ...theme.type.label, color: theme.color.txAccent }}>Send</Text>
-            </Pressable>
-          )}
-        </View>
-      </KeyboardAvoidingView>
 
-      <SelectTextSheet text={selectText} onDone={() => setSelectText(null)} />
-    </SafeAreaView>
+          {sendError && status !== 'closed' ? (
+            // Suppressed when status is 'closed': that's an attach failure,
+            // already named by the status caption above — this banner is for a
+            // rejected send() on an otherwise-live session, not a second copy of
+            // the same message.
+            <Text
+              style={{
+                ...theme.type.caption,
+                color: theme.color.txWarning,
+                paddingHorizontal: theme.space.lg,
+                paddingBottom: theme.space.xs,
+              }}>
+              {sendError}
+            </Text>
+          ) : null}
+
+          <View
+            testID="composer-row"
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: theme.space.sm,
+              paddingTop: theme.space.md,
+              paddingHorizontal: theme.space.md,
+              // The static (keyboard-down) clearance from the home indicator,
+              // and nothing else. This screen is registered on the ROOT stack,
+              // above the tab bar, so no bar sits beneath it and `insets.bottom`
+              // is the bare safe-area value.
+              //
+              // `edges={[]}` on this screen's outer SafeAreaView means no bottom
+              // inset is applied there, so this is still the only place the
+              // clearance can live.
+              //
+              // This replaces a comment that could not settle whether a *pushed*
+              // stack screen inside a tab controller inherits the controller's
+              // reduced inset or just the bare home-indicator value — iOS 26's
+              // floating-capsule tab bar made it a device question, and there is
+              // no `useBottomTabBarHeight()` equivalent for NativeTabs to
+              // cross-check against. Moving the chat above the bar closed that
+              // question rather than answering it: there is no capsule beneath
+              // this screen to be ambiguous about.
+              paddingBottom: theme.space.md + insets.bottom,
+              borderTopWidth: theme.border.hairline,
+              borderTopColor: theme.color.bdPrimary,
+            }}>
+            <TextInput
+              value={draft}
+              onChangeText={setDraft}
+              placeholder="Message"
+              placeholderTextColor={theme.color.txTertiary}
+              style={{
+                flex: 1,
+                ...theme.type.body,
+                color: theme.color.txPrimary,
+                paddingVertical: theme.space.sm,
+                paddingHorizontal: theme.space.md,
+                borderRadius: theme.radius.md,
+                borderWidth: theme.border.thin,
+                borderColor: theme.color.bdBase,
+              }}
+            />
+            {streaming ? (
+              <Pressable
+                onPress={() => void interrupt()}
+                style={{
+                  paddingVertical: theme.space.sm,
+                  paddingHorizontal: theme.space.lg,
+                  borderRadius: theme.radius.md,
+                  backgroundColor: theme.color.bgError,
+                }}>
+                <Text style={{ ...theme.type.label, color: theme.color.txError }}>Stop</Text>
+              </Pressable>
+            ) : (
+              <Pressable
+                onPress={onSend}
+                style={{
+                  paddingVertical: theme.space.sm,
+                  paddingHorizontal: theme.space.lg,
+                  borderRadius: theme.radius.md,
+                  backgroundColor: theme.color.bgAccent,
+                }}>
+                <Text style={{ ...theme.type.label, color: theme.color.txAccent }}>Send</Text>
+              </Pressable>
+            )}
+          </View>
+        </KeyboardAvoidingView>
+
+        <SelectTextSheet text={selectText} onDone={() => setSelectText(null)} />
+      </SafeAreaView>
+    </Drawer>
   );
 }
