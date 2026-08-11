@@ -4,6 +4,20 @@ import { InstancePanel, splitModel } from '../src/components/instance-panel';
 import { CardRow } from '../src/components/ui';
 import type { Instance } from '../src/lib/session/events';
 
+/**
+ * A whole `Instance`, spelled out rather than cast.
+ *
+ * It is written this way ON PURPOSE, and the purpose has already been proven
+ * once: this factory is what caught `main` going red on 2026-08-11. #26 (the
+ * archive pass) added `archived` and `mayWriteComposition` to `Instance` while
+ * #27 (this panel) added the factory — no textual conflict, both branches
+ * green alone, `tsc` failing on the union. A `as Instance` cast or a
+ * `Partial<Instance>` here would have swallowed exactly that signal and the
+ * break would have surfaced at runtime instead.
+ *
+ * So: when a field is added to `Instance`, this failing is the system working.
+ * Add the field here; do not loosen the type.
+ */
 function instance(over: Partial<Instance> = {}): Instance {
   return {
     id: 'e4f1a9c2-0b77-4d31-9a55-1c2d3e4f5a6b',
@@ -12,6 +26,8 @@ function instance(over: Partial<Instance> = {}): Instance {
     startedAt: '2026-08-11T09:00:00Z',
     lastSeq: 412,
     model: 'zen/deepseek-v4-flash',
+    mayWriteComposition: false,
+    archived: false,
     ...over,
   };
 }
