@@ -4,6 +4,20 @@ import { InstancePanel, splitModel } from '../src/components/instance-panel';
 import { CardRow } from '../src/components/ui';
 import type { Instance } from '../src/lib/session/events';
 
+/**
+ * A whole `Instance`, spelled out rather than cast.
+ *
+ * It is written this way ON PURPOSE, and the purpose has already been proven
+ * once: this factory is what caught `main` going red on 2026-08-11. #26 (the
+ * archive pass) added `archived` and `mayWriteComposition` to `Instance` while
+ * #27 (this panel) added the factory — no textual conflict, both branches
+ * green alone, `tsc` failing on the union. A `as Instance` cast or a
+ * `Partial<Instance>` here would have swallowed exactly that signal and the
+ * break would have surfaced at runtime instead.
+ *
+ * So: when a field is added to `Instance`, this failing is the system working.
+ * Add the field here; do not loosen the type.
+ */
 function instance(over: Partial<Instance> = {}): Instance {
   return {
     id: 'e4f1a9c2-0b77-4d31-9a55-1c2d3e4f5a6b',
@@ -12,6 +26,8 @@ function instance(over: Partial<Instance> = {}): Instance {
     startedAt: '2026-08-11T09:00:00Z',
     lastSeq: 412,
     model: 'zen/deepseek-v4-flash',
+    mayWriteComposition: false,
+    archived: false,
     ...over,
   };
 }
@@ -103,11 +119,35 @@ describe('<InstancePanel>', () => {
     expect(onInterrupt).toHaveBeenCalledTimes(1);
   });
 
-  // Archive's home is this panel, but it is being built on another branch.
-  // Pinning it inert means whoever merges has to change this line deliberately
-  // rather than discover the button was live and doing nothing.
-  it('leaves Archive inert, awaiting feat/instance-archive', async () => {
-    await render(<InstancePanel instance={instance()} onDismiss={jest.fn()} />);
+  it('archives from the panel', async () => {
+    const onArchive = jest.fn();
+    await render(
+      <InstancePanel instance={instance()} onDismiss={jest.fn()} onArchive={onArchive} />,
+    );
+
+    expect(screen.getByText('Archive')).toBeTruthy();
+    fireEvent.press(screen.getByTestId('panel-archive'));
+    expect(onArchive).toHaveBeenCalledTimes(1);
+  });
+
+  // The verb is derived, not passed. A caller that had to choose would be
+  // re-deriving state this component already reads, and the two could disagree
+  // — offering "Archive" on something already archived.
+  it('offers Unarchive once the instance is archived', async () => {
+    await render(
+      <InstancePanel
+        instance={instance({ archived: true })}
+        onDismiss={jest.fn()}
+        onArchive={jest.fn()}
+      />,
+    );
+
+    expect(screen.getByText('Unarchive')).toBeTruthy();
+    expect(screen.queryByText('Archive')).toBeNull();
+  });
+
+  it('cannot archive an instance that has not attached yet', async () => {
+    await render(<InstancePanel instance={null} onDismiss={jest.fn()} onArchive={jest.fn()} />);
     expect(screen.getByTestId('panel-archive').props.accessibilityState.disabled).toBe(true);
   });
 
