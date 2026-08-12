@@ -1,4 +1,5 @@
 import { ScrollView, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { Instance } from '@/lib/session/events';
 import { useTheme } from '@/theme';
@@ -94,11 +95,23 @@ export function InstancePanel({
   onArchive?: () => void;
 }) {
   const theme = useTheme();
+  const insets = useSafeAreaInsets();
   const operator = instance?.operator ?? 'dispatcher';
   const { model, provider } = splitModel(instance?.model ?? null);
 
   return (
+    // The SURFACE bleeds to the screen edge and the CONTENT is inset — not the
+    // other way round. Once the drawer moved above the Stack it stopped being
+    // clipped by the navigation header, which is the point, but it also means
+    // nothing insets it any more: the panel spans the full window, status bar
+    // and home indicator included (David, on device, 2026-08-12).
+    //
+    // Padding the container instead of the content would leave a transparent
+    // band above the panel showing whatever is behind the drawer, which reads
+    // as a gap rather than as a surface. So the fill stays full-bleed and only
+    // what you read gets pushed clear.
     <View style={{ flex: 1, backgroundColor: theme.color.bgSolidBase }} testID="instance-panel">
+      <View style={{ paddingTop: insets.top }} testID="panel-top-inset" />
       <PanelHeader
         leading={<Roundel name={operator} />}
         title={operator}
@@ -107,7 +120,10 @@ export function InstancePanel({
         dismissLabel="Close instance panel"
       />
 
-      <ScrollView contentContainerStyle={{ paddingBottom: theme.space.xxxl }}>
+      {/* The bottom edge has the same problem as the top: full-window means the
+          home indicator sits over the last row. `xxxl` alone was a guess made
+          when the drawer was still clipped by the screen it lived in. */}
+      <ScrollView contentContainerStyle={{ paddingBottom: theme.space.xxxl + insets.bottom }}>
         <SectionHeader>Context</SectionHeader>
         <Box px="lg">
           <Stack gap="xs">

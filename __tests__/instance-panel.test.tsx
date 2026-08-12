@@ -1,4 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react-native';
+import { StyleSheet } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { InstancePanel, splitModel } from '../src/components/instance-panel';
 import { CardRow } from '../src/components/ui';
@@ -144,6 +146,31 @@ describe('<InstancePanel>', () => {
 
     expect(screen.getByText('Unarchive')).toBeTruthy();
     expect(screen.queryByText('Archive')).toBeNull();
+  });
+
+  /**
+   * Found on a device, not here (David, 2026-08-12) — and the reason this suite
+   * was blind to it is worth keeping: `jest.setup.js` mocks safe-area to a
+   * ZEROED inset, so every other test in this file renders a panel whose top
+   * inset is 0 and cannot tell correct from missing.
+   *
+   * Supplying real metrics is what makes the assertion able to fail. iPhone 15
+   * Pro figures: 59 top, 34 bottom.
+   */
+  it('clears the status bar and the home indicator', async () => {
+    const metrics = {
+      frame: { x: 0, y: 0, width: 393, height: 852 },
+      insets: { top: 59, left: 0, right: 0, bottom: 34 },
+    };
+    await render(
+      <SafeAreaProvider initialMetrics={metrics}>
+        <InstancePanel instance={instance()} onDismiss={jest.fn()} />
+      </SafeAreaProvider>,
+    );
+
+    expect(StyleSheet.flatten(screen.getByTestId('panel-top-inset').props.style).paddingTop).toBe(
+      59,
+    );
   });
 
   it('cannot archive an instance that has not attached yet', async () => {
