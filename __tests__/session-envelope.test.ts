@@ -5,7 +5,7 @@ import addFormats from 'ajv-formats';
 
 import schema from '../../../repos/armillary-core/schema/event.schema.json';
 import { MockSessionAPI } from '../src/lib/session/mock';
-import type { EventEnvelope, SubscriptionStatus, UserMessageData, ThinkingBlock } from '../src/lib/session/events';
+import type { AssistantMessageData, EventEnvelope, SubscriptionStatus, UserMessageData, ThinkingBlock } from '../src/lib/session/events';
 
 const flush = () => new Promise<void>((r) => setTimeout(r, 0));
 
@@ -130,14 +130,38 @@ describe('MockSessionAPI', () => {
     expect((echoed!.data as UserMessageData).clientKey).toBe('key-1');
   });
 
-  it('models thinking as an array of wire-shaped blocks, not a string', () => {
-    // Compile-time assertion: this file fails typecheck if `thinking` is
-    // typed as a string. The runtime expect is a formality — the real
-    // proof is that `tsc` accepts the array and would reject a bare string.
-    const blocks: ThinkingBlock[] = [
-      { type: 'thinking', thinking: 'let me look', signature: 'sig-1' },
-      { type: 'redacted_thinking', data: 'opaque-bytes' },
-    ];
-    expect(blocks).toHaveLength(2);
+  it('models thinking as an array of wire-shaped blocks hanging off the assistant message', () => {
+    // The guarantee here is `tsc`, not the runtime expect below: jest-expo
+    // transforms via Babel and strips types without checking them, so a
+    // broken type fails `npx tsc --noEmit` and never reaches jest. The
+    // assertion exists to give the compile-time check a home, not to verify
+    // anything at runtime.
+    //
+    // Built as a full AssistantMessageData rather than a bare ThinkingBlock[]
+    // deliberately: the earlier version typed the union in isolation, so
+    // retyping `thinking` to string[] or dropping it entirely would have gone
+    // uncaught — the exact regression this is meant to prevent.
+    const message: AssistantMessageData = {
+      text: 'Here.',
+      generation: 'g1',
+      thinking: [
+        { type: 'thinking', thinking: 'let me look', signature: 'sig-1' },
+        { type: 'redacted_thinking', data: 'opaque-bytes' },
+      ],
+    };
+    expect(message.thinking).toHaveLength(2);
+  });
+
+  it('allows assistant messages with no thinking field — absence is the common case', () => {
+    // This test verifies that `thinking` is genuinely optional on
+    // AssistantMessageData. An engine persists thinking only when the round
+    // also produced text or tool calls, so thinking-only cuts yield none. A
+    // future regression making `thinking` required would break every ordinary
+    // message. The compile-time guarantee is `tsc --noEmit`.
+    const message: AssistantMessageData = {
+      text: 'Done.',
+      generation: 'g2',
+    };
+    expect(message.thinking).toBeUndefined();
   });
 });
