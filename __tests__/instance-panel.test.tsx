@@ -119,11 +119,35 @@ describe('<InstancePanel>', () => {
     expect(onInterrupt).toHaveBeenCalledTimes(1);
   });
 
-  // Archive's home is this panel, but it is being built on another branch.
-  // Pinning it inert means whoever merges has to change this line deliberately
-  // rather than discover the button was live and doing nothing.
-  it('leaves Archive inert, awaiting feat/instance-archive', async () => {
-    await render(<InstancePanel instance={instance()} onDismiss={jest.fn()} />);
+  it('archives from the panel', async () => {
+    const onArchive = jest.fn();
+    await render(
+      <InstancePanel instance={instance()} onDismiss={jest.fn()} onArchive={onArchive} />,
+    );
+
+    expect(screen.getByText('Archive')).toBeTruthy();
+    fireEvent.press(screen.getByTestId('panel-archive'));
+    expect(onArchive).toHaveBeenCalledTimes(1);
+  });
+
+  // The verb is derived, not passed. A caller that had to choose would be
+  // re-deriving state this component already reads, and the two could disagree
+  // — offering "Archive" on something already archived.
+  it('offers Unarchive once the instance is archived', async () => {
+    await render(
+      <InstancePanel
+        instance={instance({ archived: true })}
+        onDismiss={jest.fn()}
+        onArchive={jest.fn()}
+      />,
+    );
+
+    expect(screen.getByText('Unarchive')).toBeTruthy();
+    expect(screen.queryByText('Archive')).toBeNull();
+  });
+
+  it('cannot archive an instance that has not attached yet', async () => {
+    await render(<InstancePanel instance={null} onDismiss={jest.fn()} onArchive={jest.fn()} />);
     expect(screen.getByTestId('panel-archive').props.accessibilityState.disabled).toBe(true);
   });
 

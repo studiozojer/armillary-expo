@@ -37,10 +37,18 @@ jest.mock('react-native-drawer-layout', () => {
   const React = require('react');
   const { View } = require('react-native');
   return {
-    Drawer: ({ open, children, renderDrawerContent }) =>
+    Drawer: ({ open, children, renderDrawerContent, swipeEnabled }) =>
       React.createElement(
         React.Fragment,
         null,
+        // `swipeEnabled` is the whole of the panel's scoping policy — a screen
+        // that registers no content must not be able to drag one out. It is
+        // surfaced here so a test can assert what PanelHost tells the library,
+        // which is the only part of that contract this repo owns.
+        React.createElement(View, {
+          testID: 'drawer-state',
+          accessibilityLabel: `swipe:${swipeEnabled ? 'on' : 'off'}`,
+        }),
         children,
         open ? React.createElement(View, { testID: 'drawer' }, renderDrawerContent()) : null,
       ),

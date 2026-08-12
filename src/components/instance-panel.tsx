@@ -79,11 +79,19 @@ export function InstancePanel({
   onDismiss,
   onInterrupt,
   canInterrupt = false,
+  onArchive,
 }: {
   instance: Instance | null;
   onDismiss: () => void;
   onInterrupt?: () => void;
   canInterrupt?: boolean;
+  /**
+   * Archive or unarchive, whichever the instance is not. One callback rather
+   * than two: the verb is a function of `instance.archived`, so a caller that
+   * had to pick would be re-deriving state this component already reads, and
+   * the two could disagree.
+   */
+  onArchive?: () => void;
 }) {
   const theme = useTheme();
   const operator = instance?.operator ?? 'dispatcher';
@@ -123,12 +131,22 @@ export function InstancePanel({
               testID="panel-interrupt"
             />
             {/*
-              Archive belongs here by design — this panel is the entry point the
-              drawing gives it — but it is being built on `feat/instance-archive`
-              in a parallel window. Left inert on purpose rather than
-              implemented twice; whoever merges wires this one button.
+              Live as of 2026-08-12. `feat/instance-archive` shipped the verb as
+              a long press on the instance row, which is discoverable only by
+              accident; this is the same `api.archive` / `api.unarchive` pair
+              reached from where the drawing put it. Two entry points, one path
+              — deliberately not a second implementation.
+
+              No confirm, matching the list (design 2026-08-11 D4): the verb acts
+              immediately and the Archived filter is the undo.
             */}
-            <Button label="Archive" variant="secondary" onPress={noop} disabled testID="panel-archive" />
+            <Button
+              label={instance?.archived ? 'Unarchive' : 'Archive'}
+              variant="secondary"
+              onPress={onArchive ?? noop}
+              disabled={!instance || !onArchive}
+              testID="panel-archive"
+            />
           </Inline>
         </Box>
 

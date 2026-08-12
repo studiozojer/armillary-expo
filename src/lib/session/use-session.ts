@@ -198,6 +198,16 @@ export function useSession(
             return next;
           });
         }
+        // The lifecycle markers govern the instance RECORD, not the transcript.
+        // `projectSession` deliberately renders no row for them (design
+        // 2026-08-11 D6) — that decision was about this chat's rows, and it
+        // stands. But `instance` here is set once by attach() and never again,
+        // so without this the panel's verb goes stale the moment it is used:
+        // archive from the panel, and it still offers "Archive".
+        if (e.type === 'instance_archived' || e.type === 'instance_unarchived') {
+          const archived = e.type === 'instance_archived';
+          setInstance((prev) => (prev ? { ...prev, archived } : prev));
+        }
         insertDurable(e);
       },
       onStatus: (s) => {

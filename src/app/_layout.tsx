@@ -5,7 +5,9 @@ import * as SplashScreen from 'expo-splash-screen';
 import { useEffect, type ReactNode } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
+import { PanelHost } from '@/components/panel-host';
 import { AuthProvider } from '@/lib/auth/auth-context';
+import { PanelProvider } from '@/lib/panel-context';
 import { HostProvider } from '@/lib/host-context';
 import { PreferencesProvider } from '@/lib/preferences';
 import { navThemeFor, useTheme } from '@/theme';
@@ -94,6 +96,13 @@ export default function RootLayout() {
               the selected host and re-hydrates when it changes. */}
           <AuthProvider>
             <PreferencesProvider>
+              {/* The panel wraps the Stack rather than living inside a screen,
+                  because covering the header is the point and only something
+                  above the Stack can. `PanelProvider` is what keeps the panel's
+                  CONTENT scoped to the screen that registers it while its
+                  machinery is necessarily global — see `lib/panel-context`. */}
+              <PanelProvider>
+                <PanelHost>
               <Stack>
                 <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
                 <Stack.Screen
@@ -118,6 +127,8 @@ export default function RootLayout() {
                   options={{ title: 'Instance', headerBackButtonDisplayMode: 'minimal' }}
                 />
               </Stack>
+                </PanelHost>
+              </PanelProvider>
             </PreferencesProvider>
           </AuthProvider>
         </HostProvider>
