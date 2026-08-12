@@ -509,6 +509,48 @@ describe('Session screen', () => {
     expect(screen.queryByTestId('thinking-toggle')).toBeNull();
   });
 
+  it('renders the toggle under an empty reply for a tool-only round (text: "", thinking non-empty) — pinning current behaviour, not endorsing it', async () => {
+    // The case the final review flagged as the one most users actually meet:
+    // loop_.rs's `persist_thinking` only requires the round to have produced
+    // text OR tool calls, not text specifically (loop_.rs:657), so a round
+    // that made tool calls and said nothing still appends
+    // `assistant_message { text: "", thinking: [...] }` — MarkdownView draws
+    // nothing for the empty text, and a bare "Show thinking" toggle is left
+    // hanging in the tool stream with no visible reply above it. This test
+    // does not judge whether that's right; it pins what happens today so a
+    // future change can't silently alter it. See [instanceId].tsx's own
+    // "KNOWN AND UNSETTLED" comment at the mount site.
+    await AsyncStorage.setItem('armillary.showThinking', 'true');
+    const { api, getHandler } = fakeApiWithThinking('inst-think-toolonly', 's-think-toolonly');
+    mockApi = api;
+    mockInstanceId = 'inst-think-toolonly';
+
+    await render(<SessionScreen />);
+    await waitFor(() => expect(getHandler()).toBeDefined());
+
+    await act(async () => {
+      getHandler().onEvent({
+        stream: 's-think-toolonly',
+        id: 's-think-toolonly:1:abc',
+        seq: 1,
+        ts: '2026-07-28T00:00:00.000Z',
+        actor: { role: 'operator', instance: 'tycho' },
+        type: 'assistant_message',
+        version: 1,
+        data: {
+          text: '',
+          generation: 'gen-1',
+          thinking: [{ type: 'thinking', thinking: 'checking the file first', signature: 's' }],
+        },
+      });
+    });
+
+    const toggle = await screen.findByTestId('thinking-toggle');
+    expect(screen.queryByText('checking the file first')).toBeNull();
+    await fireEvent.press(toggle);
+    expect(screen.getByText('checking the file first')).toBeTruthy();
+  });
+
   it("gives the composer bottom clearance from the real safe-area inset, so it clears the native tab bar/home indicator", async () => {
     // Device-verified-only territory (see [instanceId].tsx's comment): this
     // asserts the composer's own static padding tracks whatever the OS

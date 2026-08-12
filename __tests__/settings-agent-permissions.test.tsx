@@ -185,6 +185,30 @@ describe('Settings — Show thinking caption', () => {
 
     expect(await screen.findByText(/Not every reply has any\./)).toBeTruthy();
   });
+
+  it('presses the row and flips the preference — proves the row is actually wired to `setShowThinking`, not cloned from the dotfiles row above it with the wrong setter', async () => {
+    // The gap this closes: the caption test above (and every other test that
+    // reaches this preference) seeds AsyncStorage directly rather than going
+    // through the row's own onPress. This row is visibly cloned from the
+    // "Show dotfiles" row eight lines above it in settings.tsx — a copy-paste
+    // that read `setShowDotfiles(!showThinking)` would leave the caption test
+    // green and the feature unreachable through its only UI. Pressing the row
+    // and asserting the switch's own accessibilityState flips is the only
+    // thing that would catch that.
+    stubHealthOnly();
+    await renderSettings();
+
+    const off = await screen.findByLabelText('Show thinking, off');
+    expect(off.props.accessibilityState).toMatchObject({ checked: false });
+
+    await fireEvent.press(off);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Show thinking, on').props.accessibilityState).toMatchObject({
+        checked: true,
+      });
+    });
+  });
 });
 
 describe('<AgentPermissionToggle> — prove-the-instrument', () => {

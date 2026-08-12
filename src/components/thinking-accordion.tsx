@@ -17,6 +17,27 @@ import { useTheme } from '@/theme';
  * — so it renders as a named state instead. Never a blank body, which reads
  * as broken.
  */
+/**
+ * `blocks` is a closed TS union of two variants, but `data.thinking` arrives
+ * as an unvalidated `as`-cast off the wire (`project.ts`), so a future
+ * provider block type is a real runtime possibility, not just a type-system
+ * exercise. Matching `'thinking'` and `'redacted_thinking'` explicitly (never
+ * an `else`) means an unrecognized type falls to the default arm below rather
+ * than silently reading as "redacted" — a specific, false claim about
+ * content. Same house rule `project.ts`'s `unhandled event type: …` default
+ * arm follows: name it verbatim, never fold it into a neighbour.
+ */
+function blockText(block: ThinkingBlock): string {
+  switch (block.type) {
+    case 'thinking':
+      return block.thinking;
+    case 'redacted_thinking':
+      return 'Some reasoning was redacted.';
+    default:
+      return `unhandled thinking block type: ${(block as { type: string }).type}`;
+  }
+}
+
 export function ThinkingAccordion({ blocks }: { blocks: ThinkingBlock[] }) {
   const theme = useTheme();
   const [open, setOpen] = useState(false);
@@ -26,6 +47,7 @@ export function ThinkingAccordion({ blocks }: { blocks: ThinkingBlock[] }) {
       <Pressable
         testID="thinking-toggle"
         onPress={() => setOpen(!open)}
+        hitSlop={8}
         accessibilityRole="button"
         accessibilityState={{ expanded: open }}
         accessibilityLabel={open ? 'Hide thinking' : 'Show thinking'}>
@@ -42,7 +64,7 @@ export function ThinkingAccordion({ blocks }: { blocks: ThinkingBlock[] }) {
               key={i}
               variant="caption"
               color="txSecondary">
-              {block.type === 'thinking' ? block.thinking : 'Some reasoning was redacted.'}
+              {blockText(block)}
             </Text>
           ))}
         </View>

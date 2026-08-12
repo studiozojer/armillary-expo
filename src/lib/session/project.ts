@@ -126,7 +126,11 @@ export function projectSession(
         const row: MessageRow = { kind: 'message', id: e.id, seq: e.seq, role: e.actor.role, text: data.text };
         if (data.interrupted) row.interrupted = true;
         if (data.error) row.error = data.error;
-        if (data.thinking && data.thinking.length > 0) row.thinking = data.thinking;
+        // `data` is an unvalidated `as`-cast off the wire, so `thinking` could
+        // arrive as a non-array (a string, most obviously) with its own
+        // `.length` — that would pass a bare truthiness+length check and then
+        // crash `ThinkingAccordion`'s `blocks.map`. `Array.isArray` first.
+        if (Array.isArray(data.thinking) && data.thinking.length > 0) row.thinking = data.thinking;
         if (evictedIds.has(e.id)) row.evicted = true;
         rows.push(row);
         break;
