@@ -166,6 +166,27 @@ describe('Settings — Agent permissions', () => {
   });
 });
 
+describe('Settings — Show thinking caption', () => {
+  beforeEach(() => {
+    secureMock().__store.clear();
+    __resetTokenCache();
+  });
+
+  it('warns that not every reply carries thinking, so an empty accordion after enabling reads as normal, not broken', async () => {
+    // Task 7's load-bearing copy (Task 6 review): the engine's
+    // `persist_thinking` only fires when a round also produced text or tool
+    // calls, so most replies carry none. Without this sentence, a user
+    // enables the setting, sees nothing under most replies, and concludes
+    // the feature is broken. A regex substring match (not the whole
+    // paragraph verbatim) so this fails only if that specific meaning is
+    // deleted, not on unrelated copy edits to the rest of the sentence.
+    stubHealthOnly();
+    await renderSettings();
+
+    expect(await screen.findByText(/Not every reply has any\./)).toBeTruthy();
+  });
+});
+
 describe('<AgentPermissionToggle> — prove-the-instrument', () => {
   it('(d) a disabled toggle never invokes its handler, and the identical wiring fires once enabled', async () => {
     // Prove-the-instrument (per-repo-git's own idiom, `repo-tabs.test.tsx`): a

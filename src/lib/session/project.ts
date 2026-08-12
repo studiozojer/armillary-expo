@@ -14,6 +14,7 @@ import type {
   DispatchData,
   EventEnvelope,
   ReturnData,
+  ThinkingBlock,
   ToolResultData,
   ToolUseData,
   UserMessageData,
@@ -33,6 +34,11 @@ export type SessionRow =
        *  assistant_message — never derived from `text`, so an empty-but-not-
        *  failed message (were one ever to exist) would not be mistaken for one. */
       error?: string;
+      /** The round's reasoning, when the engine persisted any (see events.ts's
+       *  AssistantMessageData comment). Conditional, like `interrupted`/`error`
+       *  above: absence is the common case, and it stays absent here rather
+       *  than becoming an empty array. */
+      thinking?: ThinkingBlock[];
     }
   | { kind: 'streaming'; generation: string; text: string }
   | { kind: 'pending'; clientKey: string; text: string }
@@ -120,6 +126,7 @@ export function projectSession(
         const row: MessageRow = { kind: 'message', id: e.id, seq: e.seq, role: e.actor.role, text: data.text };
         if (data.interrupted) row.interrupted = true;
         if (data.error) row.error = data.error;
+        if (data.thinking && data.thinking.length > 0) row.thinking = data.thinking;
         if (evictedIds.has(e.id)) row.evicted = true;
         rows.push(row);
         break;

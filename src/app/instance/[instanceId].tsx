@@ -22,8 +22,10 @@ import { Icon } from '@/components/ui';
 import { usePanel, usePanelContent } from '@/lib/panel-context';
 import { MarkdownView } from '@/components/markdown-view';
 import { SelectTextSheet } from '@/components/select-text-sheet';
+import { ThinkingAccordion } from '@/components/thinking-accordion';
 import { useHost } from '@/lib/host-context';
 import type { Host } from '@/lib/hosts';
+import { useShowThinking } from '@/lib/preferences';
 import { sessionAPIFor } from '@/lib/session/instance';
 import type { SessionRow } from '@/lib/session/project';
 import { useSession } from '@/lib/session/use-session';
@@ -104,6 +106,7 @@ function SessionView({
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const { noteRefusal } = useAuth();
+  const { showThinking } = useShowThinking();
   // Same factory, same identity rule as the list screen (Task 5's shared
   // store, now host-aware): whichever instance the list screen created this
   // is, by construction, the same client object. Keyed on `host.id` +
@@ -381,6 +384,7 @@ function SessionView({
                     ) : (
                       <Text style={{ ...theme.type.body, color: theme.color.txPrimary }}>{item.text}</Text>
                     )}
+                    {showThinking && item.thinking ? <ThinkingAccordion blocks={item.thinking} /> : null}
                   </Pressable>
                 );
               }
