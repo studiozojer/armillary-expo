@@ -475,6 +475,40 @@ describe('Session screen', () => {
     expect(screen.getByText('let me look')).toBeTruthy();
   });
 
+  it('renders no affordance at all for an ordinary reply when the preference is on but that reply carries no thinking', async () => {
+    // The pairing that matters most in practice, and the one the other
+    // preference-on test above doesn't cover: it always supplies `thinking`.
+    // Most replies carry none at all — `persist_thinking` only fires when the
+    // round also produced text or tool calls — so the everyday experience of
+    // a user who turns this setting on is message, message, message,
+    // occasional accordion. Not a "Show thinking" toggle opening onto an
+    // empty body: nothing. An empty disclosure on every ordinary reply is
+    // exactly the "reads as broken" failure this design guards against.
+    await AsyncStorage.setItem('armillary.showThinking', 'true');
+    const { api, getHandler } = fakeApiWithThinking('inst-think-none', 's-think-none');
+    mockApi = api;
+    mockInstanceId = 'inst-think-none';
+
+    await render(<SessionScreen />);
+    await waitFor(() => expect(getHandler()).toBeDefined());
+
+    await act(async () => {
+      getHandler().onEvent({
+        stream: 's-think-none',
+        id: 's-think-none:1:abc',
+        seq: 1,
+        ts: '2026-07-28T00:00:00.000Z',
+        actor: { role: 'operator', instance: 'tycho' },
+        type: 'assistant_message',
+        version: 1,
+        data: { text: 'Here.', generation: 'gen-1' },
+      });
+    });
+
+    expect(await screen.findByText('Here.')).toBeTruthy();
+    expect(screen.queryByTestId('thinking-toggle')).toBeNull();
+  });
+
   it("gives the composer bottom clearance from the real safe-area inset, so it clears the native tab bar/home indicator", async () => {
     // Device-verified-only territory (see [instanceId].tsx's comment): this
     // asserts the composer's own static padding tracks whatever the OS
