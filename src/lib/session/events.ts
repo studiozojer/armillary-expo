@@ -46,6 +46,18 @@ export type Instance = {
   /** Latest lifecycle marker wins; false for anything recorded before the
    *  archive verbs existed (instance-archive design, 2026-08-11). */
   archived: boolean;
+  /**
+   * Whether a turn is running for this instance right now.
+   *
+   * The one field here that is NOT log-derived — the engine reads it from
+   * its in-memory turn slot at request time. An engine restarted mid-turn
+   * reports `false`, correctly: that turn died with the process.
+   *
+   * Optional-with-default is deliberate: an engine built before this field
+   * existed omits it, and the app must attach against that engine rather
+   * than fail to parse. Read it as `instance.turnInProgress ?? false`.
+   */
+  turnInProgress?: boolean;
 };
 
 export const DURABLE_TYPES = [
@@ -58,6 +70,28 @@ export type DurableType = (typeof DURABLE_TYPES)[number];
 
 /** Transient (seq 0). data is a SNAPSHOT of text so far — never a delta (I-4). */
 export const ASSISTANT_DELTA = 'assistant_delta';
+
+/** Transient (seq 0) turn-lifecycle markers. The engine broadcasts these from
+ *  `Sessions::begin_turn` / `end_turn`, so a claim without a signal is
+ *  structurally impossible. Never durable — a client that was not connected
+ *  learns turn state from `attach`'s `turnInProgress` instead. */
+export const TURN_STARTED = 'turn_started';
+export const TURN_ENDED = 'turn_ended';
+export type TurnLifecycleData = { generation: string };
+
+/**
+ * One block of the model's reasoning, in the exact wire shape the engine
+ * persisted (it re-uses the same encoder that builds the request body — one
+ * encoding, two readers).
+ *
+ * `redacted_thinking` arrives ENCRYPTED from the API and can never be
+ * displayed at any position. It is modeled rather than dropped so the UI can
+ * say "some reasoning was redacted" instead of rendering a blank that reads
+ * as broken.
+ */
+export type ThinkingBlock =
+  | { type: 'thinking'; thinking: string; signature?: string }
+  | { type: 'redacted_thinking'; data: string };
 
 export type UserMessageData = { text: string; clientKey?: string };
 /**
@@ -73,6 +107,15 @@ export type AssistantMessageData = {
   interrupted?: boolean;
   model?: string;
   error?: string;
+  /**
+   * The round's reasoning, when the engine persisted any.
+   *
+   * **Optional, and absence is the common case** — the engine's
+   * `persist_thinking` requires the round to have also produced text or tool
+   * calls, so a thinking-only cut round persists none. Never render absence
+   * as a loading state.
+   */
+  thinking?: ThinkingBlock[];
 };
 export type AssistantDeltaData = { textSoFar: string; generation: string };
 /**
