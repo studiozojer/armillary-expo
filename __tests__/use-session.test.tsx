@@ -127,6 +127,13 @@ async function mountSessionOnFakeApi(
     attach: attachMock,
     subscribe: jest.fn((s: string, fromSeq: number, handler: SubscriptionHandler) => {
       subscribeCalls.push({ stream: s, fromSeq, handler });
+      // Real subscribe() implementations (live.ts, mock.ts) call
+      // onStatus('replaying') once the connection is live — Fix 1 moved the
+      // post-subscribe turnInFlight re-read onto that signal, not onto
+      // subscribe() returning (NOT the same happens-after point; see
+      // use-session.ts's rereadTurnState). Mirrored here so this fake still
+      // triggers the mechanism these tests exercise.
+      handler.onStatus('replaying');
       return jest.fn();
     }),
     send: jest.fn(() => Promise.resolve({ id: 'evt-send', seq: 0 })),
@@ -153,13 +160,19 @@ async function mountSessionOnFakeApi(
   // whatever test runs next in this file. Chaining onto one promise keeps
   // every dispatch inside its own, non-overlapping `act()`.
   let emitQueue = Promise.resolve();
-  function emit(partial: { type: string; seq: number; data: unknown }): void {
+  // Returns the queued promise so callers can `await emit(...)` — without
+  // this, `emit(x); expect(...)` asserted on state captured before
+  // `handler.onEvent` had actually run (it's chained onto `emitQueue` inside
+  // a microtask), which is exactly what made two of this file's tests
+  // (below) assert nothing.
+  function emit(partial: { type: string; seq: number; data: unknown }): Promise<void> {
     const handler = subscribeCalls[0].handler;
     emitQueue = emitQueue.then(() =>
       act(async () => {
         handler.onEvent(envelope(partial.type, partial.data, partial.seq, stream));
       }),
     );
+    return emitQueue;
   }
 
   return {
@@ -403,19 +416,19 @@ describe('useSession', () => {
   it('holds turnInFlight across a tool round, when no deltas are arriving', async () => {
     const { result, emit } = await mountSessionOnFakeApi();
 
-    emit({ type: 'turn_started', seq: 0, data: { generation: 'g1' } });
-    await waitFor(() => expect(result.current.turnInFlight).toBe(true));
+    await emit({ type: 'turn_started', seq: 0, data: { generation: 'g1' } });
+    expect(result.current.turnInFlight).toBe(true);
 
     // A tool round: durable events land, no assistant_delta anywhere. This is
     // exactly the window where the old `streaming` flag went false and the
     // Stop button vanished.
-    emit({ type: 'tool_use', seq: 5, data: { id: 't1', name: 'read_file', input: { path: 'a.md' } } });
-    emit({ type: 'tool_result', seq: 6, data: { toolUseId: 't1', status: 'ok', content: 'x', isError: false } });
+    await emit({ type: 'tool_use', seq: 5, data: { id: 't1', name: 'read_file', input: { path: 'a.md' } } });
+    await emit({ type: 'tool_result', seq: 6, data: { toolUseId: 't1', status: 'ok', content: 'x', isError: false } });
 
     expect(result.current.turnInFlight).toBe(true);
 
-    emit({ type: 'turn_ended', seq: 0, data: { generation: 'g1' } });
-    await waitFor(() => expect(result.current.turnInFlight).toBe(false));
+    await emit({ type: 'turn_ended', seq: 0, data: { generation: 'g1' } });
+    expect(result.current.turnInFlight).toBe(false);
   });
 
   it('reports turnInFlight from attach, for a session opened mid-turn', async () => {
@@ -427,9 +440,16 @@ describe('useSession', () => {
   });
 
   it('drops an unrecognized transient without touching turnInFlight', async () => {
+    // Emits turn_started first and asserts true, THEN emits the unrecognized
+    // transient and asserts it is STILL true — without the first half, this
+    // could pass with the TURN_STARTED/TURN_ENDED branches entirely absent.
     const { result, emit } = await mountSessionOnFakeApi();
-    emit({ type: 'some_future_transient', seq: 0, data: {} });
-    expect(result.current.turnInFlight).toBe(false);
+
+    await emit({ type: 'turn_started', seq: 0, data: { generation: 'g1' } });
+    expect(result.current.turnInFlight).toBe(true);
+
+    await emit({ type: 'some_future_transient', seq: 0, data: {} });
+    expect(result.current.turnInFlight).toBe(true);
   });
 
   it('catches a turn that started during the attach→subscribe window', async () => {
@@ -491,6 +511,10 @@ describe('useSession', () => {
       }),
       subscribe: jest.fn((s: string, fromSeq: number, handler: SubscriptionHandler) => {
         subscribeCalls.push({ stream: s, fromSeq, handler });
+        // Same reasoning as mountSessionOnFakeApi's fake: Fix 1 triggers the
+        // re-read from the subscription's first non-closed status, not from
+        // subscribe() returning — mirror that here.
+        handler.onStatus('replaying');
         return jest.fn();
       }),
       send: jest.fn(() => Promise.resolve({ id: 'evt-send', seq: 0 })),

@@ -113,7 +113,18 @@ function SessionView({
   // `generation` rather than `host` itself for the same reason as the list
   // screen (see its comment) — `sessionAPIFor` already memoizes by id/url.
   const api = useMemo(() => sessionAPIFor(host), [host.id, generation]);
-  const { rows, status, gap, sendError, send, interrupt, evict, instance, turnInFlight } = useSession(
+  const {
+    rows,
+    status,
+    gap,
+    sendError,
+    send,
+    interrupt,
+    evict,
+    instance,
+    turnInFlight,
+    turnStateUnsupported,
+  } = useSession(
     api,
     instanceId,
     true,
@@ -127,12 +138,26 @@ function SessionView({
   // supplies content and asks for it to open rather than owning it.
   const { setOpen: setPanelOpen } = usePanel();
 
-  // No `textArriving`/`streaming` binding here: the streaming row itself
-  // renders straight off `displayRows`/`rows` below, and the only other two
-  // readers — the composer's Send/Stop branch and the drawer's
-  // `canInterrupt` — bind to `turnInFlight` now, not to whether text happens
-  // to be arriving (that was the bug: a streaming row goes false at every
-  // round boundary and during every tool call, so Stop vanished mid-turn).
+  // The streaming row itself still renders straight off `displayRows`/`rows`
+  // below — this is about the other two readers: the composer's Send/Stop
+  // branch and the drawer's `canInterrupt`. Both bind to `turnInFlight`, not
+  // to whether text happens to be arriving (that was the bug: a streaming row
+  // goes false at every round boundary and during every tool call, so Stop
+  // vanished mid-turn).
+  //
+  // `turnStateUnsupported` is a COMPATIBILITY SHIM, not a second source of
+  // truth: `turnInProgress` is documented optional so this app can attach to
+  // an engine predating core#30, and against such a host — no field on
+  // attach, no `turn_started`/`turn_ended` on the wire — `turnInFlight` would
+  // sit permanently `false` and Stop would never appear at all (a regression
+  // against the pre-this-branch behavior, which at least showed Stop while
+  // text streamed). Falling back to the streaming-derived read ONLY while the
+  // host is confirmed too old to answer keeps the two-signals-two-jobs design
+  // untouched for every current host. Delete this the moment no engine
+  // predating core#30 is in service.
+  const workingIndicator = turnStateUnsupported
+    ? rows.some((r) => r.kind === 'streaming')
+    : turnInFlight;
 
   // Chronological rows (oldest first) plus, when the log has a hole the
   // subscription can't fill, a gap row naming it — `projectSession` never
@@ -255,11 +280,11 @@ function SessionView({
           setPanelOpen(false);
           void interrupt();
         }}
-        canInterrupt={turnInFlight}
+        canInterrupt={workingIndicator}
         onArchive={onArchive}
       />
     ),
-    [instance, setPanelOpen, interrupt, turnInFlight, onArchive],
+    [instance, setPanelOpen, interrupt, workingIndicator, onArchive],
   );
   usePanelContent(panelContent);
 
@@ -497,7 +522,7 @@ function SessionView({
               borderColor: theme.color.bdBase,
             }}
           />
-          {turnInFlight ? (
+          {workingIndicator ? (
             <Pressable
               onPress={() => void interrupt()}
               style={{
