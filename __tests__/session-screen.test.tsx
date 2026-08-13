@@ -644,14 +644,14 @@ describe('Session screen', () => {
 
   it('renders operator but no model subtitle when model is null', async () => {
     // Regression guard: the subtitle Text must not render at all when model is null,
-    // not render as empty. Direct HeaderTitle render to ensure the null-model branch works.
+    // not render as empty. When an empty Text element exists, queryAllByText(/^$/) finds it.
+    // This assertion catches regressions where the subtitle Text is unconditionally rendered.
     await render(<HeaderTitle operator="tycho" model={null} />);
 
     expect(screen.getByText('@tycho')).toBeTruthy();
-    // Query for any Text that contains only whitespace or empty string (would be the empty subtitle)
-    const allText = screen.queryAllByText(/^$/);
-    // The only empty Text should be from RN's default render, not from our subtitle
-    expect(screen.queryByText('gemma-3-27b')).toBeNull();
+    // Verify there are no empty Text elements (would indicate subtitle Text rendered empty)
+    const emptyTexts = screen.queryAllByText(/^$/);
+    expect(emptyTexts).toHaveLength(0);
   });
 
   it('renders "dispatcher" but not "@null" when operator is null', async () => {
