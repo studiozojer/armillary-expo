@@ -11,13 +11,14 @@ import { daemonClientFor } from '@/lib/daemon/client';
 import { DaemonError, type WhoamiResponse } from '@/lib/daemon/types';
 import { useHost } from '@/lib/host-context';
 import { probe, type Host, type Reachability } from '@/lib/hosts';
-import { useShowDotfiles } from '@/lib/preferences';
+import { useShowDotfiles, useShowThinking } from '@/lib/preferences';
 import { useTheme } from '@/theme';
 
 export default function Settings() {
   const theme = useTheme();
   const { host, hosts, setHost } = useHost();
   const { showDotfiles, setShowDotfiles } = useShowDotfiles();
+  const { showThinking, setShowThinking } = useShowThinking();
   const [results, setResults] = useState<Record<string, Reachability>>({});
   // Fetched ONCE here rather than by each of `EnrollmentFacts` and
   // `AgentPermissions` separately — both want the same `/whoami` answer, and
@@ -90,6 +91,27 @@ export default function Settings() {
                 {showDotfiles ? 'On' : 'Off'}
               </Text>
             </Inline>
+          </Box>
+        </Pressable>
+
+        <Box style={{ paddingTop: theme.space.lg }}>
+          <SectionHeader>Session</SectionHeader>
+        </Box>
+        <Pressable
+          onPress={() => setShowThinking(!showThinking)}
+          accessibilityRole="switch"
+          accessibilityState={{ checked: showThinking }}
+          accessibilityLabel={`Show thinking, ${showThinking ? 'on' : 'off'}`}>
+          <Box px="lg" py="md">
+            <Inline justify="space-between">
+              <Text>Show thinking</Text>
+              <Text variant="label" color="txAccent">
+                {showThinking ? 'On' : 'Off'}
+              </Text>
+            </Inline>
+            <Text variant="caption" color="txTertiary" style={{ paddingTop: theme.space.xxs }}>
+              The model&apos;s reasoning, collapsed under each reply. Not every reply has any.
+            </Text>
           </Box>
         </Pressable>
 

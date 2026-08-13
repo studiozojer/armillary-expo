@@ -43,9 +43,39 @@ export async function saveShowDotfiles(value: boolean): Promise<void> {
   await AsyncStorage.setItem(KEY, String(value));
 }
 
+const THINKING_KEY = 'armillary.showThinking';
+
+/**
+ * Off by default, and this one is a genuine default rather than a finding.
+ *
+ * The point of the setting is an n=1 experiment David runs on himself —
+ * does seeing the reasoning change trust in the answer, or just add noise
+ * (design 2026-08-12, from the 08-07 seed's own open question). An
+ * experiment whose treatment is already applied to everyone has no control,
+ * so this starts off and he turns it on.
+ */
+const DEFAULT_SHOW_THINKING = false;
+
+export async function loadShowThinking(): Promise<boolean> {
+  try {
+    const stored = await AsyncStorage.getItem(THINKING_KEY);
+    return stored === null ? DEFAULT_SHOW_THINKING : stored === 'true';
+  } catch {
+    // Same posture as loadShowDotfiles: a storage failure falls back to the
+    // default rather than surfacing as a broken screen.
+    return DEFAULT_SHOW_THINKING;
+  }
+}
+
+export async function saveShowThinking(value: boolean): Promise<void> {
+  await AsyncStorage.setItem(THINKING_KEY, String(value));
+}
+
 type PreferencesContextValue = {
   showDotfiles: boolean;
   setShowDotfiles: (value: boolean) => void;
+  showThinking: boolean;
+  setShowThinking: (value: boolean) => void;
 };
 
 const PreferencesContext = createContext<PreferencesContextValue | null>(null);
@@ -62,9 +92,17 @@ export function PreferencesProvider({ children }: { children: React.ReactNode })
   // matches what the stored value will almost always say. Seeding optimistically
   // the other way made dotfiles flash in and then vanish on every cold launch.
   const [showDotfiles, setState] = useState(DEFAULT_SHOW_DOTFILES);
+  // Same seeding rationale as showDotfiles above, mirrored for thinking: start
+  // at the default so the first frame doesn't flash a state the stored value
+  // will (almost always) disagree with.
+  const [showThinking, setThinkingState] = useState(DEFAULT_SHOW_THINKING);
 
   useEffect(() => {
     void loadShowDotfiles().then(setState);
+  }, []);
+
+  useEffect(() => {
+    void loadShowThinking().then(setThinkingState);
   }, []);
 
   const setShowDotfiles = useCallback((value: boolean) => {
@@ -72,7 +110,15 @@ export function PreferencesProvider({ children }: { children: React.ReactNode })
     void saveShowDotfiles(value);
   }, []);
 
-  const value = useMemo(() => ({ showDotfiles, setShowDotfiles }), [showDotfiles, setShowDotfiles]);
+  const setShowThinking = useCallback((value: boolean) => {
+    setThinkingState(value);
+    void saveShowThinking(value);
+  }, []);
+
+  const value = useMemo(
+    () => ({ showDotfiles, setShowDotfiles, showThinking, setShowThinking }),
+    [showDotfiles, setShowDotfiles, showThinking, setShowThinking],
+  );
 
   return <PreferencesContext.Provider value={value}>{children}</PreferencesContext.Provider>;
 }
@@ -80,5 +126,11 @@ export function PreferencesProvider({ children }: { children: React.ReactNode })
 export function useShowDotfiles(): PreferencesContextValue {
   const value = useContext(PreferencesContext);
   if (!value) throw new Error('useShowDotfiles must be used inside PreferencesProvider');
+  return value;
+}
+
+export function useShowThinking(): { showThinking: boolean; setShowThinking: (value: boolean) => void } {
+  const value = useContext(PreferencesContext);
+  if (!value) throw new Error('useShowThinking must be used inside PreferencesProvider');
   return value;
 }

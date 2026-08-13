@@ -4,11 +4,12 @@ import * as Clipboard from 'expo-clipboard';
 import { ActionSheetIOS, Alert, Platform } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
-import SessionScreen from '../src/app/instance/[instanceId]';
+import SessionScreenRoute from '../src/app/instance/[instanceId]';
 import { MockSessionAPI } from '../src/lib/session/mock';
 import type { SessionAPI } from '../src/lib/session/api';
 import type { SubscriptionHandler } from '../src/lib/session/events';
 import type { Host } from '../src/lib/hosts';
+import { PreferencesProvider } from '../src/lib/preferences';
 import { space } from '../src/theme';
 
 jest.mock('expo-clipboard', () => ({ setStringAsync: jest.fn(async () => true) }));
@@ -83,6 +84,23 @@ jest.mock('expo-router/stack', () => {
 });
 
 const CANNED_REPLY = 'the log remembers what actually happened here, not what was meant.';
+
+/**
+ * The screen under test plus the one provider it newly reaches for
+ * (Task 7's `useShowThinking()`) — mirrors the real root layout's wiring
+ * (`_layout.tsx` wraps the instance route in `PreferencesProvider`) rather
+ * than adding a mock. Every `render`/`rerender` call below uses this instead
+ * of the bare route component, matching the pattern `explorer-screen.test.tsx`
+ * and `settings-agent-permissions.test.tsx` already use for screens that read
+ * preferences.
+ */
+function SessionScreen() {
+  return (
+    <PreferencesProvider>
+      <SessionScreenRoute />
+    </PreferencesProvider>
+  );
+}
 
 describe('Session screen', () => {
   beforeEach(async () => {
@@ -354,6 +372,183 @@ describe('Session screen', () => {
     });
 
     expect(await screen.findByText('turn failed: no_api_key')).toBeTruthy();
+  });
+
+  /** Same hand-rolled-double shape as the failure-shaped test above, reused
+   *  by both thinking-accordion-wiring tests below rather than duplicated. */
+  function fakeApiWithThinking(instanceId: string, stream: string): {
+    api: SessionAPI;
+    getHandler: () => SubscriptionHandler;
+  } {
+    let handler!: SubscriptionHandler;
+    const api: SessionAPI = {
+      create: jest.fn(),
+      list: jest.fn(),
+      attach: jest.fn(async () => ({
+        instance: {
+          id: instanceId,
+          operator: 'tycho',
+          stream,
+          startedAt: '2026-07-28T00:00:00.000Z',
+          lastSeq: 0,
+          model: null,
+          mayWriteComposition: false,
+          archived: false,
+        },
+        earliestSeq: 1,
+        headSeq: 0,
+      })),
+      subscribe: jest.fn((_stream: string, _fromSeq: number, h: SubscriptionHandler) => {
+        handler = h;
+        queueMicrotask(() => h.onStatus('live'));
+        return () => {};
+      }),
+      send: jest.fn(),
+      interrupt: jest.fn(),
+      evict: jest.fn(),
+      archive: jest.fn(),
+      unarchive: jest.fn(),
+    };
+    return { api, getHandler: () => handler };
+  }
+
+  it('renders no thinking toggle for a reply that carries thinking when the preference is off (the default)', async () => {
+    // The setting is off by default (preferences.tsx) — a reply that DOES
+    // carry thinking must still show nothing extra until the user opts in.
+    const { api, getHandler } = fakeApiWithThinking('inst-think-off', 's-think-off');
+    mockApi = api;
+    mockInstanceId = 'inst-think-off';
+
+    await render(<SessionScreen />);
+    await waitFor(() => expect(getHandler()).toBeDefined());
+
+    await act(async () => {
+      getHandler().onEvent({
+        stream: 's-think-off',
+        id: 's-think-off:1:abc',
+        seq: 1,
+        ts: '2026-07-28T00:00:00.000Z',
+        actor: { role: 'operator', instance: 'tycho' },
+        type: 'assistant_message',
+        version: 1,
+        data: {
+          text: 'Here.',
+          generation: 'gen-1',
+          thinking: [{ type: 'thinking', thinking: 'let me look', signature: 's' }],
+        },
+      });
+    });
+
+    expect(await screen.findByText('Here.')).toBeTruthy();
+    expect(screen.queryByTestId('thinking-toggle')).toBeNull();
+  });
+
+  it('renders the thinking accordion under an operator reply once the preference is on, collapsed until pressed', async () => {
+    await AsyncStorage.setItem('armillary.showThinking', 'true');
+    const { api, getHandler } = fakeApiWithThinking('inst-think-on', 's-think-on');
+    mockApi = api;
+    mockInstanceId = 'inst-think-on';
+
+    await render(<SessionScreen />);
+    await waitFor(() => expect(getHandler()).toBeDefined());
+
+    await act(async () => {
+      getHandler().onEvent({
+        stream: 's-think-on',
+        id: 's-think-on:1:abc',
+        seq: 1,
+        ts: '2026-07-28T00:00:00.000Z',
+        actor: { role: 'operator', instance: 'tycho' },
+        type: 'assistant_message',
+        version: 1,
+        data: {
+          text: 'Here.',
+          generation: 'gen-1',
+          thinking: [{ type: 'thinking', thinking: 'let me look', signature: 's' }],
+        },
+      });
+    });
+
+    const toggle = await screen.findByTestId('thinking-toggle');
+    expect(screen.queryByText('let me look')).toBeNull();
+    await fireEvent.press(toggle);
+    expect(screen.getByText('let me look')).toBeTruthy();
+  });
+
+  it('renders no affordance at all for an ordinary reply when the preference is on but that reply carries no thinking', async () => {
+    // The pairing that matters most in practice, and the one the other
+    // preference-on test above doesn't cover: it always supplies `thinking`.
+    // Most replies carry none at all — `persist_thinking` only fires when the
+    // round also produced text or tool calls — so the everyday experience of
+    // a user who turns this setting on is message, message, message,
+    // occasional accordion. Not a "Show thinking" toggle opening onto an
+    // empty body: nothing. An empty disclosure on every ordinary reply is
+    // exactly the "reads as broken" failure this design guards against.
+    await AsyncStorage.setItem('armillary.showThinking', 'true');
+    const { api, getHandler } = fakeApiWithThinking('inst-think-none', 's-think-none');
+    mockApi = api;
+    mockInstanceId = 'inst-think-none';
+
+    await render(<SessionScreen />);
+    await waitFor(() => expect(getHandler()).toBeDefined());
+
+    await act(async () => {
+      getHandler().onEvent({
+        stream: 's-think-none',
+        id: 's-think-none:1:abc',
+        seq: 1,
+        ts: '2026-07-28T00:00:00.000Z',
+        actor: { role: 'operator', instance: 'tycho' },
+        type: 'assistant_message',
+        version: 1,
+        data: { text: 'Here.', generation: 'gen-1' },
+      });
+    });
+
+    expect(await screen.findByText('Here.')).toBeTruthy();
+    expect(screen.queryByTestId('thinking-toggle')).toBeNull();
+  });
+
+  it('renders the toggle under an empty reply for a tool-only round (text: "", thinking non-empty) — pinning current behaviour, not endorsing it', async () => {
+    // The case the final review flagged as the one most users actually meet:
+    // loop_.rs's `persist_thinking` only requires the round to have produced
+    // text OR tool calls, not text specifically (loop_.rs:657), so a round
+    // that made tool calls and said nothing still appends
+    // `assistant_message { text: "", thinking: [...] }` — MarkdownView draws
+    // nothing for the empty text, and a bare "Show thinking" toggle is left
+    // hanging in the tool stream with no visible reply above it. This test
+    // does not judge whether that's right; it pins what happens today so a
+    // future change can't silently alter it. See [instanceId].tsx's own
+    // "KNOWN AND UNSETTLED" comment at the mount site.
+    await AsyncStorage.setItem('armillary.showThinking', 'true');
+    const { api, getHandler } = fakeApiWithThinking('inst-think-toolonly', 's-think-toolonly');
+    mockApi = api;
+    mockInstanceId = 'inst-think-toolonly';
+
+    await render(<SessionScreen />);
+    await waitFor(() => expect(getHandler()).toBeDefined());
+
+    await act(async () => {
+      getHandler().onEvent({
+        stream: 's-think-toolonly',
+        id: 's-think-toolonly:1:abc',
+        seq: 1,
+        ts: '2026-07-28T00:00:00.000Z',
+        actor: { role: 'operator', instance: 'tycho' },
+        type: 'assistant_message',
+        version: 1,
+        data: {
+          text: '',
+          generation: 'gen-1',
+          thinking: [{ type: 'thinking', thinking: 'checking the file first', signature: 's' }],
+        },
+      });
+    });
+
+    const toggle = await screen.findByTestId('thinking-toggle');
+    expect(screen.queryByText('checking the file first')).toBeNull();
+    await fireEvent.press(toggle);
+    expect(screen.getByText('checking the file first')).toBeTruthy();
   });
 
   it("gives the composer bottom clearance from the real safe-area inset, so it clears the native tab bar/home indicator", async () => {

@@ -166,6 +166,51 @@ describe('Settings — Agent permissions', () => {
   });
 });
 
+describe('Settings — Show thinking caption', () => {
+  beforeEach(() => {
+    secureMock().__store.clear();
+    __resetTokenCache();
+  });
+
+  it('warns that not every reply carries thinking, so an empty accordion after enabling reads as normal, not broken', async () => {
+    // Task 7's load-bearing copy (Task 6 review): the engine's
+    // `persist_thinking` only fires when a round also produced text or tool
+    // calls, so most replies carry none. Without this sentence, a user
+    // enables the setting, sees nothing under most replies, and concludes
+    // the feature is broken. A regex substring match (not the whole
+    // paragraph verbatim) so this fails only if that specific meaning is
+    // deleted, not on unrelated copy edits to the rest of the sentence.
+    stubHealthOnly();
+    await renderSettings();
+
+    expect(await screen.findByText(/Not every reply has any\./)).toBeTruthy();
+  });
+
+  it('presses the row and flips the preference — proves the row is actually wired to `setShowThinking`, not cloned from the dotfiles row above it with the wrong setter', async () => {
+    // The gap this closes: the caption test above (and every other test that
+    // reaches this preference) seeds AsyncStorage directly rather than going
+    // through the row's own onPress. This row is visibly cloned from the
+    // "Show dotfiles" row eight lines above it in settings.tsx — a copy-paste
+    // that read `setShowDotfiles(!showThinking)` would leave the caption test
+    // green and the feature unreachable through its only UI. Pressing the row
+    // and asserting the switch's own accessibilityState flips is the only
+    // thing that would catch that.
+    stubHealthOnly();
+    await renderSettings();
+
+    const off = await screen.findByLabelText('Show thinking, off');
+    expect(off.props.accessibilityState).toMatchObject({ checked: false });
+
+    await fireEvent.press(off);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Show thinking, on').props.accessibilityState).toMatchObject({
+        checked: true,
+      });
+    });
+  });
+});
+
 describe('<AgentPermissionToggle> — prove-the-instrument', () => {
   it('(d) a disabled toggle never invokes its handler, and the identical wiring fires once enabled', async () => {
     // Prove-the-instrument (per-repo-git's own idiom, `repo-tabs.test.tsx`): a

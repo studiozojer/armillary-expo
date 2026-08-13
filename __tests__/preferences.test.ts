@@ -1,4 +1,4 @@
-import { visibleEntries } from '../src/lib/preferences';
+import { loadShowThinking, saveShowThinking, visibleEntries } from '../src/lib/preferences';
 
 const entries = [
   { name: '.claude', dir: true },
@@ -26,5 +26,16 @@ describe('visibleEntries', () => {
     expect(filtered.map((e) => e.name)).toEqual(['CLAUDE.md', 'local']);
     expect(filtered).not.toBe(entries);
     expect(entries).toHaveLength(4);
+  });
+});
+
+describe('showThinking', () => {
+  it('defaults thinking display to off', async () => {
+    await expect(loadShowThinking()).resolves.toBe(false);
+  });
+
+  it('round-trips the stored value', async () => {
+    await saveShowThinking(true);
+    await expect(loadShowThinking()).resolves.toBe(true);
   });
 });

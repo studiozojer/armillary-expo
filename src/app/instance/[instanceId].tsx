@@ -22,8 +22,10 @@ import { Icon } from '@/components/ui';
 import { usePanel, usePanelContent } from '@/lib/panel-context';
 import { MarkdownView } from '@/components/markdown-view';
 import { SelectTextSheet } from '@/components/select-text-sheet';
+import { ThinkingAccordion } from '@/components/thinking-accordion';
 import { useHost } from '@/lib/host-context';
 import type { Host } from '@/lib/hosts';
+import { useShowThinking } from '@/lib/preferences';
 import { sessionAPIFor } from '@/lib/session/instance';
 import type { SessionRow } from '@/lib/session/project';
 import { useSession } from '@/lib/session/use-session';
@@ -104,6 +106,7 @@ function SessionView({
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const { noteRefusal } = useAuth();
+  const { showThinking } = useShowThinking();
   // Same factory, same identity rule as the list screen (Task 5's shared
   // store, now host-aware): whichever instance the list screen created this
   // is, by construction, the same client object. Keyed on `host.id` +
@@ -381,6 +384,21 @@ function SessionView({
                     ) : (
                       <Text style={{ ...theme.type.body, color: theme.color.txPrimary }}>{item.text}</Text>
                     )}
+                    {/* KNOWN AND UNSETTLED (final review, 2026-08-12): a round that
+                        produces tool calls and no prose still gets an
+                        assistant_message with text: "" alongside a non-empty
+                        thinking array (persist_thinking requires text OR calls, not
+                        text — loop_.rs:657), and it takes this same render branch:
+                        an empty reply with a "Show thinking" toggle hanging under
+                        it. That might be exactly right — the toggle is the only
+                        visible marker that an otherwise-silent tool-only round
+                        happened at all — or it might read as broken, a
+                        caption-height control floating over nothing. Not settled
+                        here, and deliberately not "fixed" by hiding the toggle or
+                        filling the empty text with a placeholder: this is a
+                        product call, to be made on a device walk, not from the
+                        armchair. */}
+                    {showThinking && item.thinking ? <ThinkingAccordion blocks={item.thinking} /> : null}
                   </Pressable>
                 );
               }

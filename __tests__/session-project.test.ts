@@ -9,6 +9,7 @@ import type {
   CompositionData,
   ContextEvictData,
   DurableType,
+  ThinkingBlock,
   ToolResultData,
   EventEnvelope,
   UserMessageData,
@@ -52,12 +53,19 @@ function assistantMessage(opts: {
   generation: string;
   interrupted?: boolean;
   error?: string;
+  thinking?: ThinkingBlock[];
   seq?: number;
   id?: string;
 }): EventEnvelope<AssistantMessageData> {
   return makeEnvelope(
     'assistant_message',
-    { text: opts.text, generation: opts.generation, interrupted: opts.interrupted, error: opts.error },
+    {
+      text: opts.text,
+      generation: opts.generation,
+      interrupted: opts.interrupted,
+      error: opts.error,
+      thinking: opts.thinking,
+    },
     { seq: opts.seq, id: opts.id, actor: operatorActor },
   );
 }
@@ -379,6 +387,27 @@ describe('projectSession', () => {
     const rows = projectSession([msg], new Map(), []);
     const row = rows.find(isMessageRow);
     expect(row?.error).toBeUndefined();
+  });
+
+  it('carries thinking blocks onto the message row', () => {
+    const msg = assistantMessage({
+      text: 'Here.',
+      generation: 'g1',
+      thinking: [{ type: 'thinking', thinking: 'let me look', signature: 's' }],
+    });
+    const rows = projectSession([msg], new Map(), []);
+    const row = rows.find(isMessageRow);
+    expect(row).toMatchObject({ thinking: [{ type: 'thinking', thinking: 'let me look' }] });
+  });
+
+  it('leaves thinking undefined when the round persisted none', () => {
+    // The common case — `persist_thinking` requires text or tool calls
+    // alongside, so most rounds carry nothing. Undefined, never an empty
+    // array: an empty array would render an accordion with nothing in it.
+    const msg = assistantMessage({ text: 'Here.', generation: 'g1' });
+    const rows = projectSession([msg], new Map(), []);
+    const row = rows.find(isMessageRow);
+    expect(row).not.toHaveProperty('thinking');
   });
 
   it('never drops an unrecognized durable type — surfaces it as a visible system row', () => {
