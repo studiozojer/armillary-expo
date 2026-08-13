@@ -64,7 +64,12 @@ describe('MockSessionAPI', () => {
     await api.send(instance.id, 'a', 'k1');
     await api.send(instance.id, 'b', 'k2');
 
-    const seqs = seen.map((e) => e.seq);
+    // Durable events only (I-4: a transient always carries seq 0, by design,
+    // never stored or replayed) — `send()` now also broadcasts a synchronous
+    // `turn_started` transient (mirroring the real engine's `begin_turn`),
+    // and unfiltered `seen` would otherwise mix two seq-0 transients in among
+    // the durable ordinals, which is not what invariant iii is a claim about.
+    const seqs = seen.filter((e) => e.seq > 0).map((e) => e.seq);
     expect(seqs).toEqual([...seqs].sort((a, b) => a - b));
     expect(new Set(seqs).size).toBe(seqs.length);
   });

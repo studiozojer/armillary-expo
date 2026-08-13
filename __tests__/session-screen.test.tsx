@@ -5,6 +5,7 @@ import { ActionSheetIOS, Alert, Platform } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import SessionScreenRoute from '../src/app/instance/[instanceId]';
+import { PanelProvider, usePanel } from '../src/lib/panel-context';
 import { MockSessionAPI } from '../src/lib/session/mock';
 import type { SessionAPI } from '../src/lib/session/api';
 import type { SubscriptionHandler } from '../src/lib/session/events';
@@ -46,6 +47,19 @@ jest.mock('../src/lib/host-context', () => ({
 // reads the device's enrollment to gate its mutations, and these tests are
 // about the session surface rather than about being enrolled. Enrolled is the
 // state every assertion below assumes.
+//
+// `mockNoteRefusal` is hoisted rather than a fresh `jest.fn()` per call: the
+// real `useAuth()` memoizes `noteRefusal` (`useCallback`, then the whole
+// value via `useMemo`), so it is referentially stable across renders. A
+// factory-local `jest.fn()` here would hand the screen a NEW `noteRefusal`
+// on every single render — which `interrupt` (`use-session.ts`) and, through
+// it, this screen's `panelContent` both list as a dependency — silently
+// diverging from the real hook's contract. It cost nothing while the panel's
+// `register` was a no-op (`NO_PANEL`, the default outside a real
+// `PanelProvider`), but wiring a real one straight up loops forever: register
+// → state update → re-render → new `noteRefusal` → new `interrupt` → new
+// `panelContent` → register again, without ever settling.
+const mockNoteRefusal = jest.fn();
 jest.mock('../src/lib/auth/auth-context', () => ({
   useAuth: () => ({
     enrollment: 'enrolled',
@@ -53,7 +67,7 @@ jest.mock('../src/lib/auth/auth-context', () => ({
     ready: true,
     enroll: jest.fn(),
     unenroll: jest.fn(),
-    noteRefusal: jest.fn(),
+    noteRefusal: mockNoteRefusal,
   }),
 }));
 
@@ -100,6 +114,22 @@ function SessionScreen() {
       <SessionScreenRoute />
     </PreferencesProvider>
   );
+}
+
+/**
+ * Renders whatever the screen registered in the app's one right-side panel,
+ * unconditionally — a sibling of `SessionScreen` under the same
+ * `PanelProvider`, reading `content()` directly rather than going through
+ * `PanelHost`'s real `Drawer` (`react-native-drawer-layout`). `PanelHost`
+ * itself is exercised by `panel-host.test.tsx`; nesting it around a screen
+ * as heavy as this one blew the test heap in a way unrelated to what this
+ * test needs to prove (`canInterrupt`'s wiring, not the drawer chrome), so
+ * this reads the same registered content the real host would render, minus
+ * the swipe/animation machinery.
+ */
+function PanelContentRenderer() {
+  const { content } = usePanel();
+  return <>{content ? content() : null}</>;
 }
 
 describe('Session screen', () => {
@@ -187,6 +217,195 @@ describe('Session screen', () => {
     expect(screen.queryByText('Stop')).toBeNull();
   });
 
+  it('keeps Stop up through a tool round with no text arriving', async () => {
+    // The defect this whole design exists to fix: mid-turn, with no deltas,
+    // the composer used to show Send — and a send there earns a 409
+    // `turn_in_progress`. `attach()`'s `turnInProgress: true` plus a durable
+    // `tool_use` (a system row, no streaming row at all) reproduces exactly
+    // that window without needing a real generation to run.
+    let handler!: SubscriptionHandler;
+    const fakeApi: SessionAPI = {
+      create: jest.fn(),
+      list: jest.fn(),
+      attach: jest.fn(async () => ({
+        instance: {
+          id: 'inst-turn',
+          operator: 'tycho',
+          stream: 's-turn',
+          startedAt: '2026-07-28T00:00:00.000Z',
+          lastSeq: 0,
+          model: null,
+          mayWriteComposition: false,
+          archived: false,
+          turnInProgress: true,
+        },
+        earliestSeq: 1,
+        headSeq: 0,
+      })),
+      subscribe: jest.fn((_stream: string, _fromSeq: number, h: SubscriptionHandler) => {
+        handler = h;
+        queueMicrotask(() => h.onStatus('live'));
+        return () => {};
+      }),
+      send: jest.fn(),
+      interrupt: jest.fn(),
+      evict: jest.fn(),
+      archive: jest.fn(),
+      unarchive: jest.fn(),
+    };
+    mockApi = fakeApi;
+    mockInstanceId = 'inst-turn';
+
+    await render(<SessionScreen />);
+    await waitFor(() => expect(handler).toBeDefined());
+
+    await act(async () => {
+      handler.onEvent({
+        stream: 's-turn',
+        id: 's-turn:1:abc',
+        seq: 1,
+        ts: '2026-07-28T00:00:00.000Z',
+        actor: { role: 'operator', instance: 'tycho' },
+        type: 'tool_use',
+        version: 1,
+        data: { id: 'call-1', name: 'read_file', input: { path: 'modules.toml' } },
+      });
+    });
+
+    expect(await screen.findByText('read_file: modules.toml')).toBeTruthy();
+    expect(screen.getByText('Stop')).toBeTruthy();
+    expect(screen.queryByText('Send')).toBeNull();
+  });
+
+  it('shows Send, not Stop, when a streaming row is present but the turn itself is not in flight', async () => {
+    // The mirror of the test above: without this pair, a mutation binding
+    // Stop back to `textArriving` (a streaming row) instead of `turnInFlight`
+    // could still pass. A bare `assistant_delta` transient with no
+    // `turn_started` behind it produces a streaming row while
+    // `turnInFlight` stays false — Send must show.
+    let handler!: SubscriptionHandler;
+    const fakeApi: SessionAPI = {
+      create: jest.fn(),
+      list: jest.fn(),
+      attach: jest.fn(async () => ({
+        instance: {
+          id: 'inst-text',
+          operator: 'tycho',
+          stream: 's-text',
+          startedAt: '2026-07-28T00:00:00.000Z',
+          lastSeq: 0,
+          model: null,
+          mayWriteComposition: false,
+          archived: false,
+          turnInProgress: false,
+        },
+        earliestSeq: 1,
+        headSeq: 0,
+      })),
+      subscribe: jest.fn((_stream: string, _fromSeq: number, h: SubscriptionHandler) => {
+        handler = h;
+        queueMicrotask(() => h.onStatus('live'));
+        return () => {};
+      }),
+      send: jest.fn(),
+      interrupt: jest.fn(),
+      evict: jest.fn(),
+      archive: jest.fn(),
+      unarchive: jest.fn(),
+    };
+    mockApi = fakeApi;
+    mockInstanceId = 'inst-text';
+
+    await render(<SessionScreen />);
+    await waitFor(() => expect(handler).toBeDefined());
+
+    await act(async () => {
+      handler.onEvent({
+        stream: 's-text',
+        id: 's-text:0:abc',
+        seq: 0,
+        ts: '2026-07-28T00:00:00.000Z',
+        actor: { role: 'operator', instance: 'tycho' },
+        type: 'assistant_delta',
+        version: 1,
+        data: { textSoFar: 'partial', generation: 'gen-1' },
+      });
+    });
+
+    expect(await screen.findByText('partial…')).toBeTruthy();
+    expect(screen.getByText('Send')).toBeTruthy();
+    expect(screen.queryByText('Stop')).toBeNull();
+  });
+
+  it('keeps the panel\'s Interrupt live through a tool round with no text arriving', async () => {
+    // The less obvious half of the same defect: the drawer's Interrupt
+    // button is gated by `canInterrupt`, which had the identical bug (bound
+    // to a streaming row instead of the turn). No existing test rendered the
+    // panel through the screen at all — this wraps `SessionScreen` in a real
+    // `PanelProvider` (see `PanelContentRenderer` above for why not the real
+    // `PanelHost`/`Drawer`) and reproduces the exact tool-round fixture from
+    // the Stop test above, but presses the drawer's Interrupt affordance
+    // instead of reading the composer.
+    let handler!: SubscriptionHandler;
+    const fakeApi: SessionAPI = {
+      create: jest.fn(),
+      list: jest.fn(),
+      attach: jest.fn(async () => ({
+        instance: {
+          id: 'inst-panel-turn',
+          operator: 'tycho',
+          stream: 's-panel-turn',
+          startedAt: '2026-07-28T00:00:00.000Z',
+          lastSeq: 0,
+          model: null,
+          mayWriteComposition: false,
+          archived: false,
+          turnInProgress: true,
+        },
+        earliestSeq: 1,
+        headSeq: 0,
+      })),
+      subscribe: jest.fn((_stream: string, _fromSeq: number, h: SubscriptionHandler) => {
+        handler = h;
+        queueMicrotask(() => h.onStatus('live'));
+        return () => {};
+      }),
+      send: jest.fn(),
+      interrupt: jest.fn(async () => {}),
+      evict: jest.fn(),
+      archive: jest.fn(),
+      unarchive: jest.fn(),
+    };
+    mockApi = fakeApi;
+    mockInstanceId = 'inst-panel-turn';
+
+    await render(
+      <PanelProvider>
+        <SessionScreen />
+        <PanelContentRenderer />
+      </PanelProvider>,
+    );
+    await waitFor(() => expect(handler).toBeDefined());
+
+    await act(async () => {
+      handler.onEvent({
+        stream: 's-panel-turn',
+        id: 's-panel-turn:1:abc',
+        seq: 1,
+        ts: '2026-07-28T00:00:00.000Z',
+        actor: { role: 'operator', instance: 'tycho' },
+        type: 'tool_use',
+        version: 1,
+        data: { id: 'call-1', name: 'read_file', input: { path: 'modules.toml' } },
+      });
+    });
+
+    await waitFor(() => expect(screen.getByTestId('panel-interrupt')).toBeTruthy());
+    expect(screen.getByTestId('panel-interrupt').props.accessibilityState?.disabled).not.toBe(true);
+    fireEvent.press(screen.getByTestId('panel-interrupt'));
+    expect(fakeApi.interrupt).toHaveBeenCalledTimes(1);
+  });
+
   it('shows a gap row naming the missing range for a session with a truncated log', async () => {
     jest.useFakeTimers();
     mockApi = new MockSessionAPI({ earliestSeq: 5, fragmentDelayMs: 5 }) as unknown as SessionAPI;
@@ -224,7 +443,11 @@ describe('Session screen', () => {
       rerender(<SessionScreen />);
     });
 
-    expect(attachSpy).toHaveBeenCalledTimes(1);
+    // 2, not 1: `useSession` now re-reads `attach()` a second time right
+    // after its subscription goes live, closing the attach→subscribe window
+    // for `turnInProgress` (task-2, 2026-08-12). Both calls land on the same
+    // host in the same lifecycle — this isn't a second attach elsewhere.
+    expect(attachSpy).toHaveBeenCalledTimes(2);
     expect(await screen.findByText('hello there')).toBeTruthy();
   });
 
@@ -278,7 +501,9 @@ describe('Session screen', () => {
     });
 
     expect(unsubSpyA).toHaveBeenCalled();
-    expect(attachSpyB).toHaveBeenCalledTimes(1);
+    // 2, not 1 — same post-subscribe re-read as above; `subscribe()` itself
+    // stays a single call, since only `attach()` is re-read.
+    expect(attachSpyB).toHaveBeenCalledTimes(2);
     expect(subscribeSpyB).toHaveBeenCalledTimes(1);
   });
 

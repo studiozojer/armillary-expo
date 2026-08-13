@@ -10,10 +10,11 @@ import type {
   Instance,
   SendReceipt,
   SubscriptionHandler,
+  TurnLifecycleData,
   Unsubscribe,
   UserMessageData,
 } from './events';
-import { ASSISTANT_DELTA } from './events';
+import { ASSISTANT_DELTA, TURN_ENDED, TURN_STARTED } from './events';
 
 /** `instance_created` has no dedicated payload type in the design — it just names who started
  *  and, since Task 6, which model was pinned (null when the engine's default pilots). Duplicated
@@ -110,6 +111,18 @@ export class MockSessionAPI implements SessionAPI {
   private startGeneration(instance: Instance, generation: string): void {
     const actor: Actor = { role: 'operator', instance: instance.operator ?? 'dispatcher' };
     let index = 0;
+    // Mirrors the engine's `begin_turn`/`end_turn`: this mock models a turn's
+    // full lifetime (fragmented deltas, then a durable finalizer or an
+    // interrupt), so `turnInProgress` tracks it the same way a real engine's
+    // in-memory turn slot would — true from here until the generation ends,
+    // one way or the other.
+    instance.turnInProgress = true;
+    // Broadcast, not just recorded on the instance: a client already attached
+    // and subscribed learns of this turn from the live channel, the same way
+    // it would from the real engine's `begin_turn` — mirroring `turnInProgress`
+    // as a field alone only covers a client that attaches (or re-attaches)
+    // after the fact.
+    this.emitTransient<TurnLifecycleData>(instance.stream, TURN_STARTED, { generation }, actor);
 
     const step = () => {
       index++;
@@ -121,12 +134,18 @@ export class MockSessionAPI implements SessionAPI {
         this.pendingGenerations.set(instance.id, { timer, generation, textSoFar, actor });
       } else {
         this.pendingGenerations.delete(instance.id);
+        instance.turnInProgress = false;
+        // Ordering mirrors the engine: `EndTurnGuard` drops `turn_ended` AFTER
+        // the final `assistant_message` append, never before, so a consumer
+        // reading "the newest event while a turn is in flight" sees the
+        // durable finalizer first.
         this.append<AssistantMessageData>(
           instance.stream,
           'assistant_message',
           { text: textSoFar, generation },
           actor,
         );
+        this.emitTransient<TurnLifecycleData>(instance.stream, TURN_ENDED, { generation }, actor);
       }
     };
 
@@ -150,6 +169,7 @@ export class MockSessionAPI implements SessionAPI {
       model,
       mayWriteComposition: false,
       archived: false,
+      turnInProgress: false,
     };
     this.instances.set(id, instance);
 
@@ -229,10 +249,16 @@ export class MockSessionAPI implements SessionAPI {
     const instance = this.instances.get(instanceId);
     if (!instance) throw new Error(`no such instance: ${instanceId}`);
 
+    // Ordering mirrors the engine: `begin_turn` precedes the durable
+    // `user_message` append, not the other way around. The generation label
+    // is derived from the seq `append` is ABOUT to assign — exactly
+    // `append`'s own `(list[list.length - 1]?.seq ?? 0) + 1` — so
+    // `turn_started` can fire before that event exists in the log.
+    const generation = `gen-${this.headSeq(instance.stream) + 1}`;
+    this.startGeneration(instance, generation);
+
     const event = this.append<UserMessageData>(instance.stream, 'user_message', { text, clientKey });
     instance.lastSeq = event.seq;
-
-    this.startGeneration(instance, `gen-${event.seq}`);
 
     return { id: event.id, seq: event.seq };
   }
@@ -246,6 +272,7 @@ export class MockSessionAPI implements SessionAPI {
 
     clearTimeout(pending.timer);
     this.pendingGenerations.delete(instanceId);
+    instance.turnInProgress = false;
 
     this.append<InterruptData>(instance.stream, 'interrupt', {}, { role: 'user' });
     this.append<AssistantMessageData>(
@@ -254,6 +281,15 @@ export class MockSessionAPI implements SessionAPI {
       { text: pending.textSoFar, generation: pending.generation, interrupted: true },
       pending.actor,
     );
+    // `end_turn` is unconditional on the real engine — success, interruption,
+    // or failure alike (see `startGeneration`'s comment) — so a client that
+    // learned `turn_started` from the live channel needs the matching
+    // `turn_ended` here too. Without it, a subscribed client's `turnInFlight`
+    // (and therefore Stop/canInterrupt) would stay wedged true after the very
+    // press meant to clear it, until the next attach re-read. Emitted AFTER
+    // the final `assistant_message`, matching `EndTurnGuard`'s drop order on
+    // the real engine (see `startGeneration`'s matching comment).
+    this.emitTransient<TurnLifecycleData>(instance.stream, TURN_ENDED, { generation: pending.generation }, pending.actor);
   }
 
   async evict(instanceId: string, eventId: string): Promise<void> {

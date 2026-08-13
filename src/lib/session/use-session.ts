@@ -12,7 +12,7 @@ import type {
   SubscriptionHandler,
   SubscriptionStatus,
 } from './events';
-import { ASSISTANT_DELTA } from './events';
+import { ASSISTANT_DELTA, TURN_ENDED, TURN_STARTED } from './events';
 import type { PendingSend, SessionRow } from './project';
 import { projectSession } from './project';
 
@@ -73,6 +73,31 @@ export type UseSessionResult = {
    * behavioral difference.
    */
   sendError: string | null;
+  /**
+   * Whether a turn is running on the host — thinking, calling tools, or
+   * writing, all of it.
+   *
+   * **Distinct from a `streaming` row, and that distinction is the point.**
+   * A streaming row means text is arriving *right now*; it goes false at
+   * every round boundary and during every tool call. Using it as "is the
+   * agent working" is what made the Stop button disappear mid-turn.
+   */
+  turnInFlight: boolean;
+  /**
+   * `true` when the attached host's `attach` payload omitted `turnInProgress`
+   * entirely — an engine built before core#30 (see `Instance.turnInProgress`'s
+   * doc comment in `events.ts`). Such a host also never broadcasts
+   * `turn_started`/`turn_ended`, so `turnInFlight` would sit permanently
+   * `false` against it and Stop would never appear.
+   *
+   * **A compatibility shim for a host behind this app, not a second source of
+   * truth.** The caller (the session screen) is expected to fall back to a
+   * streaming-derived binding only while this is `true`; when it's `false` —
+   * every current host — `turnInFlight` is the only signal and the
+   * two-signals-two-jobs design is untouched. Delete this field, and the
+   * fallback it gates, once no engine predating core#30 is in service.
+   */
+  turnStateUnsupported: boolean;
 };
 
 /**
@@ -131,6 +156,8 @@ export function useSession(
   const [gap, setGap] = useState<GapInfo | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
   const [instance, setInstance] = useState<Instance | null>(null);
+  const [turnInFlight, setTurnInFlight] = useState(false);
+  const [turnStateUnsupported, setTurnStateUnsupported] = useState(false);
 
   // Refs, not state: read synchronously by code that must not wait for a
   // render (the reconnect cursor, the cache key, dedup) and written from
@@ -142,6 +169,17 @@ export function useSession(
   const durableRef = useRef<EventEnvelope[]>([]);
   const unsubscribeRef = useRef<(() => void) | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Bumped by every turn-lifecycle transient (TURN_STARTED and TURN_ENDED
+  // alike — direction doesn't matter, only recency). A re-read `attach()`
+  // captures this value before it fires and compares on return: if it moved,
+  // the live channel said something about `turnInFlight` more recently than
+  // this HTTP response can possibly know about, and the read is stale by
+  // construction — apply it anyway and a `turn_started` that arrived while
+  // the read was in flight gets silently overwritten back to the read's
+  // (already outdated) `false`. Same failure shape as the primary
+  // attach→subscribe gap this task exists to close, just narrower: two
+  // channels (stream vs. HTTP) with no ordering guarantee between them.
+  const turnSignalSeq = useRef(0);
 
   const clearReconnectTimer = useCallback(() => {
     if (reconnectTimerRef.current !== null) {
@@ -165,12 +203,35 @@ export function useSession(
   // effect captured at mount time is the one that keeps firing regardless of
   // what a later render recreates.
   function makeHandler(mine: number): SubscriptionHandler {
+    // Fires the guarded turnInFlight re-read once for THIS subscription (not
+    // once per epoch — a reconnect calls makeHandler again and owns its own
+    // fresh window). See `rereadTurnState`'s comment for why it's gated on
+    // the first non-`closed` status rather than on `subscribe()` returning.
+    let rereadTriggered = false;
     return {
       onEvent: (e) => {
         if (epoch.current !== mine) return;
         if (e.seq === 0) {
           // Transient: seq 0, never persisted (invariant iii).
           //
+          // Turn lifecycle markers, ahead of the drop-unknown-transients guard
+          // below: they govern `turnInFlight`, not the transcript, so they
+          // never reach `projectSession`.
+          if (e.type === TURN_STARTED) {
+            turnSignalSeq.current++;
+            setTurnInFlight(true);
+            return;
+          }
+          if (e.type === TURN_ENDED) {
+            turnSignalSeq.current++;
+            setTurnInFlight(false);
+            // A turn's end also retires any transient it left behind. Without
+            // this, an interrupted turn whose last delta never got a matching
+            // durable assistant_message would keep a streaming row alive
+            // indefinitely.
+            setTransients(new Map());
+            return;
+          }
           // **The type check is not redundant with the seq check.** `seq === 0`
           // alone meant every transient was cast to a delta, so an unrecognized
           // one keyed the map under `undefined` and no `assistant_message`
@@ -223,8 +284,21 @@ export function useSession(
           // assistant_message that supersedes it arrives via replay on
           // reconnect, same as any other durable event this cursor missed.
           setTransients(new Map());
+          // A dropped connection tells us nothing about whether the turn is
+          // still running on the host. Held rather than cleared: the
+          // reconnect re-attaches, and attach's `turnInProgress` is
+          // authoritative. Clearing here would show idle for the reconnect
+          // window on a turn that is still going.
           scheduleReconnect(mine);
           return;
+        }
+        // First non-closed status this subscription has produced — the
+        // earliest point a `fetch` dispatch can possibly be a genuine
+        // happens-after signal that the subscription actually exists server-
+        // side. See `rereadTurnState`.
+        if (!rereadTriggered) {
+          rereadTriggered = true;
+          rereadTurnState(mine);
         }
         setStatus(s);
       },
@@ -244,8 +318,63 @@ export function useSession(
       if (!stream) return;
       unsubscribeRef.current?.();
       const fromSeq = durableRef.current[durableRef.current.length - 1]?.seq ?? 0;
+      // Same hazard as the initial attach→subscribe gap, on reconnect:
+      // `tail_envelopes` ends the stream on `Lagged`, transients are never in
+      // the log, so a `turn_ended` missed during the drop can never be
+      // replayed — a client that only replays from its cursor would stay
+      // "working" forever. The fresh handler this call creates owns its own
+      // `rereadTriggered` flag, so its first non-closed status re-runs the
+      // same guarded re-read as the initial subscribe — one mechanism, both
+      // sites.
       unsubscribeRef.current = apiRef.current.subscribe(stream, fromSeq, makeHandler(mine));
     }, RECONNECT_DELAY_MS);
+  }
+
+  /**
+   * Re-reads `attach()` and applies its `turnInProgress`, guarded against a
+   * live channel that has since spoken more recently (`turnSignalSeq`) and
+   * against a stale epoch. Three call sites share this: the first non-closed
+   * status a subscription produces (initial and every reconnect, via
+   * `makeHandler`'s `onStatus`), and after `interrupt()` resolves.
+   *
+   * **Why gated on a status, not on `subscribe()` returning.**
+   * `LiveSessionAPI.subscribe()` (`live.ts`) registers nothing synchronously
+   * — it dispatches a `fetch` and returns an abort closure. Server-side,
+   * `routes/subscribe.rs` does a blocking filesystem existence check BEFORE
+   * `subscribe_live()` creates the broadcast receiver, so the receiver exists
+   * one dispatch plus one FS call later than `subscribe()` returns. A turn
+   * starting in that window broadcasts `turn_started` to zero receivers, and
+   * a re-read fired right after `subscribe()` returns (a separate connection,
+   * no ordering guarantee against the server-side timeline) can be evaluated
+   * before the receiver exists — stuck idle for a whole real turn, or stuck
+   * `true` with Stop replacing Send and no way to send at all. The engine
+   * cannot emit a `'replaying'`/`'live'` status before `subscribe_live` has
+   * actually run, so the first such status this handler receives IS a
+   * genuine happens-after signal; `subscribe()` returning is not.
+   *
+   * **The retry.** A failed re-read is not evidence the turn ended — but
+   * silently keeping whatever `turnInFlight` already held is only safe if
+   * something will correct it later, and nothing will: transients are
+   * unreplayable by design, so a turn that ended during the failure's window
+   * has no second chance to say so. One guarded retry after
+   * `RECONNECT_DELAY_MS`, not a loop — cheap, and enough to ride out a
+   * transient blip without hammering a host that's actually down.
+   */
+  function rereadTurnState(mine: number, isRetry = false): void {
+    const signalBeforeRead = turnSignalSeq.current;
+    void (async () => {
+      try {
+        const fresh = await apiRef.current.attach(instanceId);
+        if (epoch.current === mine && turnSignalSeq.current === signalBeforeRead) {
+          setTurnInFlight(fresh.instance.turnInProgress ?? false);
+        }
+      } catch {
+        if (isRetry || epoch.current !== mine) return;
+        setTimeout(() => {
+          if (epoch.current === mine) rereadTurnState(mine, true);
+        }, RECONNECT_DELAY_MS);
+      }
+    })();
   }
 
   useEffect(() => {
@@ -264,6 +393,8 @@ export function useSession(
     setGap(null);
     setSendError(null);
     setInstance(null);
+    setTurnInFlight(false);
+    setTurnStateUnsupported(false);
     streamRef.current = null;
     clearReconnectTimer();
     unsubscribeRef.current?.();
@@ -298,6 +429,14 @@ export function useSession(
       const stream = attachInfo.instance.stream;
       streamRef.current = stream;
       setInstance(attachInfo.instance);
+      // The mid-turn case: no `turn_started` will ever arrive for a turn that
+      // began before this client connected, so the attach payload is the only
+      // source. `?? false` because an engine built before this field omits it.
+      setTurnInFlight(attachInfo.instance.turnInProgress ?? false);
+      // Fix 4: distinguish "the field says false" from "the field is absent" —
+      // only the latter means the host predates core#30 and needs the
+      // streaming-derived fallback (see `UseSessionResult.turnStateUnsupported`).
+      setTurnStateUnsupported(attachInfo.instance.turnInProgress === undefined);
 
       let cached = await readScrollback(stream);
       if (cancelled || epoch.current !== mine) return;
@@ -321,6 +460,13 @@ export function useSession(
       }
 
       const fromSeq = Math.max(cached[cached.length - 1]?.seq ?? 0, 0);
+      // A turn that began during the attach→subscribe window broadcasts its
+      // `turn_started` into a void — the fresh handler's first non-closed
+      // status re-reads `attach` to catch it (`rereadTurnState`, triggered
+      // from `makeHandler`'s `onStatus`). Ordering is the whole point: once
+      // the subscription genuinely exists, any LATER turn arrives as a
+      // transient, and any EARLIER one is visible in that read — together
+      // they cover the line.
       unsubscribeRef.current = apiRef.current.subscribe(stream, fromSeq, makeHandler(mine));
     })();
 
@@ -368,11 +514,25 @@ export function useSession(
   // `sendError`, which already documents itself as the channel for the most
   // recent rejected mutation.
   const interrupt = useCallback(async (): Promise<void> => {
+    const mine = epoch.current;
     try {
       await apiRef.current.interrupt(instanceId);
+      // Fix 6: the user's only escape from a wrongly-stuck `true` — since
+      // Stop wholly replaces Send, a wedge here otherwise has no way out
+      // short of unmounting. An interrupt against a turn already gone is a
+      // 204 no-op, and this re-read then self-heals the wedge; against a
+      // genuinely running turn it just re-confirms `true`. Same guarded
+      // mechanism as the post-subscribe re-read (Fix 1) and its retry
+      // (Fix 3) — harmless either way.
+      rereadTurnState(mine);
     } catch (error) {
       setSendError(mutationErrorMessage(error, onDeviceRefusal));
     }
+    // rereadTurnState, like makeHandler/scheduleReconnect above, is a plain
+    // hoisted function closing only over refs — deliberately excluded from
+    // this list for the same reason the main effect excludes them (see its
+    // own eslint-disable comment below).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [instanceId, onDeviceRefusal]);
 
   const evict = useCallback(
@@ -388,5 +548,16 @@ export function useSession(
 
   const rows = useMemo(() => projectSession(durable, transients, pending), [durable, transients, pending]);
 
-  return { rows, status, gap, send, interrupt, evict, sendError, instance };
+  return {
+    rows,
+    status,
+    gap,
+    send,
+    interrupt,
+    evict,
+    sendError,
+    instance,
+    turnInFlight,
+    turnStateUnsupported,
+  };
 }
