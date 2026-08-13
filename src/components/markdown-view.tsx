@@ -34,6 +34,9 @@ export function MarkdownView({ source, theme, styles }: MarkdownViewProps) {
       renderer={sharedRenderer}
       flatListProps={{
         initialNumToRender: 12,
+        // The library hardcodes light/dark background by SYSTEM scheme on its own style;
+        // this spread lands after it and is the only way the app's theme wins.
+        style: { backgroundColor: 'transparent' },
         contentContainerStyle: { paddingHorizontal: 16, paddingBottom: 32 },
       }}
     />

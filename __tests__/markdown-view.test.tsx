@@ -44,4 +44,15 @@ describe('MarkdownView', () => {
     expect(screen.getByText(/the-flat-window/).props.selectable).toBe(false);
     expect(screen.getByText('a small distributed system').props.selectable).toBe(false);
   });
+
+  it('overrides the library-hardcoded list background with transparent', async () => {
+    // The library sets #fff/#000 by SYSTEM scheme on its own FlatList style —
+    // an app themed dark on a light-mode phone gets a white slab under every
+    // document. flatListProps.style is spread after it and wins.
+    const { container } = await render(<MarkdownView source="hello" />);
+    const scrollViews = container.queryAll((instance) => instance.type === 'RCTScrollView');
+    expect(scrollViews).toHaveLength(1);
+    const style = Object.assign({}, ...[scrollViews[0].props.style].flat(Infinity).filter(Boolean));
+    expect(style.backgroundColor).toBe('transparent');
+  });
 });
