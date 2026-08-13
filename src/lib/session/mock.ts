@@ -110,6 +110,12 @@ export class MockSessionAPI implements SessionAPI {
   private startGeneration(instance: Instance, generation: string): void {
     const actor: Actor = { role: 'operator', instance: instance.operator ?? 'dispatcher' };
     let index = 0;
+    // Mirrors the engine's `begin_turn`/`end_turn`: this mock models a turn's
+    // full lifetime (fragmented deltas, then a durable finalizer or an
+    // interrupt), so `turnInProgress` tracks it the same way a real engine's
+    // in-memory turn slot would — true from here until the generation ends,
+    // one way or the other.
+    instance.turnInProgress = true;
 
     const step = () => {
       index++;
@@ -121,6 +127,7 @@ export class MockSessionAPI implements SessionAPI {
         this.pendingGenerations.set(instance.id, { timer, generation, textSoFar, actor });
       } else {
         this.pendingGenerations.delete(instance.id);
+        instance.turnInProgress = false;
         this.append<AssistantMessageData>(
           instance.stream,
           'assistant_message',
@@ -150,6 +157,7 @@ export class MockSessionAPI implements SessionAPI {
       model,
       mayWriteComposition: false,
       archived: false,
+      turnInProgress: false,
     };
     this.instances.set(id, instance);
 
@@ -246,6 +254,7 @@ export class MockSessionAPI implements SessionAPI {
 
     clearTimeout(pending.timer);
     this.pendingGenerations.delete(instanceId);
+    instance.turnInProgress = false;
 
     this.append<InterruptData>(instance.stream, 'interrupt', {}, { role: 'user' });
     this.append<AssistantMessageData>(

@@ -9,6 +9,7 @@ import { ASSISTANT_DELTA } from '../src/lib/session/events';
 import type {
   AttachInfo,
   EventEnvelope,
+  Instance,
   SubscriptionHandler,
 } from '../src/lib/session/events';
 import type { SessionRow } from '../src/lib/session/project';
@@ -70,6 +71,105 @@ function scriptedApi(stream: string) {
   }
 
   return { api, attachDeferred, subscribeCalls, unsubscribes, sendMock, resolveAttach };
+}
+
+/**
+ * A `SessionAPI` double whose `attach()` resolves immediately (no `scriptedApi`
+ * deferred to drive by hand) and can answer differently on its SECOND call —
+ * the seam `turnInFlight`'s attach→subscribe gap test needs. A counter, not a
+ * timer: deterministic regardless of how many microtask ticks the fake needs.
+ *
+ * Mounts, waits for the subscription AND the post-subscribe re-read (attach's
+ * second call) to settle, then hands back `result.current` (always fresh) and
+ * `emit` to drive the live handler — so a caller's own assertions are never
+ * racing this mount's internal bookkeeping.
+ */
+async function mountSessionOnFakeApi(
+  opts: {
+    instance?: Partial<Instance>;
+    /** Makes attach()'s SECOND call answer with this `turnInProgress`,
+     *  standing in for a turn that began during the attach→subscribe window. */
+    turnInProgressAfterFirstAttach?: boolean;
+  } = {},
+) {
+  const stream = 's1';
+  const baseInstance: Instance = {
+    id: 'inst-1',
+    operator: null,
+    stream,
+    startedAt: '2026-07-28T00:00:00.000Z',
+    lastSeq: 0,
+    model: null,
+    mayWriteComposition: false,
+    archived: false,
+    turnInProgress: false,
+    ...opts.instance,
+  };
+
+  const subscribeCalls: { stream: string; fromSeq: number; handler: SubscriptionHandler }[] = [];
+  const attachMock = jest.fn(() => {
+    const callNumber = attachMock.mock.calls.length; // 1-indexed: counted before this call returns
+    const turnInProgress =
+      callNumber >= 2 && opts.turnInProgressAfterFirstAttach !== undefined
+        ? opts.turnInProgressAfterFirstAttach
+        : baseInstance.turnInProgress;
+    const attachInfo: AttachInfo = {
+      instance: { ...baseInstance, turnInProgress },
+      earliestSeq: 1,
+      headSeq: 0,
+    };
+    return Promise.resolve(attachInfo);
+  });
+
+  const api: SessionAPI = {
+    create: jest.fn(),
+    list: jest.fn(),
+    attach: attachMock,
+    subscribe: jest.fn((s: string, fromSeq: number, handler: SubscriptionHandler) => {
+      subscribeCalls.push({ stream: s, fromSeq, handler });
+      return jest.fn();
+    }),
+    send: jest.fn(() => Promise.resolve({ id: 'evt-send', seq: 0 })),
+    interrupt: jest.fn(() => Promise.resolve()),
+    evict: jest.fn(() => Promise.resolve()),
+    archive: jest.fn(() => Promise.resolve()),
+    unarchive: jest.fn(() => Promise.resolve()),
+  };
+
+  let current!: UseSessionResult;
+  await render(<Harness api={api} instanceId="inst-1" capture={(r) => (current = r)} />);
+  await waitFor(() => expect(subscribeCalls.length).toBe(1));
+  // Let the post-subscribe re-read settle before handing control back — a
+  // caller's own assertions must not race a fake network response that, in
+  // production, always beats human-scale test code.
+  await waitFor(() => expect(attachMock.mock.calls.length).toBeGreaterThanOrEqual(2));
+
+  // Serialized behind a queue, not fired directly: the brief's own test
+  // bodies call `emit` back-to-back without awaiting each one (e.g. a tool
+  // round's `tool_use` immediately followed by `tool_result`), and firing
+  // React's async `act()` twice without awaiting the first triggers "You seem
+  // to have overlapping act() calls" — which doesn't just warn, it corrupts
+  // `act()`'s bookkeeping badly enough to silently swallow state updates in
+  // whatever test runs next in this file. Chaining onto one promise keeps
+  // every dispatch inside its own, non-overlapping `act()`.
+  let emitQueue = Promise.resolve();
+  function emit(partial: { type: string; seq: number; data: unknown }): void {
+    const handler = subscribeCalls[0].handler;
+    emitQueue = emitQueue.then(() =>
+      act(async () => {
+        handler.onEvent(envelope(partial.type, partial.data, partial.seq, stream));
+      }),
+    );
+  }
+
+  return {
+    result: {
+      get current(): UseSessionResult {
+        return current;
+      },
+    },
+    emit,
+  };
 }
 
 function envelope<T>(type: string, data: T, seq: number, stream = 's1'): EventEnvelope<T> {
@@ -298,6 +398,57 @@ describe('useSession', () => {
     });
 
     expect(current.rows.some((r) => r.kind === 'streaming')).toBe(false);
+  });
+
+  it('holds turnInFlight across a tool round, when no deltas are arriving', async () => {
+    const { result, emit } = await mountSessionOnFakeApi();
+
+    emit({ type: 'turn_started', seq: 0, data: { generation: 'g1' } });
+    await waitFor(() => expect(result.current.turnInFlight).toBe(true));
+
+    // A tool round: durable events land, no assistant_delta anywhere. This is
+    // exactly the window where the old `streaming` flag went false and the
+    // Stop button vanished.
+    emit({ type: 'tool_use', seq: 5, data: { id: 't1', name: 'read_file', input: { path: 'a.md' } } });
+    emit({ type: 'tool_result', seq: 6, data: { toolUseId: 't1', status: 'ok', content: 'x', isError: false } });
+
+    expect(result.current.turnInFlight).toBe(true);
+
+    emit({ type: 'turn_ended', seq: 0, data: { generation: 'g1' } });
+    await waitFor(() => expect(result.current.turnInFlight).toBe(false));
+  });
+
+  it('reports turnInFlight from attach, for a session opened mid-turn', async () => {
+    // The case a client-side inference cannot reconstruct: this app was not
+    // connected when the turn started, so no turn_started transient will ever
+    // arrive for it.
+    const { result } = await mountSessionOnFakeApi({ instance: { turnInProgress: true } });
+    await waitFor(() => expect(result.current.turnInFlight).toBe(true));
+  });
+
+  it('drops an unrecognized transient without touching turnInFlight', async () => {
+    const { result, emit } = await mountSessionOnFakeApi();
+    emit({ type: 'some_future_transient', seq: 0, data: {} });
+    expect(result.current.turnInFlight).toBe(false);
+  });
+
+  it('catches a turn that started during the attach→subscribe window', async () => {
+    // The engine review's Important 1, as a test. The first attach answers
+    // false; the turn begins before the subscription exists, so its
+    // `turn_started` is broadcast into a void and this client will NEVER
+    // receive it. Only the post-subscribe re-read can see it.
+    //
+    // Without the second read this test fails and the app ships the exact
+    // defect the engine work exists to remove — an idle-looking UI, and no
+    // Stop button, for a whole real turn.
+    const { result } = await mountSessionOnFakeApi({
+      instance: { turnInProgress: false },
+      // The fake API flips its answer after the first attach resolves,
+      // standing in for a turn that began in the gap.
+      turnInProgressAfterFirstAttach: true,
+    });
+
+    await waitFor(() => expect(result.current.turnInFlight).toBe(true));
   });
 
   it('clears a frozen mid-generation transient on a closed status, and renders the durable finalizer exactly once on reconnect', async () => {

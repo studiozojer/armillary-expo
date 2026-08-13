@@ -12,7 +12,7 @@ import type {
   SubscriptionHandler,
   SubscriptionStatus,
 } from './events';
-import { ASSISTANT_DELTA } from './events';
+import { ASSISTANT_DELTA, TURN_ENDED, TURN_STARTED } from './events';
 import type { PendingSend, SessionRow } from './project';
 import { projectSession } from './project';
 
@@ -73,6 +73,16 @@ export type UseSessionResult = {
    * behavioral difference.
    */
   sendError: string | null;
+  /**
+   * Whether a turn is running on the host — thinking, calling tools, or
+   * writing, all of it.
+   *
+   * **Distinct from a `streaming` row, and that distinction is the point.**
+   * A streaming row means text is arriving *right now*; it goes false at
+   * every round boundary and during every tool call. Using it as "is the
+   * agent working" is what made the Stop button disappear mid-turn.
+   */
+  turnInFlight: boolean;
 };
 
 /**
@@ -131,6 +141,7 @@ export function useSession(
   const [gap, setGap] = useState<GapInfo | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
   const [instance, setInstance] = useState<Instance | null>(null);
+  const [turnInFlight, setTurnInFlight] = useState(false);
 
   // Refs, not state: read synchronously by code that must not wait for a
   // render (the reconnect cursor, the cache key, dedup) and written from
@@ -171,6 +182,22 @@ export function useSession(
         if (e.seq === 0) {
           // Transient: seq 0, never persisted (invariant iii).
           //
+          // Turn lifecycle markers, ahead of the drop-unknown-transients guard
+          // below: they govern `turnInFlight`, not the transcript, so they
+          // never reach `projectSession`.
+          if (e.type === TURN_STARTED) {
+            setTurnInFlight(true);
+            return;
+          }
+          if (e.type === TURN_ENDED) {
+            setTurnInFlight(false);
+            // A turn's end also retires any transient it left behind. Without
+            // this, an interrupted turn whose last delta never got a matching
+            // durable assistant_message would keep a streaming row alive
+            // indefinitely.
+            setTransients(new Map());
+            return;
+          }
           // **The type check is not redundant with the seq check.** `seq === 0`
           // alone meant every transient was cast to a delta, so an unrecognized
           // one keyed the map under `undefined` and no `assistant_message`
@@ -223,6 +250,11 @@ export function useSession(
           // assistant_message that supersedes it arrives via replay on
           // reconnect, same as any other durable event this cursor missed.
           setTransients(new Map());
+          // A dropped connection tells us nothing about whether the turn is
+          // still running on the host. Held rather than cleared: the
+          // reconnect re-attaches, and attach's `turnInProgress` is
+          // authoritative. Clearing here would show idle for the reconnect
+          // window on a turn that is still going.
           scheduleReconnect(mine);
           return;
         }
@@ -245,6 +277,23 @@ export function useSession(
       unsubscribeRef.current?.();
       const fromSeq = durableRef.current[durableRef.current.length - 1]?.seq ?? 0;
       unsubscribeRef.current = apiRef.current.subscribe(stream, fromSeq, makeHandler(mine));
+
+      // Same hazard as the initial attach→subscribe gap, on reconnect:
+      // `tail_envelopes` ends the stream on `Lagged`, transients are never in
+      // the log, so a `turn_ended` missed during the drop can never be
+      // replayed — a client that only replays from its cursor would stay
+      // "working" forever. Read the flag again once the new subscription is
+      // live.
+      void (async () => {
+        try {
+          const fresh = await apiRef.current.attach(instanceId);
+          if (epoch.current === mine) {
+            setTurnInFlight(fresh.instance.turnInProgress ?? false);
+          }
+        } catch {
+          // Deliberately silent — same reasoning as the initial re-read.
+        }
+      })();
     }, RECONNECT_DELAY_MS);
   }
 
@@ -264,6 +313,7 @@ export function useSession(
     setGap(null);
     setSendError(null);
     setInstance(null);
+    setTurnInFlight(false);
     streamRef.current = null;
     clearReconnectTimer();
     unsubscribeRef.current?.();
@@ -298,6 +348,10 @@ export function useSession(
       const stream = attachInfo.instance.stream;
       streamRef.current = stream;
       setInstance(attachInfo.instance);
+      // The mid-turn case: no `turn_started` will ever arrive for a turn that
+      // began before this client connected, so the attach payload is the only
+      // source. `?? false` because an engine built before this field omits it.
+      setTurnInFlight(attachInfo.instance.turnInProgress ?? false);
 
       let cached = await readScrollback(stream);
       if (cancelled || epoch.current !== mine) return;
@@ -322,6 +376,26 @@ export function useSession(
 
       const fromSeq = Math.max(cached[cached.length - 1]?.seq ?? 0, 0);
       unsubscribeRef.current = apiRef.current.subscribe(stream, fromSeq, makeHandler(mine));
+
+      // Second read, AFTER the subscription is live. A turn that began during
+      // the attach→subscribe window broadcast its `turn_started` into a void;
+      // this is the only thing that catches it. Ordering is the whole point:
+      // once the subscription exists, any LATER turn arrives as a transient,
+      // and any EARLIER one is visible in this read — together they cover the
+      // line.
+      //
+      // Cheap and idempotent: `attach` is a single log read. If it fails, keep
+      // whatever the first read said rather than guessing — a failed refresh
+      // is not evidence the turn ended.
+      try {
+        const fresh = await apiRef.current.attach(instanceId);
+        if (!cancelled && epoch.current === mine) {
+          setTurnInFlight(fresh.instance.turnInProgress ?? false);
+        }
+      } catch {
+        // Deliberately silent: the subscription is already live and correct
+        // for everything from here on. Surfacing this would be noise.
+      }
     })();
 
     return () => {
@@ -388,5 +462,5 @@ export function useSession(
 
   const rows = useMemo(() => projectSession(durable, transients, pending), [durable, transients, pending]);
 
-  return { rows, status, gap, send, interrupt, evict, sendError, instance };
+  return { rows, status, gap, send, interrupt, evict, sendError, instance, turnInFlight };
 }

@@ -224,7 +224,11 @@ describe('Session screen', () => {
       rerender(<SessionScreen />);
     });
 
-    expect(attachSpy).toHaveBeenCalledTimes(1);
+    // 2, not 1: `useSession` now re-reads `attach()` a second time right
+    // after its subscription goes live, closing the attach→subscribe window
+    // for `turnInProgress` (task-2, 2026-08-12). Both calls land on the same
+    // host in the same lifecycle — this isn't a second attach elsewhere.
+    expect(attachSpy).toHaveBeenCalledTimes(2);
     expect(await screen.findByText('hello there')).toBeTruthy();
   });
 
@@ -278,7 +282,9 @@ describe('Session screen', () => {
     });
 
     expect(unsubSpyA).toHaveBeenCalled();
-    expect(attachSpyB).toHaveBeenCalledTimes(1);
+    // 2, not 1 — same post-subscribe re-read as above; `subscribe()` itself
+    // stays a single call, since only `attach()` is re-read.
+    expect(attachSpyB).toHaveBeenCalledTimes(2);
     expect(subscribeSpyB).toHaveBeenCalledTimes(1);
   });
 
