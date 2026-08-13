@@ -113,7 +113,7 @@ function SessionView({
   // `generation` rather than `host` itself for the same reason as the list
   // screen (see its comment) — `sessionAPIFor` already memoizes by id/url.
   const api = useMemo(() => sessionAPIFor(host), [host.id, generation]);
-  const { rows, status, gap, sendError, send, interrupt, evict, instance } = useSession(
+  const { rows, status, gap, sendError, send, interrupt, evict, instance, turnInFlight } = useSession(
     api,
     instanceId,
     true,
@@ -127,7 +127,12 @@ function SessionView({
   // supplies content and asks for it to open rather than owning it.
   const { setOpen: setPanelOpen } = usePanel();
 
-  const streaming = rows.some((r) => r.kind === 'streaming');
+  // No `textArriving`/`streaming` binding here: the streaming row itself
+  // renders straight off `displayRows`/`rows` below, and the only other two
+  // readers — the composer's Send/Stop branch and the drawer's
+  // `canInterrupt` — bind to `turnInFlight` now, not to whether text happens
+  // to be arriving (that was the bug: a streaming row goes false at every
+  // round boundary and during every tool call, so Stop vanished mid-turn).
 
   // Chronological rows (oldest first) plus, when the log has a hole the
   // subscription can't fill, a gap row naming it — `projectSession` never
@@ -250,11 +255,11 @@ function SessionView({
           setPanelOpen(false);
           void interrupt();
         }}
-        canInterrupt={streaming}
+        canInterrupt={turnInFlight}
         onArchive={onArchive}
       />
     ),
-    [instance, setPanelOpen, interrupt, streaming, onArchive],
+    [instance, setPanelOpen, interrupt, turnInFlight, onArchive],
   );
   usePanelContent(panelContent);
 
@@ -492,7 +497,7 @@ function SessionView({
               borderColor: theme.color.bdBase,
             }}
           />
-          {streaming ? (
+          {turnInFlight ? (
             <Pressable
               onPress={() => void interrupt()}
               style={{

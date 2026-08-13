@@ -10,10 +10,11 @@ import type {
   Instance,
   SendReceipt,
   SubscriptionHandler,
+  TurnLifecycleData,
   Unsubscribe,
   UserMessageData,
 } from './events';
-import { ASSISTANT_DELTA } from './events';
+import { ASSISTANT_DELTA, TURN_ENDED, TURN_STARTED } from './events';
 
 /** `instance_created` has no dedicated payload type in the design — it just names who started
  *  and, since Task 6, which model was pinned (null when the engine's default pilots). Duplicated
@@ -116,6 +117,12 @@ export class MockSessionAPI implements SessionAPI {
     // in-memory turn slot would — true from here until the generation ends,
     // one way or the other.
     instance.turnInProgress = true;
+    // Broadcast, not just recorded on the instance: a client already attached
+    // and subscribed learns of this turn from the live channel, the same way
+    // it would from the real engine's `begin_turn` — mirroring `turnInProgress`
+    // as a field alone only covers a client that attaches (or re-attaches)
+    // after the fact.
+    this.emitTransient<TurnLifecycleData>(instance.stream, TURN_STARTED, { generation }, actor);
 
     const step = () => {
       index++;
@@ -128,6 +135,7 @@ export class MockSessionAPI implements SessionAPI {
       } else {
         this.pendingGenerations.delete(instance.id);
         instance.turnInProgress = false;
+        this.emitTransient<TurnLifecycleData>(instance.stream, TURN_ENDED, { generation }, actor);
         this.append<AssistantMessageData>(
           instance.stream,
           'assistant_message',
@@ -255,6 +263,13 @@ export class MockSessionAPI implements SessionAPI {
     clearTimeout(pending.timer);
     this.pendingGenerations.delete(instanceId);
     instance.turnInProgress = false;
+    // `end_turn` is unconditional on the real engine — success, interruption,
+    // or failure alike (see `startGeneration`'s comment) — so a client that
+    // learned `turn_started` from the live channel needs the matching
+    // `turn_ended` here too. Without it, a subscribed client's `turnInFlight`
+    // (and therefore Stop/canInterrupt) would stay wedged true after the very
+    // press meant to clear it, until the next attach re-read.
+    this.emitTransient<TurnLifecycleData>(instance.stream, TURN_ENDED, { generation: pending.generation }, pending.actor);
 
     this.append<InterruptData>(instance.stream, 'interrupt', {}, { role: 'user' });
     this.append<AssistantMessageData>(
