@@ -19,8 +19,13 @@ const FADE_WIDTH = 48;
 export function OverflowScroll({ children }: { children: ReactNode }) {
   const theme = useTheme();
   const { width } = useWindowDimensions();
-  const [overflow, setOverflow] = useState(false);
+  // Measured content width, not the derived boolean: `onContentSizeChange`
+  // only refires on a content-size change, so a boolean set there would go
+  // stale across a viewport change alone (rotation, iPad split-view) —
+  // deriving at render from both inputs keeps it current either way.
+  const [contentWidth, setContentWidth] = useState(0);
   const [scrolled, setScrolled] = useState(false);
+  const overflow = contentWidth > width;
   // Generated tokens carry an already-baked alpha channel (RRGGBBAA, opaque
   // as ...ff — see tokens.gen.ts), not the bare 6-digit hex an appended alpha
   // suffix would assume. Dropping the trailing channel before appending a
@@ -34,7 +39,7 @@ export function OverflowScroll({ children }: { children: ReactNode }) {
         horizontal
         showsHorizontalScrollIndicator
         contentContainerStyle={{ paddingHorizontal: theme.space.lg }}
-        onContentSizeChange={(w) => setOverflow(w > width)}
+        onContentSizeChange={(w) => setContentWidth(w)}
         onScroll={(e) => setScrolled(e.nativeEvent.contentOffset.x > 8)}
         scrollEventThrottle={64}>
         {children}

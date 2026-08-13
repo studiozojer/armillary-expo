@@ -1,7 +1,7 @@
 import { View } from 'react-native';
 import { useMarkdown } from 'react-native-marked';
 
-import { sharedRenderer } from './markdown-renderer';
+import { chatRenderer } from './markdown-renderer';
 import { markedStylesFor, markedThemeFor, useTheme } from '@/theme';
 
 /**
@@ -17,7 +17,7 @@ export function MessageMarkdown({ source }: { source: string }) {
   const theme = useTheme();
   const elements = useMarkdown(source, {
     colorScheme: theme.scheme,
-    renderer: sharedRenderer,
+    renderer: chatRenderer,
     theme: markedThemeFor(theme),
     styles: markedStylesFor(theme),
   });
