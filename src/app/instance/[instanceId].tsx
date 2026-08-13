@@ -44,7 +44,7 @@ export function HeaderTitle({ operator, model }: { operator: string | null; mode
         {operator ? `@${operator}` : 'dispatcher'}
       </Text>
       {model ? (
-        <Text style={{ ...theme.type.caption, color: theme.color.txTertiary }}>{model}</Text>
+        <Text numberOfLines={1} style={{ ...theme.type.caption, color: theme.color.txTertiary }}>{model}</Text>
       ) : null}
     </View>
   );
@@ -420,6 +420,12 @@ function SessionView({
                   );
                 }
                 if (item.role === 'operator') {
+                  // A tool-only round leaves `text: ''` with no thinking to
+                  // show (showThinking off, the default, is the common case) —
+                  // rendering the Pressable then would be an empty 16pt strip
+                  // with an invisible long-press target and a Copy-'' menu.
+                  // Nothing to show means no row at all.
+                  if (!item.text && !(showThinking && item.thinking)) return null;
                   return (
                     <Pressable
                       onLongPress={() => onLongPressMessage(item)}
@@ -496,7 +502,7 @@ function SessionView({
           </Text>
         ) : null}
 
-        <ActivityLine label={turnInFlight ? 'working' : null} />
+        <ActivityLine label={workingIndicator ? 'working' : null} />
 
         <View
           testID="composer-row"

@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { View } from 'react-native';
 import { useMarkdown } from 'react-native-marked';
 
@@ -12,8 +13,14 @@ import { markedStylesFor, markedThemeFor, useTheme } from '@/theme';
  * the three chat defects diagnosed in the 2026-08-12 design. `useMarkdown`
  * is the library's own escape hatch: the same parser and renderer, no list.
  * Explorer keeps the FlatList form (there the library IS the screen).
+ *
+ * Memoized: `source` is a stable string prop per message, but a streaming
+ * reply's delta re-renders the whole inverted FlatList on every fragment —
+ * without this, every already-settled message cell re-runs the lexer and
+ * parser on each keystroke-speed delta. Theme context still propagates
+ * through a memoized component; only the prop-identity fast path changes.
  */
-export function MessageMarkdown({ source }: { source: string }) {
+export const MessageMarkdown = memo(function MessageMarkdown({ source }: { source: string }) {
   const theme = useTheme();
   const elements = useMarkdown(source, {
     colorScheme: theme.scheme,
@@ -22,4 +29,4 @@ export function MessageMarkdown({ source }: { source: string }) {
     styles: markedStylesFor(theme),
   });
   return <View testID="message-markdown">{elements}</View>;
-}
+});

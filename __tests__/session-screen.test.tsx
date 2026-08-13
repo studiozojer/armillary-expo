@@ -810,7 +810,7 @@ describe('Session screen', () => {
     expect(screen.queryByTestId('thinking-toggle')).toBeNull();
   });
 
-  it('renders the thinking accordion under an operator reply once the preference is on, collapsed until pressed', async () => {
+  it('renders the thinking accordion above an operator reply once the preference is on, collapsed until pressed', async () => {
     await AsyncStorage.setItem('armillary.showThinking', 'true');
     const { api, getHandler } = fakeApiWithThinking('inst-think-on', 's-think-on');
     mockApi = api;
@@ -1053,5 +1053,131 @@ describe('Session screen', () => {
     } finally {
       replaced.restore();
     }
+  });
+
+  it('renders a mixed transcript cleanly: bubble, paired tool row, empty-text/hidden-thinking operator reply, and a streaming row', async () => {
+    // One screen-level seam test standing in for finding 2 (no blank
+    // Pressable for a tool-only round), D4 (an orphaned/paired tool row
+    // reads through pairToolRows either way), and D7 (thinking stays hidden
+    // when the preference is off, the default). Also exercises key
+    // uniqueness across every DisplayRow kind (message, tool, streaming) in
+    // one list.
+    let handler!: SubscriptionHandler;
+    const api: SessionAPI = {
+      create: jest.fn(),
+      list: jest.fn(),
+      attach: jest.fn(async () => ({
+        instance: {
+          id: 'inst-mixed',
+          operator: 'tycho',
+          stream: 's-mixed',
+          startedAt: '2026-07-28T00:00:00.000Z',
+          lastSeq: 0,
+          model: null,
+          mayWriteComposition: false,
+          archived: false,
+        },
+        earliestSeq: 1,
+        headSeq: 0,
+      })),
+      subscribe: jest.fn((_stream: string, _fromSeq: number, h: SubscriptionHandler) => {
+        handler = h;
+        queueMicrotask(() => h.onStatus('live'));
+        return () => {};
+      }),
+      send: jest.fn(),
+      interrupt: jest.fn(),
+      evict: jest.fn(),
+      archive: jest.fn(),
+      unarchive: jest.fn(),
+    };
+    mockApi = api;
+    mockInstanceId = 'inst-mixed';
+
+    await render(<SessionScreen />);
+    await waitFor(() => expect(handler).toBeDefined());
+
+    await act(async () => {
+      handler.onEvent({
+        stream: 's-mixed',
+        id: 's-mixed:1:a',
+        seq: 1,
+        ts: '2026-07-28T00:00:00.000Z',
+        actor: { role: 'user', instance: 'tycho' },
+        type: 'user_message',
+        version: 1,
+        data: { text: 'ping the tool' },
+      });
+      handler.onEvent({
+        stream: 's-mixed',
+        id: 's-mixed:2:b',
+        seq: 2,
+        ts: '2026-07-28T00:00:00.000Z',
+        actor: { role: 'operator', instance: 'tycho' },
+        type: 'tool_use',
+        version: 1,
+        data: { id: 'call-1', name: 'read_file', input: { path: 'a.md' } },
+      });
+      handler.onEvent({
+        stream: 's-mixed',
+        id: 's-mixed:3:c',
+        seq: 3,
+        ts: '2026-07-28T00:00:00.000Z',
+        actor: { role: 'tool', instance: 'tycho' },
+        type: 'tool_result',
+        version: 1,
+        data: { toolUseId: 'call-1', status: 'ok', content: 'x'.repeat(2800), isError: false },
+      });
+      handler.onEvent({
+        stream: 's-mixed',
+        id: 's-mixed:4:d',
+        seq: 4,
+        ts: '2026-07-28T00:00:00.000Z',
+        actor: { role: 'operator', instance: 'tycho' },
+        type: 'assistant_message',
+        version: 1,
+        data: {
+          text: '',
+          generation: 'gen-tool-only',
+          thinking: [{ type: 'thinking', thinking: 'considering the file', signature: 's' }],
+        },
+      });
+      handler.onEvent({
+        stream: 's-mixed',
+        id: 's-mixed:0:e',
+        seq: 0,
+        ts: '2026-07-28T00:00:00.000Z',
+        actor: { role: 'operator', instance: 'tycho' },
+        type: 'assistant_delta',
+        version: 1,
+        data: { textSoFar: 'mid-stream', generation: 'gen-streaming' },
+      });
+    });
+
+    // The bubble.
+    expect(await screen.findByText('ping the tool')).toBeTruthy();
+    // The paired tool row: label plus its result size.
+    expect(screen.getByText('read_file: a.md')).toBeTruthy();
+    expect(screen.getByText('2.8k')).toBeTruthy();
+    // The streaming row, glyph included.
+    expect(screen.getByText('mid-stream▍')).toBeTruthy();
+    // Thinking itself stays hidden (preference off, the default) — the
+    // reply carries it, but nothing surfaces it.
+    expect(screen.queryByText('considering the file')).toBeNull();
+    expect(screen.queryByTestId('thinking-toggle')).toBeNull();
+
+    // No empty-text operator artifact: exactly the user bubble and the
+    // composer's Send button are Pressables in the whole tree — not a
+    // third, empty one for the tool-only/thinking-hidden reply.
+    // `onStartShouldSetResponder` is the host-level fingerprint every
+    // `Pressable` leaves regardless of whether it declares a role (see
+    // repo-tabs.test.tsx's own comment for why a role-based query can't be
+    // used here). This is the assertion demonstrated against pre-fix code
+    // in the branch's fix report: it reads 3 there (the empty row's
+    // Pressable counted too) and 2 here.
+    const pressables = screen.container.queryAll(
+      (node) => typeof node.props?.onStartShouldSetResponder === 'function',
+    );
+    expect(pressables).toHaveLength(2);
   });
 });

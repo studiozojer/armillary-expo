@@ -23,7 +23,6 @@ export function ToolRow({ row }: { row: ToolPairRow }) {
         flexDirection: 'row',
         alignItems: 'center',
         gap: theme.space.sm,
-        paddingHorizontal: theme.space.lg,
         paddingVertical: theme.space.xxs,
       }}>
       <Text variant="mono" color="txTertiary" numberOfLines={1} style={{ flex: 1 }}>

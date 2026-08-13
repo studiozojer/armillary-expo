@@ -294,9 +294,13 @@ export type DisplayRow = SessionRow | ToolPairRow;
 /**
  * The transcript's view of tool activity: each `tool_use` system row absorbs
  * its `tool_result` into one instrument row (design 2026-08-12 D4). A result
- * whose use is not in the window (eviction, partial replay) stays the honest
- * caption it already was. Pure and derived — the reducer's contract is
- * untouched, and any future state-derived consumer keeps reading raw rows.
+ * whose use is not in the window (eviction, partial replay) still joins the
+ * instrument register rather than the centered system-caption one — it is a
+ * tool outcome, not session ceremony, even orphaned (controller ruling, spec
+ * D4). It renders under the fallback name ('tool', the same one
+ * `projectSession` already gives an unnamed result) with its result attached
+ * from the start. Pure and derived — the reducer's contract is untouched,
+ * and any future state-derived consumer keeps reading raw rows.
  */
 export function pairToolRows(rows: SessionRow[]): DisplayRow[] {
   const results = new Map<string, { ok: boolean; status: string; chars: number }>();
@@ -315,7 +319,17 @@ export function pairToolRows(rows: SessionRow[]): DisplayRow[] {
       out.push(row);
       continue;
     }
-    if (r.kind === 'system' && r.activity?.kind === 'tool_result' && useIds.has(r.activity.toolUseId)) continue;
+    if (r.kind === 'system' && r.activity?.kind === 'tool_result') {
+      if (useIds.has(r.activity.toolUseId)) continue;
+      out.push({
+        kind: 'tool',
+        id: r.id,
+        seq: r.seq,
+        label: 'tool',
+        result: { ok: !r.activity.isError, status: r.activity.status, chars: r.activity.chars },
+      });
+      continue;
+    }
     out.push(r);
   }
   return out;

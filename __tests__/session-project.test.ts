@@ -548,15 +548,21 @@ describe('pairToolRows', () => {
     expect(display[0]).not.toHaveProperty('result');
   });
 
-  it('leaves an orphaned result as the system row it already was', () => {
-    // The pair can be split by eviction or a partial replay; the fallback
-    // caption ("tool answered (…)") is already honest and stays.
+  it('joins an orphaned result to the instrument register under the fallback name (controller ruling, spec D4)', () => {
+    // The pair can be split by eviction or a partial replay. It is still a
+    // tool outcome, not session ceremony — it belongs with the other tool
+    // rows, wearing the same 'tool' fallback name projectSession already
+    // gives an unnamed result, with its result attached from the start.
     const rows = projectSession(
       [toolResult('t-gone', { status: 'ok', content: 'x', isError: false }, { seq: 2 })],
       new Map(),
       [],
     );
-    expect(pairToolRows(rows)[0]).toMatchObject({ kind: 'system' });
+    expect(pairToolRows(rows)[0]).toMatchObject({
+      kind: 'tool',
+      label: 'tool',
+      result: { ok: true, status: 'ok', chars: 1 },
+    });
   });
 
   it('passes every non-tool row through untouched, in order', () => {
