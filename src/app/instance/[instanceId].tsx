@@ -515,11 +515,8 @@ function SessionView({
         <View
           testID="composer-row"
           style={{
-            flexDirection: 'row',
-            alignItems: 'center',
-            gap: theme.space.sm,
-            paddingTop: theme.space.md,
-            paddingHorizontal: theme.space.md,
+            paddingHorizontal: theme.space.lg,
+            paddingTop: theme.space.sm,
             // The static (keyboard-down) clearance from the home indicator,
             // and nothing else. This screen is registered on the ROOT stack,
             // above the tab bar, so no bar sits beneath it and `insets.bottom`
@@ -538,48 +535,60 @@ function SessionView({
             // question rather than answering it: there is no capsule beneath
             // this screen to be ambiguous about.
             paddingBottom: theme.space.md + insets.bottom,
-            borderTopWidth: theme.border.hairline,
-            borderTopColor: theme.color.bdPrimary,
           }}>
-          <TextInput
-            value={draft}
-            onChangeText={setDraft}
-            placeholder="Message"
-            placeholderTextColor={theme.color.txTertiary}
+          <View
             style={{
-              flex: 1,
-              ...theme.type.body,
-              color: theme.color.txPrimary,
-              paddingVertical: theme.space.sm,
+              backgroundColor: theme.color.bgSecondary,
+              borderRadius: theme.radius.xl,
               paddingHorizontal: theme.space.md,
-              borderRadius: theme.radius.md,
-              borderWidth: theme.border.thin,
-              borderColor: theme.color.bdBase,
-            }}
-          />
-          {workingIndicator ? (
-            <Pressable
-              onPress={() => void interrupt()}
-              style={{
-                paddingVertical: theme.space.sm,
-                paddingHorizontal: theme.space.lg,
-                borderRadius: theme.radius.md,
-                backgroundColor: theme.color.bgError,
-              }}>
-              <Text style={{ ...theme.type.label, color: theme.color.txError }}>Stop</Text>
-            </Pressable>
-          ) : (
-            <Pressable
-              onPress={onSend}
-              style={{
-                paddingVertical: theme.space.sm,
-                paddingHorizontal: theme.space.lg,
-                borderRadius: theme.radius.md,
-                backgroundColor: theme.color.bgAccent,
-              }}>
-              <Text style={{ ...theme.type.label, color: theme.color.txAccent }}>Send</Text>
-            </Pressable>
-          )}
+              paddingTop: theme.space.md,
+              paddingBottom: theme.space.sm,
+              gap: theme.space.sm,
+            }}>
+            <TextInput
+              value={draft}
+              onChangeText={setDraft}
+              placeholder="Message"
+              placeholderTextColor={theme.color.txTertiary}
+              multiline
+              style={{ ...theme.type.body, color: theme.color.txPrimary, maxHeight: 120, padding: 0 }}
+            />
+            <View style={{ flexDirection: 'row', justifyContent: 'flex-end' }}>
+              {workingIndicator ? (
+                <Pressable
+                  onPress={() => void interrupt()}
+                  accessibilityRole="button"
+                  accessibilityLabel="Stop"
+                  hitSlop={8}
+                  style={{
+                    width: 32,
+                    height: 32,
+                    borderRadius: theme.radius.full,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    backgroundColor: theme.color.bgError,
+                  }}>
+                  <Icon name="square" size={12} color="txError" />
+                </Pressable>
+              ) : (
+                <Pressable
+                  onPress={onSend}
+                  accessibilityRole="button"
+                  accessibilityLabel="Send"
+                  hitSlop={8}
+                  style={{
+                    width: 32,
+                    height: 32,
+                    borderRadius: theme.radius.full,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    backgroundColor: theme.color.bgAccent,
+                  }}>
+                  <Icon name="arrowUp" size={16} color="txAccent" />
+                </Pressable>
+              )}
+            </View>
+          </View>
         </View>
       </KeyboardAvoidingView>
 

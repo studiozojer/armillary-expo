@@ -190,7 +190,7 @@ describe('Session screen', () => {
     // stale onPress closure captured before the changeText re-render
     // committed, silently no-opping (draft still '' in that closure).
     await fireEvent.changeText(screen.getByPlaceholderText('Message'), 'ping');
-    await fireEvent.press(screen.getByText('Send'));
+    await fireEvent.press(screen.getByLabelText('Send'));
 
     expect(screen.getByText('ping')).toBeTruthy();
   });
@@ -220,7 +220,7 @@ describe('Session screen', () => {
     await render(<SessionScreen />);
 
     await fireEvent.changeText(screen.getByPlaceholderText('Message'), 'ping');
-    await fireEvent.press(screen.getByText('Send'));
+    await fireEvent.press(screen.getByLabelText('Send'));
 
     const bubble = await screen.findByTestId('pending-bubble');
     const style = Object.assign({}, ...[bubble.props.style].flat(Infinity).filter(Boolean));
@@ -279,13 +279,13 @@ describe('Session screen', () => {
     await render(<SessionScreen />);
 
     await fireEvent.changeText(screen.getByPlaceholderText('Message'), 'go');
-    await fireEvent.press(screen.getByText('Send'));
+    await fireEvent.press(screen.getByLabelText('Send'));
 
     await act(async () => {
       await jest.advanceTimersByTimeAsync(15);
     });
 
-    expect(screen.getByText('Stop')).toBeTruthy();
+    expect(screen.getByLabelText('Stop')).toBeTruthy();
     expect(screen.getByText('the▍')).toBeTruthy();
 
     await act(async () => {
@@ -295,7 +295,29 @@ describe('Session screen', () => {
     // Supersession pinned at the UI layer: the streaming snapshot must not
     // survive alongside the durable final text.
     expect(screen.getAllByText(CANNED_REPLY)).toHaveLength(1);
-    expect(screen.queryByText('Stop')).toBeNull();
+    expect(screen.queryByLabelText('Stop')).toBeNull();
+  });
+
+  it('keeps Send and Stop as circular icon buttons on the card', async () => {
+    jest.useFakeTimers();
+    mockApi = new MockSessionAPI({ fragmentDelayMs: 10 }) as unknown as SessionAPI;
+    const inst = await (mockApi as MockSessionAPI).create('tycho', null);
+    mockInstanceId = inst.id;
+
+    await render(<SessionScreen />);
+
+    // Idle: the send circle is present, labeled for accessibility.
+    expect(await screen.findByLabelText('Send')).toBeTruthy();
+
+    await fireEvent.changeText(screen.getByPlaceholderText('Message'), 'go');
+    await fireEvent.press(screen.getByLabelText('Send'));
+
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(15);
+    });
+
+    // Drive the mock so turnInFlight is true, then:
+    expect(await screen.findByLabelText('Stop')).toBeTruthy();
   });
 
   it('keeps Stop up through a tool round with no text arriving', async () => {
@@ -354,8 +376,8 @@ describe('Session screen', () => {
     });
 
     expect(await screen.findByText('read_file: modules.toml')).toBeTruthy();
-    expect(screen.getByText('Stop')).toBeTruthy();
-    expect(screen.queryByText('Send')).toBeNull();
+    expect(screen.getByLabelText('Stop')).toBeTruthy();
+    expect(screen.queryByLabelText('Send')).toBeNull();
   });
 
   it('shows Send, not Stop, when a streaming row is present but the turn itself is not in flight', async () => {
@@ -414,8 +436,8 @@ describe('Session screen', () => {
     });
 
     expect(await screen.findByText('partial▍')).toBeTruthy();
-    expect(screen.getByText('Send')).toBeTruthy();
-    expect(screen.queryByText('Stop')).toBeNull();
+    expect(screen.getByLabelText('Send')).toBeTruthy();
+    expect(screen.queryByLabelText('Stop')).toBeNull();
   });
 
   it('keeps the panel\'s Interrupt live through a tool round with no text arriving', async () => {
@@ -936,7 +958,7 @@ describe('Session screen', () => {
 
     await fireEvent.changeText(screen.getByPlaceholderText('Message'), 'important draft');
     await act(async () => {
-      await fireEvent.press(screen.getByText('Send'));
+      await fireEvent.press(screen.getByLabelText('Send'));
     });
 
     expect(await screen.findByDisplayValue('important draft')).toBeTruthy();
@@ -1043,7 +1065,7 @@ describe('Session screen', () => {
     const sheetSpy = jest.spyOn(ActionSheetIOS, 'showActionSheetWithOptions').mockImplementation(() => {});
     await render(<SessionScreen />);
     await fireEvent.changeText(screen.getByPlaceholderText('Message'), 'go');
-    await fireEvent.press(screen.getByText('Send'));
+    await fireEvent.press(screen.getByLabelText('Send'));
     await act(async () => {
       await jest.advanceTimersByTimeAsync(15);
     });
