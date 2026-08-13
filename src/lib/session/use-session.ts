@@ -153,6 +153,17 @@ export function useSession(
   const durableRef = useRef<EventEnvelope[]>([]);
   const unsubscribeRef = useRef<(() => void) | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Bumped by every turn-lifecycle transient (TURN_STARTED and TURN_ENDED
+  // alike — direction doesn't matter, only recency). A re-read `attach()`
+  // captures this value before it fires and compares on return: if it moved,
+  // the live channel said something about `turnInFlight` more recently than
+  // this HTTP response can possibly know about, and the read is stale by
+  // construction — apply it anyway and a `turn_started` that arrived while
+  // the read was in flight gets silently overwritten back to the read's
+  // (already outdated) `false`. Same failure shape as the primary
+  // attach→subscribe gap this task exists to close, just narrower: two
+  // channels (stream vs. HTTP) with no ordering guarantee between them.
+  const turnSignalSeq = useRef(0);
 
   const clearReconnectTimer = useCallback(() => {
     if (reconnectTimerRef.current !== null) {
@@ -186,10 +197,12 @@ export function useSession(
           // below: they govern `turnInFlight`, not the transcript, so they
           // never reach `projectSession`.
           if (e.type === TURN_STARTED) {
+            turnSignalSeq.current++;
             setTurnInFlight(true);
             return;
           }
           if (e.type === TURN_ENDED) {
+            turnSignalSeq.current++;
             setTurnInFlight(false);
             // A turn's end also retires any transient it left behind. Without
             // this, an interrupted turn whose last delta never got a matching
@@ -284,10 +297,15 @@ export function useSession(
       // replayed — a client that only replays from its cursor would stay
       // "working" forever. Read the flag again once the new subscription is
       // live.
+      //
+      // Same stale-read guard as the initial re-read: captured before the
+      // request fires, applied only if nothing arrived on the live channel
+      // while it was in flight.
+      const signalBeforeReread = turnSignalSeq.current;
       void (async () => {
         try {
           const fresh = await apiRef.current.attach(instanceId);
-          if (epoch.current === mine) {
+          if (epoch.current === mine && turnSignalSeq.current === signalBeforeReread) {
             setTurnInFlight(fresh.instance.turnInProgress ?? false);
           }
         } catch {
@@ -387,9 +405,20 @@ export function useSession(
       // Cheap and idempotent: `attach` is a single log read. If it fails, keep
       // whatever the first read said rather than guessing — a failed refresh
       // is not evidence the turn ended.
+      //
+      // Captured immediately before the read fires (not after): a turn can
+      // start or end WHILE this request is in flight, on the live channel,
+      // which has nothing to do with this HTTP round trip's own timing. If
+      // the counter moved by the time this resolves, the live channel already
+      // said something more recent than this read can know — apply the read
+      // anyway and a `turn_started` that landed mid-flight gets silently
+      // clobbered back to this read's stale `false` (or the reverse for a
+      // `turn_ended`). Reproduces the exact defect this task removes, just in
+      // this narrower window instead of the attach→subscribe one.
+      const signalBeforeReread = turnSignalSeq.current;
       try {
         const fresh = await apiRef.current.attach(instanceId);
-        if (!cancelled && epoch.current === mine) {
+        if (!cancelled && epoch.current === mine && turnSignalSeq.current === signalBeforeReread) {
           setTurnInFlight(fresh.instance.turnInProgress ?? false);
         }
       } catch {

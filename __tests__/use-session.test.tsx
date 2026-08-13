@@ -451,6 +451,77 @@ describe('useSession', () => {
     await waitFor(() => expect(result.current.turnInFlight).toBe(true));
   });
 
+  it('discards a stale post-subscribe re-read that resolves after a turn_started arrived while it was in flight', async () => {
+    // Narrower sibling of the attach→subscribe gap test above: this time the
+    // subscription is already live, so the transient DOES arrive — but the
+    // re-read that was already in flight when it arrived is a separate
+    // channel (HTTP) with no ordering guarantee against the stream, and it
+    // still resolves with the answer it computed before the turn started. A
+    // client that trusts every resolved read equally clobbers the transient's
+    // `true` back to this stale `false` the moment it lands.
+    const stream = 's1';
+    const baseInstance: Instance = {
+      id: 'inst-1',
+      operator: null,
+      stream,
+      startedAt: '2026-07-28T00:00:00.000Z',
+      lastSeq: 0,
+      model: null,
+      mayWriteComposition: false,
+      archived: false,
+      turnInProgress: false,
+    };
+
+    // The second attach() (the post-subscribe re-read) is resolved by hand,
+    // from this test, not by a timer — the brief's own requirement for
+    // proving this ordering without relying on real elapsed time.
+    const secondAttach = deferred<AttachInfo>();
+    let attachCalls = 0;
+    const subscribeCalls: { stream: string; fromSeq: number; handler: SubscriptionHandler }[] = [];
+
+    const api: SessionAPI = {
+      create: jest.fn(),
+      list: jest.fn(),
+      attach: jest.fn(() => {
+        attachCalls++;
+        if (attachCalls === 1) {
+          return Promise.resolve<AttachInfo>({ instance: { ...baseInstance }, earliestSeq: 1, headSeq: 0 });
+        }
+        return secondAttach.promise;
+      }),
+      subscribe: jest.fn((s: string, fromSeq: number, handler: SubscriptionHandler) => {
+        subscribeCalls.push({ stream: s, fromSeq, handler });
+        return jest.fn();
+      }),
+      send: jest.fn(() => Promise.resolve({ id: 'evt-send', seq: 0 })),
+      interrupt: jest.fn(() => Promise.resolve()),
+      evict: jest.fn(() => Promise.resolve()),
+      archive: jest.fn(() => Promise.resolve()),
+      unarchive: jest.fn(() => Promise.resolve()),
+    };
+
+    let current!: UseSessionResult;
+    await render(<Harness api={api} instanceId="inst-1" capture={(r) => (current = r)} />);
+    await waitFor(() => expect(subscribeCalls.length).toBe(1));
+    // The re-read has been issued (attach's second call) but is deliberately
+    // left unresolved — this is the "in flight" window the test is probing.
+    await waitFor(() => expect(attachCalls).toBe(2));
+
+    const handler = subscribeCalls[0].handler;
+    await act(async () => {
+      handler.onEvent(envelope('turn_started', { generation: 'g1' }, 0, stream));
+    });
+    expect(current.turnInFlight).toBe(true);
+
+    // The stale read resolves now, after the transient — still reporting the
+    // `false` it computed before the turn started.
+    await act(async () => {
+      secondAttach.resolve({ instance: { ...baseInstance, turnInProgress: false }, earliestSeq: 1, headSeq: 0 });
+    });
+
+    expect(current.turnInFlight).toBe(true);
+  });
+
   it('clears a frozen mid-generation transient on a closed status, and renders the durable finalizer exactly once on reconnect', async () => {
     jest.useFakeTimers();
     const { api, resolveAttach, subscribeCalls } = scriptedApi('s1');
