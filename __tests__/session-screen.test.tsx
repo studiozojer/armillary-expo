@@ -189,6 +189,80 @@ describe('Session screen', () => {
     expect(screen.getByText('ping')).toBeTruthy();
   });
 
+  it('renders a user message in a right-aligned bubble', async () => {
+    jest.useFakeTimers();
+    mockApi = new MockSessionAPI({ fragmentDelayMs: 5 }) as unknown as SessionAPI;
+    const inst = await (mockApi as MockSessionAPI).create('tycho', null);
+    await mockApi.send(inst.id, 'hello there', 'seed');
+    await jest.advanceTimersByTimeAsync(200);
+    mockInstanceId = inst.id;
+
+    await render(<SessionScreen />);
+
+    const bubble = await screen.findByTestId('user-bubble');
+    const style = Object.assign({}, ...[bubble.props.style].flat(Infinity).filter(Boolean));
+    expect(style.backgroundColor).toBeTruthy();
+    expect(style.borderRadius).toBeGreaterThan(0);
+  });
+
+  it('dims a pending send below full opacity', async () => {
+    jest.useFakeTimers();
+    mockApi = new MockSessionAPI({ fragmentDelayMs: 5 }) as unknown as SessionAPI;
+    const inst = await (mockApi as MockSessionAPI).create('tycho', null);
+    mockInstanceId = inst.id;
+
+    await render(<SessionScreen />);
+
+    await fireEvent.changeText(screen.getByPlaceholderText('Message'), 'ping');
+    await fireEvent.press(screen.getByText('Send'));
+
+    const bubble = await screen.findByTestId('pending-bubble');
+    const style = Object.assign({}, ...[bubble.props.style].flat(Infinity).filter(Boolean));
+    expect(style.opacity).toBeLessThan(1);
+  });
+
+  it('no longer shows the short-id caption in the transcript', async () => {
+    // The instance panel owns the id now (it renders instance.id.slice(0, 8)
+    // as its subtitle) — the floating caption predates the panel's existence.
+    // A hand-rolled id (rather than MockSessionAPI's own `inst-mock-N`
+    // counter, which never looks like 8 lowercase hex chars) so this test
+    // actually exercises the regex it asserts against.
+    const fakeApi: SessionAPI = {
+      create: jest.fn(),
+      list: jest.fn(),
+      attach: jest.fn(async () => ({
+        instance: {
+          id: 'deadbeef1234',
+          operator: 'tycho',
+          stream: 's-caption',
+          startedAt: '2026-07-28T00:00:00.000Z',
+          lastSeq: 0,
+          model: null,
+          mayWriteComposition: false,
+          archived: false,
+        },
+        earliestSeq: 1,
+        headSeq: 0,
+      })),
+      subscribe: jest.fn((_stream: string, _fromSeq: number, h: SubscriptionHandler) => {
+        queueMicrotask(() => h.onStatus('live'));
+        return () => {};
+      }),
+      send: jest.fn(),
+      interrupt: jest.fn(),
+      evict: jest.fn(),
+      archive: jest.fn(),
+      unarchive: jest.fn(),
+    };
+    mockApi = fakeApi;
+    mockInstanceId = 'deadbeef1234';
+
+    await render(<SessionScreen />);
+    await screen.findByTestId('stack-screen-title');
+
+    expect(screen.queryByText(/^[0-9a-f]{8}$/)).toBeNull();
+  });
+
   it('shows a streaming row updating and a Stop affordance during generation, then exactly one copy after settling', async () => {
     jest.useFakeTimers();
     mockApi = new MockSessionAPI({ fragmentDelayMs: 10 }) as unknown as SessionAPI;
@@ -205,7 +279,7 @@ describe('Session screen', () => {
     });
 
     expect(screen.getByText('Stop')).toBeTruthy();
-    expect(screen.getByText('the…')).toBeTruthy();
+    expect(screen.getByText('the▍')).toBeTruthy();
 
     await act(async () => {
       await jest.advanceTimersByTimeAsync(1000);
@@ -332,7 +406,7 @@ describe('Session screen', () => {
       });
     });
 
-    expect(await screen.findByText('partial…')).toBeTruthy();
+    expect(await screen.findByText('partial▍')).toBeTruthy();
     expect(screen.getByText('Send')).toBeTruthy();
     expect(screen.queryByText('Stop')).toBeNull();
   });
@@ -520,7 +594,7 @@ describe('Session screen', () => {
     expect(screen.getAllByText(/no such instance: does-not-exist/)).toHaveLength(1);
   });
 
-  it("sets the header title to @operator once attach resolves, and shows the instance's short id", async () => {
+  it('sets the header title to @operator once attach resolves', async () => {
     jest.useFakeTimers();
     mockApi = new MockSessionAPI({ fragmentDelayMs: 5 }) as unknown as SessionAPI;
     const inst = await (mockApi as MockSessionAPI).create('tycho', null);
@@ -529,7 +603,6 @@ describe('Session screen', () => {
     await render(<SessionScreen />);
 
     expect(await screen.findByTestId('stack-screen-title')).toHaveTextContent('@tycho');
-    expect(screen.getByText(inst.id.slice(0, 8))).toBeTruthy();
   });
 
   it('titles a dispatcher-routed instance "dispatcher", not "@null" or blank', async () => {
@@ -929,7 +1002,7 @@ describe('Session screen', () => {
     });
 
     // Mid-stream snapshot (same instant the existing streaming test pins).
-    await fireEvent(screen.getByText('the…'), 'longPress');
+    await fireEvent(screen.getByText('the▍'), 'longPress');
     expect(sheetSpy).not.toHaveBeenCalled();
   });
 

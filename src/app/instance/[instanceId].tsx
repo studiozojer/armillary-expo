@@ -196,6 +196,15 @@ function SessionView({
 
   const [selectText, setSelectText] = useState<string | null>(null);
 
+  // The user/pending bubble, extracted once — both render arms below share it.
+  const bubbleStyle = {
+    maxWidth: '78%' as const,
+    backgroundColor: theme.color.bgSecondary,
+    borderRadius: theme.radius.md,
+    paddingHorizontal: theme.space.md,
+    paddingVertical: theme.space.sm + theme.space.xxs,
+  };
+
   // The evict confirm, exactly as it was before the menu existed — the menu's
   // Remove item leads here rather than replacing it.
   const confirmEvict = useCallback(
@@ -345,21 +354,6 @@ function SessionView({
         </Text>
       ) : null}
 
-      {instance ? (
-        // Minimal id surface: identifiable without curl-ing the daemon. Not a
-        // metadata panel (that's a designed future pass) — just the short id,
-        // txTertiary, one line.
-        <Text
-          style={{
-            ...theme.type.caption,
-            color: theme.color.txTertiary,
-            textAlign: 'center',
-            paddingBottom: theme.space.xs,
-          }}>
-          {instance.id.slice(0, 8)}
-        </Text>
-      ) : null}
-
       {/*
         Clears the composer from the native bottom tab bar and rises it with
         the keyboard. Wrapping from here (not just the composer row) so the
@@ -411,41 +405,60 @@ function SessionView({
                     </View>
                   );
                 }
-                return (
-                  <Pressable onLongPress={() => onLongPressMessage(item)} style={{ paddingVertical: theme.space.sm }}>
-                    {item.role === 'operator' ? (
+                if (item.role === 'operator') {
+                  return (
+                    <Pressable
+                      onLongPress={() => onLongPressMessage(item)}
+                      style={{ paddingVertical: theme.space.sm }}>
                       <MessageMarkdown source={item.text} />
-                    ) : (
+                      {/* KNOWN AND UNSETTLED (final review, 2026-08-12): a round that
+                          produces tool calls and no prose still gets an
+                          assistant_message with text: "" alongside a non-empty
+                          thinking array (persist_thinking requires text OR calls, not
+                          text — loop_.rs:657), and it takes this same render branch:
+                          an empty reply with a "Show thinking" toggle hanging under
+                          it. That might be exactly right — the toggle is the only
+                          visible marker that an otherwise-silent tool-only round
+                          happened at all — or it might read as broken, a
+                          caption-height control floating over nothing. Not settled
+                          here, and deliberately not "fixed" by hiding the toggle or
+                          filling the empty text with a placeholder: this is a
+                          product call, to be made on a device walk, not from the
+                          armchair. */}
+                      {showThinking && item.thinking ? <ThinkingAccordion blocks={item.thinking} /> : null}
+                    </Pressable>
+                  );
+                }
+                return (
+                  <Pressable
+                    onLongPress={() => onLongPressMessage(item)}
+                    style={{ paddingVertical: theme.space.xs, flexDirection: 'row', justifyContent: 'flex-end' }}>
+                    <View testID="user-bubble" style={bubbleStyle}>
                       <Text style={{ ...theme.type.body, color: theme.color.txPrimary }}>{item.text}</Text>
-                    )}
-                    {/* KNOWN AND UNSETTLED (final review, 2026-08-12): a round that
-                        produces tool calls and no prose still gets an
-                        assistant_message with text: "" alongside a non-empty
-                        thinking array (persist_thinking requires text OR calls, not
-                        text — loop_.rs:657), and it takes this same render branch:
-                        an empty reply with a "Show thinking" toggle hanging under
-                        it. That might be exactly right — the toggle is the only
-                        visible marker that an otherwise-silent tool-only round
-                        happened at all — or it might read as broken, a
-                        caption-height control floating over nothing. Not settled
-                        here, and deliberately not "fixed" by hiding the toggle or
-                        filling the empty text with a placeholder: this is a
-                        product call, to be made on a device walk, not from the
-                        armchair. */}
-                    {showThinking && item.thinking ? <ThinkingAccordion blocks={item.thinking} /> : null}
+                    </View>
                   </Pressable>
                 );
               }
               case 'pending':
                 return (
-                  <View style={{ paddingVertical: theme.space.sm }}>
-                    <Text style={{ ...theme.type.body, color: theme.color.txPrimary }}>{item.text}</Text>
+                  <View style={{ paddingVertical: theme.space.xs, flexDirection: 'row', justifyContent: 'flex-end' }}>
+                    <View testID="pending-bubble" style={{ ...bubbleStyle, opacity: 0.6 }}>
+                      <Text style={{ ...theme.type.body, color: theme.color.txPrimary }}>{item.text}</Text>
+                    </View>
                   </View>
                 );
               case 'streaming':
                 return (
                   <View style={{ paddingVertical: theme.space.sm }}>
-                    <Text style={{ ...theme.type.body, color: theme.color.txPrimary }}>{item.text}…</Text>
+                    <Text style={{ ...theme.type.body, color: theme.color.txBody }}>
+                      {item.text}
+                      {/* ▍as a styled glyph rides inline through wrapping,
+                          which no View can. Accent-colored per D6; the token
+                          is blue until daoUI resolves the orange gap. If
+                          Whyte lacks the glyph the system fallback renders
+                          it — the device walk confirms which. */}
+                      <Text style={{ color: theme.color.txAccent }}>▍</Text>
+                    </Text>
                   </View>
                 );
               case 'system':
