@@ -17,6 +17,7 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { ActivityLine } from '@/components/activity-line';
 import { InstancePanel } from '@/components/instance-panel';
 import { Icon } from '@/components/ui';
 import { usePanel, usePanelContent } from '@/lib/panel-context';
@@ -481,6 +482,8 @@ function SessionView({
             {sendError}
           </Text>
         ) : null}
+
+        <ActivityLine label={turnInFlight ? 'working' : null} />
 
         <View
           testID="composer-row"
