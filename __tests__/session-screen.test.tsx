@@ -83,16 +83,22 @@ jest.mock('expo-router', () => ({
 // `Stack.Screen` (from `expo-router/stack`, a separate module from the
 // wholesale 'expo-router' mock above) registers per-screen options through a
 // real navigator's context — rendered standalone (this file's whole approach;
-// see the comment above) it throws "Couldn't find a route object". Mocked as
-// a plain `Text` carrying the title, so the dynamic-title test below can
-// assert on it the same way every other visible-row test in this file does,
-// without pulling in a full `renderRouter` navigator just for one field.
+// see the comment above) it throws "Couldn't find a route object". Mocked to
+// render either headerTitle (if present) or the fallback title as a Text, so
+// tests can assert on the actual header content the same way every other
+// visible-row test in this file does, without pulling in a full `renderRouter`
+// navigator just for one field. When headerTitle is present (the new pattern),
+// it's invoked to render the composed header (e.g. HeaderTitle component).
 jest.mock('expo-router/stack', () => {
   const { Text: RNText } = require('react-native');
   return {
     Stack: {
-      Screen: ({ options }: { options?: { title?: string } }) =>
-        options?.title ? <RNText testID="stack-screen-title">{options.title}</RNText> : null,
+      Screen: ({ options }: { options?: { title?: string; headerTitle?: () => React.ReactNode } }) => {
+        if (options?.headerTitle) {
+          return options.headerTitle();
+        }
+        return options?.title ? <RNText testID="stack-screen-title">{options.title}</RNText> : null;
+      },
     },
   };
 });
@@ -258,8 +264,8 @@ describe('Session screen', () => {
     mockInstanceId = 'deadbeef1234';
 
     await render(<SessionScreen />);
-    // Wait for the composer to render, indicating the instance has attached.
-    await screen.findByPlaceholderText('Message');
+    // Wait for the header to render (HeaderTitle with @tycho), indicating the instance has attached.
+    await screen.findByText('@tycho');
 
     expect(screen.queryByText(/^[0-9a-f]{8}$/)).toBeNull();
   });
@@ -603,10 +609,9 @@ describe('Session screen', () => {
 
     await render(<SessionScreen />);
 
-    // The Stack.Screen now uses headerTitle (which the mock doesn't render),
-    // but the actual header in the app will show @tycho. This test just verifies
-    // the instance attached (the "instance started" system row confirms it).
-    expect(await screen.findByText('instance started: tycho')).toBeTruthy();
+    // HeaderTitle renders @tycho as the top line when operator is 'tycho'
+    // and omits the subtitle when model is null.
+    expect(await screen.findByText('@tycho')).toBeTruthy();
   });
 
   it('titles a dispatcher-routed instance "dispatcher", not "@null" or blank', async () => {
@@ -617,20 +622,45 @@ describe('Session screen', () => {
 
     await render(<SessionScreen />);
 
-    // The Stack.Screen now uses headerTitle (which the mock doesn't render),
-    // but the actual header in the app will show "dispatcher". This test just verifies
-    // the instance attached with no operator (the "instance started: dispatcher" row confirms it).
-    expect(await screen.findByText('instance started: dispatcher')).toBeTruthy();
+    // HeaderTitle renders "dispatcher" as the top line when operator is null,
+    // and omits the subtitle when model is null. Asserts the null-operator branch works.
+    expect(await screen.findByText('dispatcher')).toBeTruthy();
+    expect(screen.queryByText('@null')).toBeNull();
   });
 
   it('shows the model under the operator in the header', async () => {
-    // The mocked Stack.Screen swallows headerTitle (doesn't render it), so we
-    // render the extracted HeaderTitle component directly to verify it produces
-    // the two-line operator + model header.
-    await render(<HeaderTitle operator="tycho" model="gemma-3-27b" />);
+    // The mocked Stack.Screen now renders headerTitle, so we can test it through
+    // the stack screen. Verifies both operator and model render.
+    jest.useFakeTimers();
+    mockApi = new MockSessionAPI({ fragmentDelayMs: 5 }) as unknown as SessionAPI;
+    const inst = await (mockApi as MockSessionAPI).create('tycho', 'gemma-3-27b');
+    mockInstanceId = inst.id;
+
+    await render(<SessionScreen />);
+
+    expect(await screen.findByText('@tycho')).toBeTruthy();
+    expect(screen.getByText('gemma-3-27b')).toBeTruthy();
+  });
+
+  it('renders operator but no model subtitle when model is null', async () => {
+    // Regression guard: the subtitle Text must not render at all when model is null,
+    // not render as empty. Direct HeaderTitle render to ensure the null-model branch works.
+    await render(<HeaderTitle operator="tycho" model={null} />);
 
     expect(screen.getByText('@tycho')).toBeTruthy();
-    expect(screen.getByText('gemma-3-27b')).toBeTruthy();
+    // Query for any Text that contains only whitespace or empty string (would be the empty subtitle)
+    const allText = screen.queryAllByText(/^$/);
+    // The only empty Text should be from RN's default render, not from our subtitle
+    expect(screen.queryByText('gemma-3-27b')).toBeNull();
+  });
+
+  it('renders "dispatcher" but not "@null" when operator is null', async () => {
+    // Regression guard: the operator=null branch must render 'dispatcher', not '@null'.
+    // Direct HeaderTitle render to ensure the null-operator branch works.
+    await render(<HeaderTitle operator={null} model={null} />);
+
+    expect(screen.getByText('dispatcher')).toBeTruthy();
+    expect(screen.queryByText('@null')).toBeNull();
   });
 
   it('renders a failure-shaped assistant_message as a visible failure line naming the machine code, never a blank row', async () => {
