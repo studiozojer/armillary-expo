@@ -1,4 +1,4 @@
-import { projectSession } from '../src/lib/session/project';
+import { pairToolRows, projectSession } from '../src/lib/session/project';
 import type { PendingSend, SessionRow } from '../src/lib/session/project';
 import { DURABLE_TYPES } from '../src/lib/session/events';
 import type {
@@ -73,6 +73,15 @@ function assistantMessage(opts: {
 function contextEvict(opts: { target: string; seq?: number }): EventEnvelope<ContextEvictData> {
   return makeEnvelope('context_evict', { target: opts.target }, { seq: opts.seq });
 }
+
+const toolUse = (id: string, name: string, input: unknown, opts: { seq?: number } = {}) =>
+  makeEnvelope('tool_use', { id, name, input }, { actor: operatorActor, seq: opts.seq });
+const toolResult = (toolUseId: string, over: Partial<ToolResultData> = {}, opts: { seq?: number } = {}) =>
+  makeEnvelope(
+    'tool_result',
+    { toolUseId, status: 'ok', content: 'x'.repeat(412), isError: false, ...over },
+    { actor: { role: 'tool' }, seq: opts.seq },
+  );
 
 /**
  * Plausible payload per durable type — enough to satisfy each type's data shape.
@@ -228,15 +237,6 @@ describe('projectSession', () => {
   });
 
   describe('a tool round', () => {
-    const toolUse = (id: string, name: string, input: unknown) =>
-      makeEnvelope('tool_use', { id, name, input }, { actor: operatorActor });
-    const toolResult = (toolUseId: string, over: Partial<ToolResultData> = {}) =>
-      makeEnvelope(
-        'tool_result',
-        { toolUseId, status: 'ok', content: 'x'.repeat(412), isError: false, ...over },
-        { actor: { role: 'tool' } },
-      );
-
     it('names the tool and the path it was pointed at', () => {
       const rows = projectSession(
         [toolUse('t1', 'read_file', { path: 'notes/board.md' })],
@@ -504,5 +504,71 @@ describe('projectSession', () => {
   it('does not produce gap rows itself', () => {
     const rows = projectSession([envelopeOf('boot')], new Map(), []);
     expect(rows.filter((r) => r.kind === 'gap')).toHaveLength(0);
+  });
+});
+
+describe('pairToolRows', () => {
+  it('collapses a use and its result into one tool row', () => {
+    const rows = projectSession(
+      [
+        toolUse('t1', 'read_file', { path: 'a.md' }, { seq: 1 }),
+        toolResult('t1', { status: 'ok', content: 'x'.repeat(2800), isError: false }, { seq: 2 }),
+      ],
+      new Map(),
+      [],
+    );
+    const display = pairToolRows(rows);
+    expect(display).toHaveLength(1);
+    expect(display[0]).toMatchObject({
+      kind: 'tool',
+      label: 'read_file: a.md',
+      result: { ok: true, chars: 2800 },
+    });
+  });
+
+  it('keeps the verbatim machine status on a refusal', () => {
+    const rows = projectSession(
+      [
+        toolUse('t1', 'write_file', { path: 'a.md' }, { seq: 1 }),
+        toolResult('t1', { status: 'permission_denied', content: '', isError: true }, { seq: 2 }),
+      ],
+      new Map(),
+      [],
+    );
+    expect(pairToolRows(rows)[0]).toMatchObject({
+      kind: 'tool',
+      result: { ok: false, status: 'permission_denied' },
+    });
+  });
+
+  it('shows a use with no result yet as a pending tool row', () => {
+    const rows = projectSession([toolUse('t1', 'grep', {}, { seq: 1 })], new Map(), []);
+    const display = pairToolRows(rows);
+    expect(display[0]).toMatchObject({ kind: 'tool', label: 'grep' });
+    expect(display[0]).not.toHaveProperty('result');
+  });
+
+  it('leaves an orphaned result as the system row it already was', () => {
+    // The pair can be split by eviction or a partial replay; the fallback
+    // caption ("tool answered (…)") is already honest and stays.
+    const rows = projectSession(
+      [toolResult('t-gone', { status: 'ok', content: 'x', isError: false }, { seq: 2 })],
+      new Map(),
+      [],
+    );
+    expect(pairToolRows(rows)[0]).toMatchObject({ kind: 'system' });
+  });
+
+  it('passes every non-tool row through untouched, in order', () => {
+    const rows = projectSession(
+      [
+        userMessage({ text: 'hi', seq: 1 }),
+        toolUse('t1', 'grep', {}, { seq: 2 }),
+        assistantMessage({ text: 'done', generation: 'g1', seq: 3 }),
+      ],
+      new Map(),
+      [],
+    );
+    expect(pairToolRows(rows).map((r) => r.kind)).toEqual(['message', 'tool', 'message']);
   });
 });

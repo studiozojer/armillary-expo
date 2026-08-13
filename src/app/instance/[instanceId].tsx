@@ -23,11 +23,13 @@ import { usePanel, usePanelContent } from '@/lib/panel-context';
 import { MessageMarkdown } from '@/components/message-markdown';
 import { SelectTextSheet } from '@/components/select-text-sheet';
 import { ThinkingAccordion } from '@/components/thinking-accordion';
+import { ToolRow } from '@/components/tool-row';
 import { useHost } from '@/lib/host-context';
 import type { Host } from '@/lib/hosts';
 import { useShowThinking } from '@/lib/preferences';
 import { sessionAPIFor } from '@/lib/session/instance';
-import type { SessionRow } from '@/lib/session/project';
+import { pairToolRows } from '@/lib/session/project';
+import type { DisplayRow, SessionRow } from '@/lib/session/project';
 import { useSession } from '@/lib/session/use-session';
 import { useTheme } from '@/theme';
 
@@ -54,10 +56,11 @@ const ESTIMATED_HEADER_HEIGHT = 44;
 
 /** One key per row, by kind — the same identity project.ts's own rows carry,
  *  plus the synthetic gap row this screen (not the reducer) injects. */
-function rowKey(row: SessionRow): string {
+function rowKey(row: DisplayRow): string {
   switch (row.kind) {
     case 'message':
     case 'system':
+    case 'tool':
       return row.id;
     case 'pending':
       return row.clientKey;
@@ -164,7 +167,7 @@ function SessionView({
   // emits one itself (Task 4's design: the reducer is pure over durable
   // events + transients, the gap is a transport-layer signal the hook
   // surfaces separately). Reversed once, for the inverted FlatList below.
-  const displayRows = useMemo<SessionRow[]>(() => {
+  const displayRows = useMemo<DisplayRow[]>(() => {
     const withGap: SessionRow[] = gap
       ? [
           {
@@ -174,7 +177,7 @@ function SessionView({
           ...rows,
         ]
       : rows;
-    return [...withGap].reverse();
+    return [...pairToolRows(withGap)].reverse();
   }, [rows, gap]);
 
   const onSend = useCallback(() => {
@@ -457,6 +460,8 @@ function SessionView({
                     {item.label}
                   </Text>
                 );
+              case 'tool':
+                return <ToolRow row={item} />;
             }
           }}
         />

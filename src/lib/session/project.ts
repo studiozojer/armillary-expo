@@ -42,7 +42,18 @@ export type SessionRow =
     }
   | { kind: 'streaming'; generation: string; text: string }
   | { kind: 'pending'; clientKey: string; text: string }
-  | { kind: 'system'; id: string; seq: number; label: string }
+  | {
+      kind: 'system';
+      id: string;
+      seq: number;
+      label: string;
+      /** What produced this row, when it is one the tool surfaces read.
+       *  Carried as structure rather than re-parsed out of `label` — a label
+       *  is display text and may be reworded; this is the fact. */
+      activity?:
+        | { kind: 'tool_use'; toolUseId: string }
+        | { kind: 'tool_result'; toolUseId: string; isError: boolean; status: string; chars: number };
+    }
   | { kind: 'gap'; label: string };
 
 /** A send the UI has optimistically echoed but the durable log hasn't confirmed yet. */
@@ -51,8 +62,14 @@ export type PendingSend = { clientKey: string; text: string; at: string };
 /** `instance_created` has no dedicated payload type in the design — see mock.ts. */
 type InstanceCreatedData = { operator: string | null; model: string | null };
 
-function systemRow(e: EventEnvelope, label: string): SessionRow {
-  return { kind: 'system', id: e.id, seq: e.seq, label };
+function systemRow(
+  e: EventEnvelope,
+  label: string,
+  activity?: Extract<SessionRow, { kind: 'system' }>['activity'],
+): SessionRow {
+  const row: Extract<SessionRow, { kind: 'system' }> = { kind: 'system', id: e.id, seq: e.seq, label };
+  if (activity) row.activity = activity;
+  return row;
 }
 
 /**
@@ -213,7 +230,7 @@ export function projectSession(
       case 'tool_use': {
         const data = e.data as ToolUseData;
         const arg = toolArgLabel(data.input);
-        rows.push(systemRow(e, arg ? `${data.name}: ${arg}` : data.name));
+        rows.push(systemRow(e, arg ? `${data.name}: ${arg}` : data.name, { kind: 'tool_use', toolUseId: data.id }));
         break;
       }
       case 'tool_result': {
@@ -228,9 +245,11 @@ export function projectSession(
         rows.push(
           systemRow(
             e,
-            data.isError
-              ? `${name} refused: ${data.status}`
-              : `${name} answered (${data.content.length} chars)`,
+            data.isError ? `${name} refused: ${data.status}` : `${name} answered (${data.content.length} chars)`,
+            // isError/status/chars carried as structure so pairToolRows never
+            // re-parses display text — same reasoning as the discriminator
+            // itself (a label may be reworded; this is the fact).
+            { kind: 'tool_result', toolUseId: data.toolUseId, isError: data.isError, status: data.status, chars: data.content.length },
           ),
         );
         break;
@@ -256,4 +275,48 @@ export function projectSession(
   }
 
   return rows;
+}
+
+/** One transcript row per tool call: the use, wearing its result. */
+export type ToolPairRow = {
+  kind: 'tool';
+  id: string;
+  seq: number;
+  /** The tool_use label verbatim — the same string the activity line shows
+   *  for the running call, so the live and durable surfaces cannot drift. */
+  label: string;
+  /** Absent while the call is unanswered (the turn is still on it). */
+  result?: { ok: boolean; status: string; chars: number };
+};
+
+export type DisplayRow = SessionRow | ToolPairRow;
+
+/**
+ * The transcript's view of tool activity: each `tool_use` system row absorbs
+ * its `tool_result` into one instrument row (design 2026-08-12 D4). A result
+ * whose use is not in the window (eviction, partial replay) stays the honest
+ * caption it already was. Pure and derived — the reducer's contract is
+ * untouched, and any future state-derived consumer keeps reading raw rows.
+ */
+export function pairToolRows(rows: SessionRow[]): DisplayRow[] {
+  const results = new Map<string, { ok: boolean; status: string; chars: number }>();
+  const useIds = new Set<string>();
+  for (const r of rows) {
+    if (r.kind !== 'system' || !r.activity) continue;
+    if (r.activity.kind === 'tool_use') useIds.add(r.activity.toolUseId);
+    else results.set(r.activity.toolUseId, { ok: !r.activity.isError, status: r.activity.status, chars: r.activity.chars });
+  }
+  const out: DisplayRow[] = [];
+  for (const r of rows) {
+    if (r.kind === 'system' && r.activity?.kind === 'tool_use') {
+      const row: ToolPairRow = { kind: 'tool', id: r.id, seq: r.seq, label: r.label };
+      const result = results.get(r.activity.toolUseId);
+      if (result) row.result = result;
+      out.push(row);
+      continue;
+    }
+    if (r.kind === 'system' && r.activity?.kind === 'tool_result' && useIds.has(r.activity.toolUseId)) continue;
+    out.push(r);
+  }
+  return out;
 }
