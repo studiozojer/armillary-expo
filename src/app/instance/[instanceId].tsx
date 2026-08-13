@@ -20,7 +20,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { InstancePanel } from '@/components/instance-panel';
 import { Icon } from '@/components/ui';
 import { usePanel, usePanelContent } from '@/lib/panel-context';
-import { MarkdownView } from '@/components/markdown-view';
+import { MessageMarkdown } from '@/components/message-markdown';
 import { SelectTextSheet } from '@/components/select-text-sheet';
 import { ThinkingAccordion } from '@/components/thinking-accordion';
 import { useHost } from '@/lib/host-context';
@@ -29,7 +29,7 @@ import { useShowThinking } from '@/lib/preferences';
 import { sessionAPIFor } from '@/lib/session/instance';
 import type { SessionRow } from '@/lib/session/project';
 import { useSession } from '@/lib/session/use-session';
-import { markedThemeFor, useTheme } from '@/theme';
+import { useTheme } from '@/theme';
 
 type MessageRow = Extract<SessionRow, { kind: 'message' }>;
 
@@ -410,7 +410,7 @@ function SessionView({
                 return (
                   <Pressable onLongPress={() => onLongPressMessage(item)} style={{ paddingVertical: theme.space.sm }}>
                     {item.role === 'operator' ? (
-                      <MarkdownView source={item.text} theme={markedThemeFor(theme)} />
+                      <MessageMarkdown source={item.text} />
                     ) : (
                       <Text style={{ ...theme.type.body, color: theme.color.txPrimary }}>{item.text}</Text>
                     )}
