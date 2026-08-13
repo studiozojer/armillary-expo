@@ -1,21 +1,20 @@
 import { useState } from 'react';
 import { Pressable, View } from 'react-native';
 
-import { Text } from '@/components/ui';
+import { Icon, Text } from '@/components/ui';
+import { compactChars } from '@/components/tool-row';
 import type { ThinkingBlock } from '@/lib/session/events';
 import { useTheme } from '@/theme';
 
 /**
- * The round's reasoning, collapsed under the reply it belongs to.
+ * The round's reasoning, folded above the reply it produced — thinking
+ * precedes the answer, so the transcript reads chronologically (design
+ * 2026-08-12 D7, David's call resolving the same-day collision with the
+ * turn-in-flight design's below-the-reply form). Mono register: machinery
+ * wears the instrument uniform (D4).
  *
- * **Typographically de-emphasized on purpose, and the de-emphasis is
- * honesty rather than decoration.** Thinking text is the model's scratchpad,
- * not prose written for a reader; rendering it at body weight would present
- * it as something it is not.
- *
- * `redacted_thinking` can never be shown — it arrives encrypted from the API
- * — so it renders as a named state instead. Never a blank body, which reads
- * as broken.
+ * `redacted_thinking` can never be shown — it arrives encrypted — so it
+ * renders as a named state, never a blank body.
  */
 /**
  * `blocks` is a closed TS union of two variants, but `data.thinking` arrives
@@ -41,29 +40,24 @@ function blockText(block: ThinkingBlock): string {
 export function ThinkingAccordion({ blocks }: { blocks: ThinkingBlock[] }) {
   const theme = useTheme();
   const [open, setOpen] = useState(false);
+  const visibleChars = blocks.reduce((n, b) => n + (b.type === 'thinking' ? b.thinking.length : 0), 0);
 
   return (
-    <View style={{ paddingTop: theme.space.xs }}>
+    <View style={{ paddingBottom: theme.space.xs }}>
       <Pressable
         testID="thinking-toggle"
         onPress={() => setOpen(!open)}
-        hitSlop={8}
         accessibilityRole="button"
         accessibilityState={{ expanded: open }}
-        accessibilityLabel={open ? 'Hide thinking' : 'Show thinking'}>
-        <Text variant="caption" color="txTertiary">
-          {open ? 'Hide thinking' : 'Show thinking'}
-        </Text>
+        accessibilityLabel={open ? 'Hide thinking' : 'Show thinking'}
+        style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space.xs + theme.space.xxs }}>
+        <Icon name={open ? 'chevronDown' : 'chevron'} size={10} color="txTertiary" />
+        <Text variant="mono" color="txTertiary">{`thinking · ${compactChars(visibleChars)}`}</Text>
       </Pressable>
       {open ? (
-        <View style={{ paddingTop: theme.space.xs, gap: theme.space.xs }}>
+        <View style={{ paddingTop: theme.space.xxs, paddingLeft: theme.space.xxl + theme.space.sm, gap: theme.space.xs }}>
           {blocks.map((block, i) => (
-            <Text
-              // Index keys: these are a fixed, never-reordered slice of one
-              // durable event, so there is nothing for a stable key to buy.
-              key={i}
-              variant="caption"
-              color="txSecondary">
+            <Text key={i} variant="label" color="txTertiary">
               {blockText(block)}
             </Text>
           ))}

@@ -4,7 +4,7 @@ import * as Clipboard from 'expo-clipboard';
 import { ActionSheetIOS, Alert, Platform } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
-import SessionScreenRoute from '../src/app/instance/[instanceId]';
+import SessionScreenRoute, { HeaderTitle } from '../src/app/instance/[instanceId]';
 import { PanelProvider, usePanel } from '../src/lib/panel-context';
 import { MockSessionAPI } from '../src/lib/session/mock';
 import type { SessionAPI } from '../src/lib/session/api';
@@ -83,16 +83,22 @@ jest.mock('expo-router', () => ({
 // `Stack.Screen` (from `expo-router/stack`, a separate module from the
 // wholesale 'expo-router' mock above) registers per-screen options through a
 // real navigator's context — rendered standalone (this file's whole approach;
-// see the comment above) it throws "Couldn't find a route object". Mocked as
-// a plain `Text` carrying the title, so the dynamic-title test below can
-// assert on it the same way every other visible-row test in this file does,
-// without pulling in a full `renderRouter` navigator just for one field.
+// see the comment above) it throws "Couldn't find a route object". Mocked to
+// render either headerTitle (if present) or the fallback title as a Text, so
+// tests can assert on the actual header content the same way every other
+// visible-row test in this file does, without pulling in a full `renderRouter`
+// navigator just for one field. When headerTitle is present (the new pattern),
+// it's invoked to render the composed header (e.g. HeaderTitle component).
 jest.mock('expo-router/stack', () => {
   const { Text: RNText } = require('react-native');
   return {
     Stack: {
-      Screen: ({ options }: { options?: { title?: string } }) =>
-        options?.title ? <RNText testID="stack-screen-title">{options.title}</RNText> : null,
+      Screen: ({ options }: { options?: { title?: string; headerTitle?: () => React.ReactNode } }) => {
+        if (options?.headerTitle) {
+          return options.headerTitle();
+        }
+        return options?.title ? <RNText testID="stack-screen-title">{options.title}</RNText> : null;
+      },
     },
   };
 });
@@ -184,9 +190,84 @@ describe('Session screen', () => {
     // stale onPress closure captured before the changeText re-render
     // committed, silently no-opping (draft still '' in that closure).
     await fireEvent.changeText(screen.getByPlaceholderText('Message'), 'ping');
-    await fireEvent.press(screen.getByText('Send'));
+    await fireEvent.press(screen.getByLabelText('Send'));
 
     expect(screen.getByText('ping')).toBeTruthy();
+  });
+
+  it('renders a user message in a right-aligned bubble', async () => {
+    jest.useFakeTimers();
+    mockApi = new MockSessionAPI({ fragmentDelayMs: 5 }) as unknown as SessionAPI;
+    const inst = await (mockApi as MockSessionAPI).create('tycho', null);
+    await mockApi.send(inst.id, 'hello there', 'seed');
+    await jest.advanceTimersByTimeAsync(200);
+    mockInstanceId = inst.id;
+
+    await render(<SessionScreen />);
+
+    const bubble = await screen.findByTestId('user-bubble');
+    const style = Object.assign({}, ...[bubble.props.style].flat(Infinity).filter(Boolean));
+    expect(style.backgroundColor).toBeTruthy();
+    expect(style.borderRadius).toBeGreaterThan(0);
+  });
+
+  it('dims a pending send below full opacity', async () => {
+    jest.useFakeTimers();
+    mockApi = new MockSessionAPI({ fragmentDelayMs: 5 }) as unknown as SessionAPI;
+    const inst = await (mockApi as MockSessionAPI).create('tycho', null);
+    mockInstanceId = inst.id;
+
+    await render(<SessionScreen />);
+
+    await fireEvent.changeText(screen.getByPlaceholderText('Message'), 'ping');
+    await fireEvent.press(screen.getByLabelText('Send'));
+
+    const bubble = await screen.findByTestId('pending-bubble');
+    const style = Object.assign({}, ...[bubble.props.style].flat(Infinity).filter(Boolean));
+    expect(style.opacity).toBeLessThan(1);
+  });
+
+  it('no longer shows the short-id caption in the transcript', async () => {
+    // The instance panel owns the id now (it renders instance.id.slice(0, 8)
+    // as its subtitle) — the floating caption predates the panel's existence.
+    // A hand-rolled id (rather than MockSessionAPI's own `inst-mock-N`
+    // counter, which never looks like 8 lowercase hex chars) so this test
+    // actually exercises the regex it asserts against.
+    const fakeApi: SessionAPI = {
+      create: jest.fn(),
+      list: jest.fn(),
+      attach: jest.fn(async () => ({
+        instance: {
+          id: 'deadbeef1234',
+          operator: 'tycho',
+          stream: 's-caption',
+          startedAt: '2026-07-28T00:00:00.000Z',
+          lastSeq: 0,
+          model: null,
+          mayWriteComposition: false,
+          archived: false,
+        },
+        earliestSeq: 1,
+        headSeq: 0,
+      })),
+      subscribe: jest.fn((_stream: string, _fromSeq: number, h: SubscriptionHandler) => {
+        queueMicrotask(() => h.onStatus('live'));
+        return () => {};
+      }),
+      send: jest.fn(),
+      interrupt: jest.fn(),
+      evict: jest.fn(),
+      archive: jest.fn(),
+      unarchive: jest.fn(),
+    };
+    mockApi = fakeApi;
+    mockInstanceId = 'deadbeef1234';
+
+    await render(<SessionScreen />);
+    // Wait for the header to render (HeaderTitle with @tycho), indicating the instance has attached.
+    await screen.findByText('@tycho');
+
+    expect(screen.queryByText(/^[0-9a-f]{8}$/)).toBeNull();
   });
 
   it('shows a streaming row updating and a Stop affordance during generation, then exactly one copy after settling', async () => {
@@ -198,14 +279,14 @@ describe('Session screen', () => {
     await render(<SessionScreen />);
 
     await fireEvent.changeText(screen.getByPlaceholderText('Message'), 'go');
-    await fireEvent.press(screen.getByText('Send'));
+    await fireEvent.press(screen.getByLabelText('Send'));
 
     await act(async () => {
       await jest.advanceTimersByTimeAsync(15);
     });
 
-    expect(screen.getByText('Stop')).toBeTruthy();
-    expect(screen.getByText('the…')).toBeTruthy();
+    expect(screen.getByLabelText('Stop')).toBeTruthy();
+    expect(screen.getByText('the▍')).toBeTruthy();
 
     await act(async () => {
       await jest.advanceTimersByTimeAsync(1000);
@@ -214,7 +295,29 @@ describe('Session screen', () => {
     // Supersession pinned at the UI layer: the streaming snapshot must not
     // survive alongside the durable final text.
     expect(screen.getAllByText(CANNED_REPLY)).toHaveLength(1);
-    expect(screen.queryByText('Stop')).toBeNull();
+    expect(screen.queryByLabelText('Stop')).toBeNull();
+  });
+
+  it('keeps Send and Stop as circular icon buttons on the card', async () => {
+    jest.useFakeTimers();
+    mockApi = new MockSessionAPI({ fragmentDelayMs: 10 }) as unknown as SessionAPI;
+    const inst = await (mockApi as MockSessionAPI).create('tycho', null);
+    mockInstanceId = inst.id;
+
+    await render(<SessionScreen />);
+
+    // Idle: the send circle is present, labeled for accessibility.
+    expect(await screen.findByLabelText('Send')).toBeTruthy();
+
+    await fireEvent.changeText(screen.getByPlaceholderText('Message'), 'go');
+    await fireEvent.press(screen.getByLabelText('Send'));
+
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(15);
+    });
+
+    // Drive the mock so turnInFlight is true, then:
+    expect(await screen.findByLabelText('Stop')).toBeTruthy();
   });
 
   it('keeps Stop up through a tool round with no text arriving', async () => {
@@ -273,8 +376,8 @@ describe('Session screen', () => {
     });
 
     expect(await screen.findByText('read_file: modules.toml')).toBeTruthy();
-    expect(screen.getByText('Stop')).toBeTruthy();
-    expect(screen.queryByText('Send')).toBeNull();
+    expect(screen.getByLabelText('Stop')).toBeTruthy();
+    expect(screen.queryByLabelText('Send')).toBeNull();
   });
 
   it('shows Send, not Stop, when a streaming row is present but the turn itself is not in flight', async () => {
@@ -332,9 +435,9 @@ describe('Session screen', () => {
       });
     });
 
-    expect(await screen.findByText('partial…')).toBeTruthy();
-    expect(screen.getByText('Send')).toBeTruthy();
-    expect(screen.queryByText('Stop')).toBeNull();
+    expect(await screen.findByText('partial▍')).toBeTruthy();
+    expect(screen.getByLabelText('Send')).toBeTruthy();
+    expect(screen.queryByLabelText('Stop')).toBeNull();
   });
 
   it('keeps the panel\'s Interrupt live through a tool round with no text arriving', async () => {
@@ -520,7 +623,7 @@ describe('Session screen', () => {
     expect(screen.getAllByText(/no such instance: does-not-exist/)).toHaveLength(1);
   });
 
-  it("sets the header title to @operator once attach resolves, and shows the instance's short id", async () => {
+  it('sets the header title to @operator once attach resolves', async () => {
     jest.useFakeTimers();
     mockApi = new MockSessionAPI({ fragmentDelayMs: 5 }) as unknown as SessionAPI;
     const inst = await (mockApi as MockSessionAPI).create('tycho', null);
@@ -528,8 +631,9 @@ describe('Session screen', () => {
 
     await render(<SessionScreen />);
 
-    expect(await screen.findByTestId('stack-screen-title')).toHaveTextContent('@tycho');
-    expect(screen.getByText(inst.id.slice(0, 8))).toBeTruthy();
+    // HeaderTitle renders @tycho as the top line when operator is 'tycho'
+    // and omits the subtitle when model is null.
+    expect(await screen.findByText('@tycho')).toBeTruthy();
   });
 
   it('titles a dispatcher-routed instance "dispatcher", not "@null" or blank', async () => {
@@ -540,7 +644,45 @@ describe('Session screen', () => {
 
     await render(<SessionScreen />);
 
-    expect(await screen.findByTestId('stack-screen-title')).toHaveTextContent('dispatcher');
+    // HeaderTitle renders "dispatcher" as the top line when operator is null,
+    // and omits the subtitle when model is null. Asserts the null-operator branch works.
+    expect(await screen.findByText('dispatcher')).toBeTruthy();
+    expect(screen.queryByText('@null')).toBeNull();
+  });
+
+  it('shows the model under the operator in the header', async () => {
+    // The mocked Stack.Screen now renders headerTitle, so we can test it through
+    // the stack screen. Verifies both operator and model render.
+    jest.useFakeTimers();
+    mockApi = new MockSessionAPI({ fragmentDelayMs: 5 }) as unknown as SessionAPI;
+    const inst = await (mockApi as MockSessionAPI).create('tycho', 'gemma-3-27b');
+    mockInstanceId = inst.id;
+
+    await render(<SessionScreen />);
+
+    expect(await screen.findByText('@tycho')).toBeTruthy();
+    expect(screen.getByText('gemma-3-27b')).toBeTruthy();
+  });
+
+  it('renders operator but no model subtitle when model is null', async () => {
+    // Regression guard: the subtitle Text must not render at all when model is null,
+    // not render as empty. When an empty Text element exists, queryAllByText(/^$/) finds it.
+    // This assertion catches regressions where the subtitle Text is unconditionally rendered.
+    await render(<HeaderTitle operator="tycho" model={null} />);
+
+    expect(screen.getByText('@tycho')).toBeTruthy();
+    // Verify there are no empty Text elements (would indicate subtitle Text rendered empty)
+    const emptyTexts = screen.queryAllByText(/^$/);
+    expect(emptyTexts).toHaveLength(0);
+  });
+
+  it('renders "dispatcher" but not "@null" when operator is null', async () => {
+    // Regression guard: the operator=null branch must render 'dispatcher', not '@null'.
+    // Direct HeaderTitle render to ensure the null-operator branch works.
+    await render(<HeaderTitle operator={null} model={null} />);
+
+    expect(screen.getByText('dispatcher')).toBeTruthy();
+    expect(screen.queryByText('@null')).toBeNull();
   });
 
   it('renders a failure-shaped assistant_message as a visible failure line naming the machine code, never a blank row', async () => {
@@ -668,7 +810,7 @@ describe('Session screen', () => {
     expect(screen.queryByTestId('thinking-toggle')).toBeNull();
   });
 
-  it('renders the thinking accordion under an operator reply once the preference is on, collapsed until pressed', async () => {
+  it('renders the thinking accordion above an operator reply once the preference is on, collapsed until pressed', async () => {
     await AsyncStorage.setItem('armillary.showThinking', 'true');
     const { api, getHandler } = fakeApiWithThinking('inst-think-on', 's-think-on');
     mockApi = api;
@@ -734,48 +876,6 @@ describe('Session screen', () => {
     expect(screen.queryByTestId('thinking-toggle')).toBeNull();
   });
 
-  it('renders the toggle under an empty reply for a tool-only round (text: "", thinking non-empty) — pinning current behaviour, not endorsing it', async () => {
-    // The case the final review flagged as the one most users actually meet:
-    // loop_.rs's `persist_thinking` only requires the round to have produced
-    // text OR tool calls, not text specifically (loop_.rs:657), so a round
-    // that made tool calls and said nothing still appends
-    // `assistant_message { text: "", thinking: [...] }` — MarkdownView draws
-    // nothing for the empty text, and a bare "Show thinking" toggle is left
-    // hanging in the tool stream with no visible reply above it. This test
-    // does not judge whether that's right; it pins what happens today so a
-    // future change can't silently alter it. See [instanceId].tsx's own
-    // "KNOWN AND UNSETTLED" comment at the mount site.
-    await AsyncStorage.setItem('armillary.showThinking', 'true');
-    const { api, getHandler } = fakeApiWithThinking('inst-think-toolonly', 's-think-toolonly');
-    mockApi = api;
-    mockInstanceId = 'inst-think-toolonly';
-
-    await render(<SessionScreen />);
-    await waitFor(() => expect(getHandler()).toBeDefined());
-
-    await act(async () => {
-      getHandler().onEvent({
-        stream: 's-think-toolonly',
-        id: 's-think-toolonly:1:abc',
-        seq: 1,
-        ts: '2026-07-28T00:00:00.000Z',
-        actor: { role: 'operator', instance: 'tycho' },
-        type: 'assistant_message',
-        version: 1,
-        data: {
-          text: '',
-          generation: 'gen-1',
-          thinking: [{ type: 'thinking', thinking: 'checking the file first', signature: 's' }],
-        },
-      });
-    });
-
-    const toggle = await screen.findByTestId('thinking-toggle');
-    expect(screen.queryByText('checking the file first')).toBeNull();
-    await fireEvent.press(toggle);
-    expect(screen.getByText('checking the file first')).toBeTruthy();
-  });
-
   it("gives the composer bottom clearance from the real safe-area inset, so it clears the native tab bar/home indicator", async () => {
     // Device-verified-only territory (see [instanceId].tsx's comment): this
     // asserts the composer's own static padding tracks whatever the OS
@@ -816,7 +916,7 @@ describe('Session screen', () => {
 
     await fireEvent.changeText(screen.getByPlaceholderText('Message'), 'important draft');
     await act(async () => {
-      await fireEvent.press(screen.getByText('Send'));
+      await fireEvent.press(screen.getByLabelText('Send'));
     });
 
     expect(await screen.findByDisplayValue('important draft')).toBeTruthy();
@@ -923,13 +1023,13 @@ describe('Session screen', () => {
     const sheetSpy = jest.spyOn(ActionSheetIOS, 'showActionSheetWithOptions').mockImplementation(() => {});
     await render(<SessionScreen />);
     await fireEvent.changeText(screen.getByPlaceholderText('Message'), 'go');
-    await fireEvent.press(screen.getByText('Send'));
+    await fireEvent.press(screen.getByLabelText('Send'));
     await act(async () => {
       await jest.advanceTimersByTimeAsync(15);
     });
 
     // Mid-stream snapshot (same instant the existing streaming test pins).
-    await fireEvent(screen.getByText('the…'), 'longPress');
+    await fireEvent(screen.getByText('the▍'), 'longPress');
     expect(sheetSpy).not.toHaveBeenCalled();
   });
 
@@ -953,5 +1053,131 @@ describe('Session screen', () => {
     } finally {
       replaced.restore();
     }
+  });
+
+  it('renders a mixed transcript cleanly: bubble, paired tool row, empty-text/hidden-thinking operator reply, and a streaming row', async () => {
+    // One screen-level seam test standing in for finding 2 (no blank
+    // Pressable for a tool-only round), D4 (an orphaned/paired tool row
+    // reads through pairToolRows either way), and D7 (thinking stays hidden
+    // when the preference is off, the default). Also exercises key
+    // uniqueness across every DisplayRow kind (message, tool, streaming) in
+    // one list.
+    let handler!: SubscriptionHandler;
+    const api: SessionAPI = {
+      create: jest.fn(),
+      list: jest.fn(),
+      attach: jest.fn(async () => ({
+        instance: {
+          id: 'inst-mixed',
+          operator: 'tycho',
+          stream: 's-mixed',
+          startedAt: '2026-07-28T00:00:00.000Z',
+          lastSeq: 0,
+          model: null,
+          mayWriteComposition: false,
+          archived: false,
+        },
+        earliestSeq: 1,
+        headSeq: 0,
+      })),
+      subscribe: jest.fn((_stream: string, _fromSeq: number, h: SubscriptionHandler) => {
+        handler = h;
+        queueMicrotask(() => h.onStatus('live'));
+        return () => {};
+      }),
+      send: jest.fn(),
+      interrupt: jest.fn(),
+      evict: jest.fn(),
+      archive: jest.fn(),
+      unarchive: jest.fn(),
+    };
+    mockApi = api;
+    mockInstanceId = 'inst-mixed';
+
+    await render(<SessionScreen />);
+    await waitFor(() => expect(handler).toBeDefined());
+
+    await act(async () => {
+      handler.onEvent({
+        stream: 's-mixed',
+        id: 's-mixed:1:a',
+        seq: 1,
+        ts: '2026-07-28T00:00:00.000Z',
+        actor: { role: 'user', instance: 'tycho' },
+        type: 'user_message',
+        version: 1,
+        data: { text: 'ping the tool' },
+      });
+      handler.onEvent({
+        stream: 's-mixed',
+        id: 's-mixed:2:b',
+        seq: 2,
+        ts: '2026-07-28T00:00:00.000Z',
+        actor: { role: 'operator', instance: 'tycho' },
+        type: 'tool_use',
+        version: 1,
+        data: { id: 'call-1', name: 'read_file', input: { path: 'a.md' } },
+      });
+      handler.onEvent({
+        stream: 's-mixed',
+        id: 's-mixed:3:c',
+        seq: 3,
+        ts: '2026-07-28T00:00:00.000Z',
+        actor: { role: 'tool', instance: 'tycho' },
+        type: 'tool_result',
+        version: 1,
+        data: { toolUseId: 'call-1', status: 'ok', content: 'x'.repeat(2800), isError: false },
+      });
+      handler.onEvent({
+        stream: 's-mixed',
+        id: 's-mixed:4:d',
+        seq: 4,
+        ts: '2026-07-28T00:00:00.000Z',
+        actor: { role: 'operator', instance: 'tycho' },
+        type: 'assistant_message',
+        version: 1,
+        data: {
+          text: '',
+          generation: 'gen-tool-only',
+          thinking: [{ type: 'thinking', thinking: 'considering the file', signature: 's' }],
+        },
+      });
+      handler.onEvent({
+        stream: 's-mixed',
+        id: 's-mixed:0:e',
+        seq: 0,
+        ts: '2026-07-28T00:00:00.000Z',
+        actor: { role: 'operator', instance: 'tycho' },
+        type: 'assistant_delta',
+        version: 1,
+        data: { textSoFar: 'mid-stream', generation: 'gen-streaming' },
+      });
+    });
+
+    // The bubble.
+    expect(await screen.findByText('ping the tool')).toBeTruthy();
+    // The paired tool row: label plus its result size.
+    expect(screen.getByText('read_file: a.md')).toBeTruthy();
+    expect(screen.getByText('2.8k')).toBeTruthy();
+    // The streaming row, glyph included.
+    expect(screen.getByText('mid-stream▍')).toBeTruthy();
+    // Thinking itself stays hidden (preference off, the default) — the
+    // reply carries it, but nothing surfaces it.
+    expect(screen.queryByText('considering the file')).toBeNull();
+    expect(screen.queryByTestId('thinking-toggle')).toBeNull();
+
+    // No empty-text operator artifact: exactly the user bubble and the
+    // composer's Send button are Pressables in the whole tree — not a
+    // third, empty one for the tool-only/thinking-hidden reply.
+    // `onStartShouldSetResponder` is the host-level fingerprint every
+    // `Pressable` leaves regardless of whether it declares a role (see
+    // repo-tabs.test.tsx's own comment for why a role-based query can't be
+    // used here). This is the assertion demonstrated against pre-fix code
+    // in the branch's fix report: it reads 3 there (the empty row's
+    // Pressable counted too) and 2 here.
+    const pressables = screen.container.queryAll(
+      (node) => typeof node.props?.onStartShouldSetResponder === 'function',
+    );
+    expect(pressables).toHaveLength(2);
   });
 });

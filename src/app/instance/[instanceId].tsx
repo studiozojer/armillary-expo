@@ -17,21 +17,38 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { ActivityLine } from '@/components/activity-line';
 import { InstancePanel } from '@/components/instance-panel';
 import { Icon } from '@/components/ui';
 import { usePanel, usePanelContent } from '@/lib/panel-context';
-import { MarkdownView } from '@/components/markdown-view';
+import { MessageMarkdown } from '@/components/message-markdown';
 import { SelectTextSheet } from '@/components/select-text-sheet';
 import { ThinkingAccordion } from '@/components/thinking-accordion';
+import { ToolRow } from '@/components/tool-row';
 import { useHost } from '@/lib/host-context';
 import type { Host } from '@/lib/hosts';
 import { useShowThinking } from '@/lib/preferences';
 import { sessionAPIFor } from '@/lib/session/instance';
-import type { SessionRow } from '@/lib/session/project';
+import { pairToolRows } from '@/lib/session/project';
+import type { DisplayRow, SessionRow } from '@/lib/session/project';
 import { useSession } from '@/lib/session/use-session';
-import { markedThemeFor, useTheme } from '@/theme';
+import { useTheme } from '@/theme';
 
 type MessageRow = Extract<SessionRow, { kind: 'message' }>;
+
+export function HeaderTitle({ operator, model }: { operator: string | null; model: string | null }) {
+  const theme = useTheme();
+  return (
+    <View style={{ alignItems: 'center' }}>
+      <Text style={{ ...theme.type.label, color: theme.color.txPrimary }}>
+        {operator ? `@${operator}` : 'dispatcher'}
+      </Text>
+      {model ? (
+        <Text numberOfLines={1} style={{ ...theme.type.caption, color: theme.color.txTertiary }}>{model}</Text>
+      ) : null}
+    </View>
+  );
+}
 
 /**
  * Approximate — the standard (non-large-title) iOS native-stack header
@@ -54,10 +71,11 @@ const ESTIMATED_HEADER_HEIGHT = 44;
 
 /** One key per row, by kind — the same identity project.ts's own rows carry,
  *  plus the synthetic gap row this screen (not the reducer) injects. */
-function rowKey(row: SessionRow): string {
+function rowKey(row: DisplayRow): string {
   switch (row.kind) {
     case 'message':
     case 'system':
+    case 'tool':
       return row.id;
     case 'pending':
       return row.clientKey;
@@ -164,7 +182,7 @@ function SessionView({
   // emits one itself (Task 4's design: the reducer is pure over durable
   // events + transients, the gap is a transport-layer signal the hook
   // surfaces separately). Reversed once, for the inverted FlatList below.
-  const displayRows = useMemo<SessionRow[]>(() => {
+  const displayRows = useMemo<DisplayRow[]>(() => {
     const withGap: SessionRow[] = gap
       ? [
           {
@@ -174,7 +192,7 @@ function SessionView({
           ...rows,
         ]
       : rows;
-    return [...withGap].reverse();
+    return [...pairToolRows(withGap)].reverse();
   }, [rows, gap]);
 
   const onSend = useCallback(() => {
@@ -191,6 +209,15 @@ function SessionView({
   }, [draft, send]);
 
   const [selectText, setSelectText] = useState<string | null>(null);
+
+  // The user/pending bubble, extracted once — both render arms below share it.
+  const bubbleStyle = {
+    maxWidth: '78%' as const,
+    backgroundColor: theme.color.bgSecondary,
+    borderRadius: theme.radius.md,
+    paddingHorizontal: theme.space.md,
+    paddingVertical: theme.space.sm + theme.space.xxs,
+  };
 
   // The evict confirm, exactly as it was before the menu existed — the menu's
   // Remove item leads here rather than replacing it.
@@ -300,7 +327,7 @@ function SessionView({
           // dispatcher-routed instances elsewhere (project.ts's
           // `instance_created` system row).
           ...(instance
-            ? { title: instance.operator ? `@${instance.operator}` : 'dispatcher' }
+            ? { headerTitle: () => <HeaderTitle operator={instance.operator} model={instance.model} /> }
             : null),
           // The panel's open affordance. Unconditional, unlike the title: a
           // panel that only appears once attach() resolves would be missing
@@ -338,21 +365,6 @@ function SessionView({
               status === 'closed'
               ? `Couldn't reach the instance — ${sendError ?? 'unknown error'}`
               : 'Reconnecting…'}
-        </Text>
-      ) : null}
-
-      {instance ? (
-        // Minimal id surface: identifiable without curl-ing the daemon. Not a
-        // metadata panel (that's a designed future pass) — just the short id,
-        // txTertiary, one line.
-        <Text
-          style={{
-            ...theme.type.caption,
-            color: theme.color.txTertiary,
-            textAlign: 'center',
-            paddingBottom: theme.space.xs,
-          }}>
-          {instance.id.slice(0, 8)}
         </Text>
       ) : null}
 
@@ -407,41 +419,52 @@ function SessionView({
                     </View>
                   );
                 }
+                if (item.role === 'operator') {
+                  // A tool-only round leaves `text: ''` with no thinking to
+                  // show (showThinking off, the default, is the common case) —
+                  // rendering the Pressable then would be an empty 16pt strip
+                  // with an invisible long-press target and a Copy-'' menu.
+                  // Nothing to show means no row at all.
+                  if (!item.text && !(showThinking && item.thinking)) return null;
+                  return (
+                    <Pressable
+                      onLongPress={() => onLongPressMessage(item)}
+                      style={{ paddingVertical: theme.space.sm }}>
+                      {showThinking && item.thinking ? <ThinkingAccordion blocks={item.thinking} /> : null}
+                      {item.text ? <MessageMarkdown source={item.text} /> : null}
+                    </Pressable>
+                  );
+                }
                 return (
-                  <Pressable onLongPress={() => onLongPressMessage(item)} style={{ paddingVertical: theme.space.sm }}>
-                    {item.role === 'operator' ? (
-                      <MarkdownView source={item.text} theme={markedThemeFor(theme)} />
-                    ) : (
+                  <Pressable
+                    onLongPress={() => onLongPressMessage(item)}
+                    style={{ paddingVertical: theme.space.xs, flexDirection: 'row', justifyContent: 'flex-end' }}>
+                    <View testID="user-bubble" style={bubbleStyle}>
                       <Text style={{ ...theme.type.body, color: theme.color.txPrimary }}>{item.text}</Text>
-                    )}
-                    {/* KNOWN AND UNSETTLED (final review, 2026-08-12): a round that
-                        produces tool calls and no prose still gets an
-                        assistant_message with text: "" alongside a non-empty
-                        thinking array (persist_thinking requires text OR calls, not
-                        text — loop_.rs:657), and it takes this same render branch:
-                        an empty reply with a "Show thinking" toggle hanging under
-                        it. That might be exactly right — the toggle is the only
-                        visible marker that an otherwise-silent tool-only round
-                        happened at all — or it might read as broken, a
-                        caption-height control floating over nothing. Not settled
-                        here, and deliberately not "fixed" by hiding the toggle or
-                        filling the empty text with a placeholder: this is a
-                        product call, to be made on a device walk, not from the
-                        armchair. */}
-                    {showThinking && item.thinking ? <ThinkingAccordion blocks={item.thinking} /> : null}
+                    </View>
                   </Pressable>
                 );
               }
               case 'pending':
                 return (
-                  <View style={{ paddingVertical: theme.space.sm }}>
-                    <Text style={{ ...theme.type.body, color: theme.color.txPrimary }}>{item.text}</Text>
+                  <View style={{ paddingVertical: theme.space.xs, flexDirection: 'row', justifyContent: 'flex-end' }}>
+                    <View testID="pending-bubble" style={{ ...bubbleStyle, opacity: 0.6 }}>
+                      <Text style={{ ...theme.type.body, color: theme.color.txPrimary }}>{item.text}</Text>
+                    </View>
                   </View>
                 );
               case 'streaming':
                 return (
                   <View style={{ paddingVertical: theme.space.sm }}>
-                    <Text style={{ ...theme.type.body, color: theme.color.txPrimary }}>{item.text}…</Text>
+                    <Text style={{ ...theme.type.body, color: theme.color.txBody }}>
+                      {item.text}
+                      {/* ▍as a styled glyph rides inline through wrapping,
+                          which no View can. Accent-colored per D6; the token
+                          is blue until daoUI resolves the orange gap. If
+                          Whyte lacks the glyph the system fallback renders
+                          it — the device walk confirms which. */}
+                      <Text style={{ color: theme.color.txAccent }}>▍</Text>
+                    </Text>
                   </View>
                 );
               case 'system':
@@ -457,6 +480,8 @@ function SessionView({
                     {item.label}
                   </Text>
                 );
+              case 'tool':
+                return <ToolRow row={item} />;
             }
           }}
         />
@@ -477,14 +502,13 @@ function SessionView({
           </Text>
         ) : null}
 
+        <ActivityLine label={workingIndicator ? 'working' : null} />
+
         <View
           testID="composer-row"
           style={{
-            flexDirection: 'row',
-            alignItems: 'center',
-            gap: theme.space.sm,
-            paddingTop: theme.space.md,
-            paddingHorizontal: theme.space.md,
+            paddingHorizontal: theme.space.lg,
+            paddingTop: theme.space.sm,
             // The static (keyboard-down) clearance from the home indicator,
             // and nothing else. This screen is registered on the ROOT stack,
             // above the tab bar, so no bar sits beneath it and `insets.bottom`
@@ -503,48 +527,60 @@ function SessionView({
             // question rather than answering it: there is no capsule beneath
             // this screen to be ambiguous about.
             paddingBottom: theme.space.md + insets.bottom,
-            borderTopWidth: theme.border.hairline,
-            borderTopColor: theme.color.bdPrimary,
           }}>
-          <TextInput
-            value={draft}
-            onChangeText={setDraft}
-            placeholder="Message"
-            placeholderTextColor={theme.color.txTertiary}
+          <View
             style={{
-              flex: 1,
-              ...theme.type.body,
-              color: theme.color.txPrimary,
-              paddingVertical: theme.space.sm,
+              backgroundColor: theme.color.bgSecondary,
+              borderRadius: theme.radius.xl,
               paddingHorizontal: theme.space.md,
-              borderRadius: theme.radius.md,
-              borderWidth: theme.border.thin,
-              borderColor: theme.color.bdBase,
-            }}
-          />
-          {workingIndicator ? (
-            <Pressable
-              onPress={() => void interrupt()}
-              style={{
-                paddingVertical: theme.space.sm,
-                paddingHorizontal: theme.space.lg,
-                borderRadius: theme.radius.md,
-                backgroundColor: theme.color.bgError,
-              }}>
-              <Text style={{ ...theme.type.label, color: theme.color.txError }}>Stop</Text>
-            </Pressable>
-          ) : (
-            <Pressable
-              onPress={onSend}
-              style={{
-                paddingVertical: theme.space.sm,
-                paddingHorizontal: theme.space.lg,
-                borderRadius: theme.radius.md,
-                backgroundColor: theme.color.bgAccent,
-              }}>
-              <Text style={{ ...theme.type.label, color: theme.color.txAccent }}>Send</Text>
-            </Pressable>
-          )}
+              paddingTop: theme.space.md,
+              paddingBottom: theme.space.sm,
+              gap: theme.space.sm,
+            }}>
+            <TextInput
+              value={draft}
+              onChangeText={setDraft}
+              placeholder="Message"
+              placeholderTextColor={theme.color.txTertiary}
+              multiline
+              style={{ ...theme.type.body, color: theme.color.txPrimary, maxHeight: 120, padding: 0 }}
+            />
+            <View style={{ flexDirection: 'row', justifyContent: 'flex-end' }}>
+              {workingIndicator ? (
+                <Pressable
+                  onPress={() => void interrupt()}
+                  accessibilityRole="button"
+                  accessibilityLabel="Stop"
+                  hitSlop={8}
+                  style={{
+                    width: 32,
+                    height: 32,
+                    borderRadius: theme.radius.full,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    backgroundColor: theme.color.bgError,
+                  }}>
+                  <Icon name="square" size={12} color="txError" />
+                </Pressable>
+              ) : (
+                <Pressable
+                  onPress={onSend}
+                  accessibilityRole="button"
+                  accessibilityLabel="Send"
+                  hitSlop={8}
+                  style={{
+                    width: 32,
+                    height: 32,
+                    borderRadius: theme.radius.full,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    backgroundColor: theme.color.bgAccent,
+                  }}>
+                  <Icon name="arrowUp" size={16} color="txAccent" />
+                </Pressable>
+              )}
+            </View>
+          </View>
         </View>
       </KeyboardAvoidingView>
 
