@@ -46,4 +46,18 @@ describe('ThinkingAccordion', () => {
     expect(getByText('visible part')).toBeTruthy();
     expect(getByText('Some reasoning was redacted.')).toBeTruthy();
   });
+
+  it('names an unrecognized block type verbatim rather than silently reading it as redacted', async () => {
+    // `blocks` is a closed TS union, but `data.thinking` arrives as an
+    // unvalidated `as`-cast off the wire, so a future provider block type is
+    // a real runtime possibility. Folding it into the "redacted" arm would be
+    // a specific, false claim about content — this pins the honest fallback.
+    const { getByTestId, getByText } = await render(
+      <ThinkingAccordion
+        blocks={[{ type: 'future_block_type', data: 'x' } as unknown as import('@/lib/session/events').ThinkingBlock]}
+      />,
+    );
+    await fireEvent.press(getByTestId('thinking-toggle'));
+    expect(getByText('unhandled thinking block type: future_block_type')).toBeTruthy();
+  });
 });

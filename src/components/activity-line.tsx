@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useState } from 'react';
 import { Animated, View } from 'react-native';
 
 import { Text } from '@/components/ui';
@@ -20,7 +20,7 @@ import { useTheme } from '@/theme';
  */
 export function ActivityLine({ label }: { label: string | null }) {
   const theme = useTheme();
-  const breath = useRef(new Animated.Value(1)).current;
+  const [breath] = useState(() => new Animated.Value(1));
   const active = label !== null;
   useEffect(() => {
     if (!active) return;
