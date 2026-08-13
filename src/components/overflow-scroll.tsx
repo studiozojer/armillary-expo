@@ -1,6 +1,14 @@
 import { LinearGradient } from 'expo-linear-gradient';
 import { useState, type ReactNode } from 'react';
-import { ScrollView, useWindowDimensions, View } from 'react-native';
+// RNGH's ScrollView, not react-native's: the plain one never receives the
+// horizontal pan in this component's real context — an inverted FlatList's
+// cell, inside a long-pressable row. RN's JS responder arbitration grants
+// the gesture to the list/pressable stack and the nested scroll stays inert
+// (device-verified on the 2026-08-13 walk; this swap is the design's named
+// fallback for exactly that outcome). RNGH recognizes the pan natively,
+// alongside RN's responders instead of beneath them.
+import { ScrollView } from 'react-native-gesture-handler';
+import { useWindowDimensions, View } from 'react-native';
 
 import { useTheme } from '@/theme';
 
