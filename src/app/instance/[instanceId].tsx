@@ -36,6 +36,20 @@ import { useTheme } from '@/theme';
 
 type MessageRow = Extract<SessionRow, { kind: 'message' }>;
 
+export function HeaderTitle({ operator, model }: { operator: string | null; model: string | null }) {
+  const theme = useTheme();
+  return (
+    <View style={{ alignItems: 'center' }}>
+      <Text style={{ ...theme.type.label, color: theme.color.txPrimary }}>
+        {operator ? `@${operator}` : 'dispatcher'}
+      </Text>
+      {model ? (
+        <Text style={{ ...theme.type.caption, color: theme.color.txTertiary }}>{model}</Text>
+      ) : null}
+    </View>
+  );
+}
+
 /**
  * Approximate — the standard (non-large-title) iOS native-stack header
  * content height. This screen's `SafeAreaView` opts out of the `top` edge
@@ -313,7 +327,7 @@ function SessionView({
           // dispatcher-routed instances elsewhere (project.ts's
           // `instance_created` system row).
           ...(instance
-            ? { title: instance.operator ? `@${instance.operator}` : 'dispatcher' }
+            ? { headerTitle: () => <HeaderTitle operator={instance.operator} model={instance.model} /> }
             : null),
           // The panel's open affordance. Unconditional, unlike the title: a
           // panel that only appears once attach() resolves would be missing
