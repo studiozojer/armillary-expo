@@ -63,6 +63,32 @@ jest.mock('../src/lib/session/instance', () => ({
   sessionAPIFor: () => mockApi,
 }));
 
+/**
+ * Answers whichever `ActionSheetIOS` sheet appears by picking the first of
+ * `labels` it actually offers.
+ *
+ * Two different sheets now go through this one API — the filter picker and the
+ * archive sheet — so a mock that answered by INDEX (`cb(0)`) would answer the
+ * wrong sheet as confidently as the right one, and the assertion downstream
+ * would read as a product bug. Selecting by label makes the mock name what it
+ * is choosing, and throwing on a sheet that offers none of them turns a
+ * mis-wired test into a message instead of a silent pass.
+ */
+function answerSheetWith(...labels: string[]) {
+  return jest
+    .spyOn(ActionSheetIOS, 'showActionSheetWithOptions')
+    .mockImplementation((opts, cb) => {
+      const options = opts.options as string[];
+      const index = options.findIndex((o) => labels.includes(o));
+      if (index < 0) {
+        throw new Error(
+          `sheet offers [${options.join(', ')}], none of the expected [${labels.join(', ')}]`,
+        );
+      }
+      cb(index);
+    });
+}
+
 function instanceFor(id: string, operator: string | null, archived = false): Instance {
   return {
     id,
@@ -147,6 +173,88 @@ describe('Instances list screen', () => {
     expect(list).toHaveBeenCalledTimes(2);
   });
 
+  /**
+   * The reported symptom: returning from an instance re-synced the list *and*
+   * animated the RefreshControl open, sliding every row down. The re-sync is
+   * wanted; the gesture's animation belongs to the gesture.
+   *
+   * Asserted mid-flight, with the second load deliberately unresolved — after
+   * it settles `refreshing` is false either way, so an assertion at the end
+   * would pass against both implementations and prove nothing.
+   */
+  it('re-syncs on a later focus without opening the pull-to-refresh spinner', async () => {
+    let releaseSecondLoad: (instances: Instance[]) => void = () => {};
+    const list = jest
+      .fn<Promise<Instance[]>, []>()
+      .mockResolvedValueOnce([instanceFor('a1', 'tycho')])
+      .mockImplementationOnce(
+        () =>
+          new Promise<Instance[]>((resolve) => {
+            releaseSecondLoad = resolve;
+          }),
+      );
+    mockApi = makeMockApi({ list });
+
+    await renderRouter(routes, { initialUrl: '/' });
+    expect(await screen.findByText('tycho')).toBeTruthy();
+
+    await act(async () => {
+      focusCallback?.();
+    });
+
+    expect(list).toHaveBeenCalledTimes(2);
+    expect(screen.getByTestId('instances-list').props.refreshing).toBe(false);
+
+    await act(async () => {
+      releaseSecondLoad([instanceFor('a1', 'tycho')]);
+    });
+  });
+
+  /**
+   * The same swap's second consequence, and the reason it is the right fix
+   * rather than merely a quieter one: a re-read nobody asked for out loud must
+   * not replace good content with an error screen when the network blips.
+   */
+  it('keeps the rows on screen when a focus re-read fails', async () => {
+    const list = jest
+      .fn<Promise<Instance[]>, []>()
+      .mockResolvedValueOnce([instanceFor('a1', 'tycho')])
+      .mockRejectedValueOnce(new Error('connection refused'));
+    mockApi = makeMockApi({ list });
+
+    await renderRouter(routes, { initialUrl: '/' });
+    expect(await screen.findByText('tycho')).toBeTruthy();
+
+    await act(async () => {
+      focusCallback?.();
+    });
+
+    expect(screen.getByText('tycho')).toBeTruthy();
+    expect(screen.queryByText("Can't reach the engine")).toBeNull();
+  });
+
+  /**
+   * A decision-pin, not a proof: it fixes WHERE the bottom clearance comes
+   * from, which is the part a future edit can silently undo. Whether the last
+   * row actually clears iOS 26's floating capsule is a device question, and
+   * only the walk answers it.
+   *
+   * The clearance used to be a flat 32pt constant, which is less than the
+   * capsule plus the home indicator — so the final rows sat under the bar.
+   * `automatic` hands the scroll view the tab controller's own inset instead
+   * of us guessing a number; the padding that remains is breathing room on top
+   * of that inset, not a substitute for it.
+   */
+  it('takes its bottom clearance from the platform, not from a constant', async () => {
+    mockApi = makeMockApi({ list: jest.fn(async () => [instanceFor('a1', 'tycho')]) });
+
+    await renderRouter(routes, { initialUrl: '/' });
+    const list = await screen.findByTestId('instances-list');
+
+    expect(list.props.contentInsetAdjustmentBehavior).toBe('automatic');
+    expect(list.props.contentContainerStyle.paddingBottom).toBeLessThan(32);
+  });
+
   it('the create pill opens the sheet', async () => {
     const list = jest.fn(async () => [instanceFor('inst-1', 'tycho')]);
     mockApi = makeMockApi({ list });
@@ -209,11 +317,12 @@ describe('Instances list screen', () => {
     ]);
     mockApi = makeMockApi({ list });
 
+    const sheet = answerSheetWith('Archived');
     await renderRouter(routes, { initialUrl: '/' });
     expect(await screen.findByText('tycho')).toBeTruthy();
     expect(screen.queryByText('kepler')).toBeNull();
 
-    // Wrapped in `act` (not a bare `fireEvent.press`): a filter toggle
+    // Wrapped in `act` (not a bare `fireEvent.press`): changing the filter
     // changes FlatList's `data`, and VirtualizedList's own post-update
     // bookkeeping schedules a timer of its own. Left unflushed, this was
     // observed to bleed into the next test's `renderRouter` (which re-arms
@@ -225,6 +334,44 @@ describe('Instances list screen', () => {
     });
     expect(await screen.findByText('kepler')).toBeTruthy();
     expect(screen.queryByText('tycho')).toBeNull();
+    sheet.mockRestore();
+  });
+
+  // The chevron on this control used to promise a picker and deliver a
+  // two-state toggle. Both states are now offered by name, so the affordance
+  // and the behaviour agree.
+  it('the filter is a picker offering both states by name', async () => {
+    const sheet = answerSheetWith('Archived');
+    mockApi = makeMockApi({ list: jest.fn(async () => [instanceFor('a1', 'tycho')]) });
+
+    await renderRouter(routes, { initialUrl: '/' });
+    await act(async () => {
+      fireEvent.press(await screen.findByTestId('instance-filter'));
+    });
+
+    expect(sheet).toHaveBeenCalledWith(
+      expect.objectContaining({ options: ['Active', 'Archived', 'Cancel'], cancelButtonIndex: 2 }),
+      expect.any(Function),
+    );
+    sheet.mockRestore();
+  });
+
+  it('choosing the state already showing is a no-op, not a toggle', async () => {
+    const sheet = answerSheetWith('Active');
+    mockApi = makeMockApi({
+      list: jest.fn(async () => [instanceFor('a1', 'tycho'), instanceFor('a2', 'kepler', true)]),
+    });
+
+    await renderRouter(routes, { initialUrl: '/' });
+    expect(await screen.findByText('tycho')).toBeTruthy();
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('instance-filter'));
+    });
+
+    // A toggle would have flipped to Archived here. A picker holds.
+    expect(screen.getByText('tycho')).toBeTruthy();
+    expect(screen.queryByText('kepler')).toBeNull();
+    sheet.mockRestore();
   });
 
   it('shows an instance in the default Active view when `archived` is absent from the wire payload', async () => {
@@ -244,9 +391,7 @@ describe('Instances list screen', () => {
 
   it('long-press offers Archive with no confirm, calls the API, and refreshes', async () => {
     // D4: no confirmation dialog — the sheet's Archive acts immediately.
-    const sheet = jest
-      .spyOn(ActionSheetIOS, 'showActionSheetWithOptions')
-      .mockImplementation((_opts, cb) => cb(0));
+    const sheet = answerSheetWith('Archive');
     const list = jest.fn(async () => [instanceFor('a1', 'tycho')]);
     mockApi = makeMockApi({ list });
 
@@ -264,9 +409,10 @@ describe('Instances list screen', () => {
   });
 
   it('long-press in the Archived view offers Unarchive', async () => {
-    const sheet = jest
-      .spyOn(ActionSheetIOS, 'showActionSheetWithOptions')
-      .mockImplementation((_opts, cb) => cb(0));
+    // This test drives BOTH sheets in sequence — the filter picker to reach the
+    // Archived view, then the row's own sheet — which is exactly why the mock
+    // answers by label rather than by index.
+    const sheet = answerSheetWith('Archived', 'Unarchive');
     const list = jest.fn(async () => [instanceFor('a2', 'kepler', true)]);
     mockApi = makeMockApi({ list });
 
@@ -285,12 +431,12 @@ describe('Instances list screen', () => {
     sheet.mockRestore();
   });
 
-  it('rows carry the operator roundel and the honest note line', async () => {
+  it('rows carry the operator roundel and how long ago the instance started', async () => {
     const instance: Instance = {
       id: 'inst-1',
       operator: 'tycho',
       stream: 'chat',
-      startedAt: new Date().toISOString(),
+      startedAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
       lastSeq: 12,
       model: null,
       mayWriteComposition: false,
@@ -303,7 +449,61 @@ describe('Instances list screen', () => {
     expect(await screen.findByText('tycho')).toBeTruthy();
 
     expect(screen.getByText('t', { includeHiddenElements: true })).toBeTruthy();
-    expect(screen.getByText('chat · seq 12')).toBeTruthy();
+    expect(screen.getByText('3h ago')).toBeTruthy();
+    // The stream/seq pair moved off the glance surface; it is still shown in
+    // full on the instance panel.
+    expect(screen.queryByText('chat · seq 12')).toBeNull();
+  });
+
+  // `live.ts` casts the wire JSON without validating it, so an engine that
+  // omits or malforms `startedAt` reaches the row. The row must lose its
+  // second line, not print `Invalid Date` where a time belongs.
+  it('drops the note line entirely when startedAt cannot be parsed', async () => {
+    const instance = { ...instanceFor('inst-1', 'tycho'), startedAt: 't' };
+    mockApi = makeMockApi({ list: jest.fn(async () => [instance]) });
+
+    await renderRouter(routes, { initialUrl: '/' });
+    expect(await screen.findByText('tycho')).toBeTruthy();
+
+    expect(screen.queryByText('Invalid Date')).toBeNull();
+    expect(screen.queryByText(/ago/)).toBeNull();
+  });
+
+  // `SessionAPI.list()` is a raw passthrough of the engine's `/instances`, so
+  // the order on screen is whatever the log happened to produce — oldest first
+  // in practice. The screen sorts rather than reverses, so this survives the
+  // engine changing its mind about ordering.
+  it('shows the newest instance first, whatever order the engine returned', async () => {
+    const at = (iso: string, operator: string): Instance => ({
+      ...instanceFor(operator, operator),
+      startedAt: iso,
+    });
+    const list = jest.fn(async () => [
+      at('2026-08-01T00:00:00.000Z', 'oldest'),
+      at('2026-08-13T00:00:00.000Z', 'newest'),
+      at('2026-08-07T00:00:00.000Z', 'middle'),
+    ]);
+    mockApi = makeMockApi({ list });
+
+    await renderRouter(routes, { initialUrl: '/' });
+    await screen.findByText('newest');
+
+    const order = screen.getAllByText(/^(oldest|middle|newest)$/).map((n) => n.props.children);
+    expect(order).toEqual(['newest', 'middle', 'oldest']);
+  });
+
+  it('sorts an unparseable startedAt to the bottom instead of scrambling the list', async () => {
+    const list = jest.fn(async () => [
+      { ...instanceFor('broken', 'broken'), startedAt: 't' },
+      { ...instanceFor('dated', 'dated'), startedAt: '2026-08-01T00:00:00.000Z' },
+    ]);
+    mockApi = makeMockApi({ list });
+
+    await renderRouter(routes, { initialUrl: '/' });
+    await screen.findByText('dated');
+
+    const order = screen.getAllByText(/^(broken|dated)$/).map((n) => n.props.children);
+    expect(order).toEqual(['dated', 'broken']);
   });
 
   it('names the model piloting an instance, and says so when it is the default', async () => {

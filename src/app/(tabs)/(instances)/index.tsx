@@ -27,6 +27,27 @@ import { useTheme } from '@/theme';
 const MOCK = process.env.EXPO_PUBLIC_SESSION_MOCK === '1';
 
 /**
+ * Newest first, by `startedAt`.
+ *
+ * The screen sorts rather than reversing what arrived: `SessionAPI.list()` is a
+ * raw passthrough of the engine's `/instances`, so its order is the log's, and
+ * a reversal would silently become wrong the day the engine sorts differently.
+ *
+ * An unparseable `startedAt` sinks to the bottom rather than throwing or
+ * scattering — the wire JSON is cast without validation, so this is a shape the
+ * app can actually receive. Ties (and two unparseable dates) break on `id`, so
+ * the order is total and the list does not reshuffle between identical loads.
+ */
+function newestFirst(a: Instance, b: Instance): number {
+  const at = Date.parse(a.startedAt);
+  const bt = Date.parse(b.startedAt);
+  if (Number.isNaN(at) && Number.isNaN(bt)) return a.id.localeCompare(b.id);
+  if (Number.isNaN(at)) return 1;
+  if (Number.isNaN(bt)) return -1;
+  return bt - at || a.id.localeCompare(b.id);
+}
+
+/**
  * Opens the new-instance sheet. Present on both this screen's states (the
  * list and the "can't reach the engine" error) — the same reasoning as the
  * gear living in both, via `ChromeZone`: a control missing from one branch
@@ -59,25 +80,30 @@ function CreatePill({ disabled = false }: { disabled?: boolean }) {
   );
 }
 
-/** The two-state instance filter — Active by default, Archived on toggle
- *  (design 2026-08-11 D3: no "All" state). Occupies the seat FilterStub
- *  reserved. */
-function InstanceFilter({
-  value,
-  onToggle,
-}: {
-  value: 'active' | 'archived';
-  onToggle: () => void;
-}) {
+/** The two states this screen filters between (design 2026-08-11 D3: no "All").
+ *  Order is the order the picker offers them in, and the index the sheet's
+ *  callback returns indexes straight into this. */
+const FILTERS = ['active', 'archived'] as const;
+type Filter = (typeof FILTERS)[number];
+const FILTER_LABELS: Record<Filter, string> = { active: 'Active', archived: 'Archived' };
+
+/** The instance filter — a label and a chevron that opens a picker.
+ *
+ *  It was a toggle until 2026-08-13: the chevron promised a menu and delivered
+ *  a flip, so the affordance was lying about the control. The states offered
+ *  are unchanged (D3 stands — there is still no "All"); only the way you reach
+ *  them is honest now. The sheet itself lives on the screen, not here — same
+ *  division as the archive sheet, which this row stays dumb about too. */
+function InstanceFilter({ value, onPress }: { value: Filter; onPress: () => void }) {
   return (
     <Pressable
       testID="instance-filter"
       accessibilityRole="button"
       accessibilityLabel={`Filter instances, showing ${value}`}
-      onPress={onToggle}>
+      onPress={onPress}>
       <Inline gap="xs">
         <UIText variant="label" color="txPrimary">
-          {value === 'active' ? 'Active' : 'Archived'}
+          {FILTER_LABELS[value]}
         </UIText>
         <Icon name="chevronDown" size={14} color="icSecondary" />
       </Inline>
@@ -96,11 +122,22 @@ export default function Instances() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const api = useMemo(() => sessionAPIFor(host), [host.id, generation]);
 
-  const load = useCallback(async () => api.list(), [api]);
+  // The instant is stamped HERE, with the data, rather than read inside a row.
+  // `Date.now()` in a component body is an impure render (`react-hooks/purity`
+  // rejects it), and one instant per load also means no two rows can disagree
+  // about what "now" is — a list rendered across a scroll would otherwise
+  // measure its rows from slightly different places.
+  const load = useCallback(
+    async () => ({ instances: await api.list(), at: Date.now() }),
+    [api],
+  );
   // `ready` gates the first fetch until the stored host has hydrated, so a
   // cold launch does not fire at the default host and then race its own
   // correction (same guard as Explorer's).
-  const { state, refreshing, refresh, retry } = useLoader<Instance[]>(
+  const { state, refreshing, refresh, retry, revalidate } = useLoader<{
+    instances: Instance[];
+    at: number;
+  }>(
     `${host.id}:${generation}`,
     load,
     ready,
@@ -111,9 +148,19 @@ export default function Instances() {
   // mount and pull-to-refresh. `useFocusEffect`'s callback also fires on the
   // very first focus, which coincides with this component's own mount — and
   // `useLoader`'s own mount effect already triggered the first fetch, so
-  // firing `refresh()` there too would be a redundant second request on every
-  // cold visit. The ref (not state — this must not itself trigger a
-  // re-render) skips exactly that first call and refreshes on every one after.
+  // firing here too would be a redundant second request on every cold visit.
+  // The ref (not state — this must not itself trigger a re-render) skips
+  // exactly that first call and re-reads on every one after.
+  //
+  // `revalidate`, not `refresh` (design D7, the same call Explorer makes): a
+  // re-read nobody asked for out loud must be silent. `refresh` sets the
+  // loader's `refreshing` flag, which is wired to the list's RefreshControl —
+  // so returning from an instance used to animate the spinner open and slide
+  // every row down, performing a gesture the user had not made. `revalidate`
+  // also keeps good content on an error, so a blip on the way back no longer
+  // replaces the list with "Can't reach the engine". `refresh` stays wired to
+  // `onRefresh` alone, where the spinner belongs to a pull that actually
+  // happened.
   const hasFocusedOnce = useRef(false);
   useFocusEffect(
     useCallback(() => {
@@ -121,11 +168,36 @@ export default function Instances() {
         hasFocusedOnce.current = true;
         return;
       }
-      void refresh();
-    }, [refresh]),
+      void revalidate();
+    }, [revalidate]),
   );
 
-  const [filter, setFilter] = useState<'active' | 'archived'>('active');
+  const [filter, setFilter] = useState<Filter>('active');
+
+  // The picker, built the same way as the archive sheet below it — iOS gets
+  // ActionSheetIOS, Android gets Alert-as-sheet. Two platform answers rather
+  // than one hand-rolled menu that has to be right on both.
+  const onPressFilter = useCallback(() => {
+    const labels = FILTERS.map((f) => FILTER_LABELS[f]);
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        { title: 'Show', options: [...labels, 'Cancel'], cancelButtonIndex: FILTERS.length },
+        (index) => {
+          // Cancel returns `FILTERS.length`; anything at or past it is not a
+          // choice. Selecting the state already showing lands here as a no-op,
+          // which is the point of a picker over a toggle.
+          if (index < FILTERS.length) setFilter(FILTERS[index]);
+        },
+      );
+    } else {
+      Alert.alert(
+        'Show',
+        undefined,
+        FILTERS.map((f) => ({ text: FILTER_LABELS[f], onPress: () => setFilter(f) })),
+        { cancelable: true },
+      );
+    }
+  }, []);
 
   // D4: no confirm — the sheet's verb acts immediately; the Archived filter is
   // the undo path. D5: unarchive is explicit, only offered where archived rows
@@ -220,13 +292,17 @@ export default function Instances() {
     );
   }
 
-  const instances = state.status === 'ok' ? state.data : [];
+  const { instances, at } = state.status === 'ok' ? state.data : { instances: [], at: 0 };
   // `Instance.archived` is a compile-time claim only — `live.ts` casts the
   // wire JSON without validation, so against an older engine that never
   // wrote the key, `i.archived` arrives `undefined`. Boolean(...) reads that
   // as not-archived rather than letting `false === undefined` fail closed
   // and blank the default Active view.
-  const shown = instances.filter((i) => (filter === 'archived') === Boolean(i.archived));
+  // `.filter` already returns a fresh array, so sorting it in place does not
+  // mutate the loader's cached data.
+  const shown = instances
+    .filter((i) => (filter === 'archived') === Boolean(i.archived))
+    .sort(newestFirst);
 
   return (
     <Screen edges={['top']}>
@@ -246,10 +322,7 @@ export default function Instances() {
 
       <SectionHeader
         trailing={
-          <InstanceFilter
-            value={filter}
-            onToggle={() => setFilter((f) => (f === 'active' ? 'archived' : 'active'))}
-          />
+          <InstanceFilter value={filter} onPress={onPressFilter} />
         }>
         Instances
       </SectionHeader>
@@ -261,14 +334,35 @@ export default function Instances() {
           testID="instances-list"
           data={shown}
           keyExtractor={(instance) => instance.id}
+          // iOS 26's tab bar is a floating capsule that content scrolls UNDER,
+          // and its height is the platform's number, not ours. There is no
+          // `useBottomTabBarHeight()` to ask for it under NativeTabs — the
+          // chat screen hit that same wall and dodged it by living above the
+          // bar (see `instance/[instanceId].tsx`); this screen cannot dodge.
+          //
+          // `automatic` makes UIKit hand this scroll view the tab controller's
+          // own bottom inset, so the last row clears the capsule without a
+          // constant here to drift. It was a flat 32pt before, which is less
+          // than capsule + home indicator, which is why the final rows sat
+          // under the bar.
+          //
+          // Only the BOTTOM edge is affected despite the name: this list's
+          // frame starts below `ChromeZone` and `SectionHeader`, so its own top
+          // safe-area inset is already zero and there is nothing there to
+          // double-count against `Screen`'s `edges={['top']}`.
+          contentInsetAdjustmentBehavior="automatic"
           contentContainerStyle={{
             paddingHorizontal: theme.space.lg,
-            paddingBottom: theme.space.xxxl,
+            // Breathing room ON TOP OF the platform inset above — not a
+            // substitute for it.
+            paddingBottom: theme.space.md,
             gap: theme.space.sm,
           }}
           refreshing={refreshing}
           onRefresh={refresh}
-          renderItem={({ item }) => <InstanceCard instance={item} onLongPress={onLongPressInstance} />}
+          renderItem={({ item }) => (
+            <InstanceCard instance={item} now={at} onLongPress={onLongPressInstance} />
+          )}
         />
       )}
     </Screen>

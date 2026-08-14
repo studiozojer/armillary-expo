@@ -5,6 +5,7 @@ import { CardRow, ICONS, Text } from '../src/components/ui';
 import { InstanceCard } from '../src/components/instance-card';
 import type { Instance } from '../src/lib/session/events';
 import { themeFor } from '../src/theme';
+import { families } from '../src/theme/fonts.gen';
 
 // `InstanceCard` only needs `useRouter()` for its `onPress` — a real
 // navigation tree is more than this guard needs, same reasoning as
@@ -197,12 +198,37 @@ describe('<CardRow>', () => {
         mayWriteComposition: false,
         archived: false,
       };
-      await render(<InstanceCard instance={instance} />);
+      await render(<InstanceCard instance={instance} now={Date.now()} />);
 
       const chevrons = findAllByType(screen.toJSON() as JsonNode | null, 'ViewManagerAdapter_SymbolModule')
         .map((symbol) => symbol.props.name)
         .filter((name) => name === platformName(ICONS.chevron));
       expect(chevrons).toHaveLength(0);
+    });
+
+    // `CardRow`'s `register` axis picks the note's face: `instrument` sets the
+    // mono `fraktionXs`, `reading` sets `whyteXs`. The instance row reads as
+    // prose — "3h ago" is a sentence fragment, not instrument data — so it
+    // takes Whyte. Pinned because `register` is one word, easy to flip back by
+    // accident, and invisible in any test that only asserts on the string.
+    it("InstanceCard's note line is set in Whyte, not the mono instrument face", async () => {
+      const instance: Instance = {
+        id: 'inst-1',
+        operator: 'tycho',
+        stream: 'inst-1',
+        startedAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
+        lastSeq: 3,
+        model: 'claude-sonnet-5',
+        mayWriteComposition: false,
+        archived: false,
+      };
+      await render(<InstanceCard instance={instance} now={Date.now()} />);
+
+      const style = StyleSheet.flatten(screen.getByText('3h ago').props.style) as {
+        fontFamily?: string;
+      };
+      expect(style.fontFamily).toBe(families.whyte.book);
+      expect(style.fontFamily).not.toBe(families.fraktion.book);
     });
   });
 });
