@@ -5,6 +5,10 @@ import { ActionSheetIOS, ActivityIndicator, Alert, FlatList, Platform, Pressable
 
 import { ChromeZone } from '@/components/chrome-zone';
 import { InstanceCard } from '@/components/instance-card';
+// Resolves to `instance-filter.ios.tsx` / `.android.tsx` — the extension is
+// deliberately absent. The split exists because `@expo/ui/swift-ui` is an
+// iOS-only import; see either file's own comment.
+import { InstanceFilter } from '@/components/instance-filter';
 import {
   Box,
   Callout,
@@ -16,6 +20,7 @@ import {
   Text as UIText,
 } from '@/components/ui';
 import { useHost } from '@/lib/host-context';
+import type { Filter } from '@/lib/instance-filter';
 import type { Instance } from '@/lib/session/events';
 import { sessionAPIFor } from '@/lib/session/instance';
 import { useLoader } from '@/lib/use-loader';
@@ -76,37 +81,6 @@ function CreatePill({ disabled = false }: { disabled?: boolean }) {
           <Icon name="plus" size={18} color={disabled ? 'txDisabled' : 'icPrimary'} />
         </Inline>
       </Box>
-    </Pressable>
-  );
-}
-
-/** The two states this screen filters between (design 2026-08-11 D3: no "All").
- *  Order is the order the picker offers them in, and the index the sheet's
- *  callback returns indexes straight into this. */
-const FILTERS = ['active', 'archived'] as const;
-type Filter = (typeof FILTERS)[number];
-const FILTER_LABELS: Record<Filter, string> = { active: 'Active', archived: 'Archived' };
-
-/** The instance filter — a label and a chevron that opens a picker.
- *
- *  It was a toggle until 2026-08-13: the chevron promised a menu and delivered
- *  a flip, so the affordance was lying about the control. The states offered
- *  are unchanged (D3 stands — there is still no "All"); only the way you reach
- *  them is honest now. The sheet itself lives on the screen, not here — same
- *  division as the archive sheet, which this row stays dumb about too. */
-function InstanceFilter({ value, onPress }: { value: Filter; onPress: () => void }) {
-  return (
-    <Pressable
-      testID="instance-filter"
-      accessibilityRole="button"
-      accessibilityLabel={`Filter instances, showing ${value}`}
-      onPress={onPress}>
-      <Inline gap="xs">
-        <UIText variant="label" color="txPrimary">
-          {FILTER_LABELS[value]}
-        </UIText>
-        <Icon name="chevronDown" size={14} color="icSecondary" />
-      </Inline>
     </Pressable>
   );
 }
@@ -173,31 +147,6 @@ export default function Instances() {
   );
 
   const [filter, setFilter] = useState<Filter>('active');
-
-  // The picker, built the same way as the archive sheet below it — iOS gets
-  // ActionSheetIOS, Android gets Alert-as-sheet. Two platform answers rather
-  // than one hand-rolled menu that has to be right on both.
-  const onPressFilter = useCallback(() => {
-    const labels = FILTERS.map((f) => FILTER_LABELS[f]);
-    if (Platform.OS === 'ios') {
-      ActionSheetIOS.showActionSheetWithOptions(
-        { title: 'Show', options: [...labels, 'Cancel'], cancelButtonIndex: FILTERS.length },
-        (index) => {
-          // Cancel returns `FILTERS.length`; anything at or past it is not a
-          // choice. Selecting the state already showing lands here as a no-op,
-          // which is the point of a picker over a toggle.
-          if (index < FILTERS.length) setFilter(FILTERS[index]);
-        },
-      );
-    } else {
-      Alert.alert(
-        'Show',
-        undefined,
-        FILTERS.map((f) => ({ text: FILTER_LABELS[f], onPress: () => setFilter(f) })),
-        { cancelable: true },
-      );
-    }
-  }, []);
 
   // D4: no confirm — the sheet's verb acts immediately; the Archived filter is
   // the undo path. D5: unarchive is explicit, only offered where archived rows
@@ -322,7 +271,7 @@ export default function Instances() {
 
       <SectionHeader
         trailing={
-          <InstanceFilter value={filter} onPress={onPressFilter} />
+          <InstanceFilter value={filter} onSelect={setFilter} />
         }>
         Instances
       </SectionHeader>

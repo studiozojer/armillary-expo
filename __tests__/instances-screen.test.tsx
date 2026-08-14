@@ -1,13 +1,14 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { act, cleanup, renderRouter, screen, fireEvent, waitFor } from 'expo-router/testing-library';
 import { Stack } from 'expo-router/stack';
-import { ActionSheetIOS, Text } from 'react-native';
+import { ActionSheetIOS, StyleSheet, Text } from 'react-native';
 
 import InstancesLayout from '../src/app/(tabs)/(instances)/_layout';
 import Instances from '../src/app/(tabs)/(instances)/index';
 import { HostProvider } from '../src/lib/host-context';
 import type { Instance } from '../src/lib/session/events';
 import type { SessionAPI } from '../src/lib/session/api';
+import { families } from '../src/theme/fonts.gen';
 
 /**
  * `useFocusEffect`'s real behaviour (expo-router/react-navigation) is to run
@@ -87,6 +88,25 @@ function answerSheetWith(...labels: string[]) {
       }
       cb(index);
     });
+}
+
+/**
+ * Picks a state from the filter's pull-down menu.
+ *
+ * The menu is a real SwiftUI `Menu` (`@expo/ui/swift-ui`), not a mock: its
+ * items render as host views carrying `label`/`systemImage`, and `onPress`
+ * arrives as an `onButtonPress` view event. So these tests drive the actual
+ * control rather than a stand-in — the thing that cannot be exercised here is
+ * the *opening* of the menu, which is SwiftUI's own and not ours to test.
+ *
+ * `act` for the same reason the list's own interactions need it: changing the
+ * filter changes FlatList's `data`, and VirtualizedList schedules post-update
+ * bookkeeping that otherwise bleeds into the next test's `renderRouter`.
+ */
+async function chooseFilter(filter: 'active' | 'archived') {
+  await act(async () => {
+    fireEvent(screen.getByTestId(`instance-filter-${filter}`), 'buttonPress');
+  });
 }
 
 function instanceFor(id: string, operator: string | null, archived = false): Instance {
@@ -317,61 +337,117 @@ describe('Instances list screen', () => {
     ]);
     mockApi = makeMockApi({ list });
 
-    const sheet = answerSheetWith('Archived');
     await renderRouter(routes, { initialUrl: '/' });
     expect(await screen.findByText('tycho')).toBeTruthy();
     expect(screen.queryByText('kepler')).toBeNull();
 
-    // Wrapped in `act` (not a bare `fireEvent.press`): changing the filter
-    // changes FlatList's `data`, and VirtualizedList's own post-update
-    // bookkeeping schedules a timer of its own. Left unflushed, this was
-    // observed to bleed into the next test's `renderRouter` (which re-arms
-    // fake timers on every call — see
-    // https://github.com/expo/expo/issues/46864 — colliding with the
-    // still-pending one here).
-    await act(async () => {
-      fireEvent.press(screen.getByTestId('instance-filter'));
-    });
+    await chooseFilter('archived');
     expect(await screen.findByText('kepler')).toBeTruthy();
     expect(screen.queryByText('tycho')).toBeNull();
-    sheet.mockRestore();
   });
 
-  // The chevron on this control used to promise a picker and deliver a
-  // two-state toggle. Both states are now offered by name, so the affordance
-  // and the behaviour agree.
-  it('the filter is a picker offering both states by name', async () => {
-    const sheet = answerSheetWith('Archived');
+  /**
+   * The chevron used to promise a menu and deliver a toggle; then it delivered
+   * a modal action sheet, which is the wrong idiom for a chevron (David,
+   * 2026-08-13). It is an anchored pull-down now. Both states are offered by
+   * name, and the current one carries the platform's checkmark — which is the
+   * only thing telling you what is selected once the menu is open.
+   */
+  it('the filter offers both states by name, checkmarking the current one', async () => {
     mockApi = makeMockApi({ list: jest.fn(async () => [instanceFor('a1', 'tycho')]) });
 
     await renderRouter(routes, { initialUrl: '/' });
-    await act(async () => {
-      fireEvent.press(await screen.findByTestId('instance-filter'));
-    });
 
-    expect(sheet).toHaveBeenCalledWith(
-      expect.objectContaining({ options: ['Active', 'Archived', 'Cancel'], cancelButtonIndex: 2 }),
-      expect.any(Function),
-    );
-    sheet.mockRestore();
+    const active = await screen.findByTestId('instance-filter-active');
+    const archived = screen.getByTestId('instance-filter-archived');
+    expect(active.props.label).toBe('Active');
+    expect(archived.props.label).toBe('Archived');
+    expect(active.props.systemImage).toBe('checkmark');
+    expect(archived.props.systemImage).toBeUndefined();
+
+    await chooseFilter('archived');
+    expect(screen.getByTestId('instance-filter-archived').props.systemImage).toBe('checkmark');
+    expect(screen.getByTestId('instance-filter-active').props.systemImage).toBeUndefined();
+  });
+
+  /**
+   * The studio owns the surface even though the platform owns the menu: the
+   * trigger is embedded in SwiftUI via `RNHostView`, so it stays the same
+   * `Inline`/`Text`/`Icon` composition in Whyte. `@expo/ui`'s universal
+   * `Picker` was the alternative and has no label slot — it would have replaced
+   * this with the system's own button, silently and without a test failing.
+   */
+  it('keeps the studio trigger — Whyte and our chevron, not a system button', async () => {
+    mockApi = makeMockApi({ list: jest.fn(async () => [instanceFor('a1', 'tycho')]) });
+
+    await renderRouter(routes, { initialUrl: '/' });
+
+    const label = await screen.findByText('Active');
+    expect(
+      (StyleSheet.flatten(label.props.style) as { fontFamily?: string }).fontFamily,
+    ).toBe(families.whyte.book);
+    expect(screen.getByTestId('instance-filter')).toBeTruthy();
+  });
+
+  /**
+   * Moving the trigger inside SwiftUI's `Menu` cost it its accessibility
+   * identity: `Inline` does not forward a11y props, so the control that used to
+   * announce as a button with a described state became bare static text. Caught
+   * on the device walk, in the read-back rather than the screenshot — an
+   * `AXStaticText` where an `AXButton` had been.
+   */
+  it('the trigger still announces as a button naming the state it shows', async () => {
+    mockApi = makeMockApi({ list: jest.fn(async () => [instanceFor('a1', 'tycho')]) });
+
+    await renderRouter(routes, { initialUrl: '/' });
+
+    expect(
+      await screen.findByRole('button', { name: 'Filter instances, showing active' }),
+    ).toBeTruthy();
+
+    await chooseFilter('archived');
+    expect(screen.getByRole('button', { name: 'Filter instances, showing archived' })).toBeTruthy();
+  });
+
+  /**
+   * A regression guard for a defect only the device could find, pinned here so
+   * it cannot come back silently.
+   *
+   * `RNHostView` measures its children once on mount and a SwiftUI `Menu` label
+   * slot keeps that measurement, so when the trigger read "Active" and then
+   * became the wider "Archived", the chevron was pushed past the measured frame
+   * and clipped. (Walked 2026-08-13: the frame stayed 0.146 of screen width
+   * while the text grew to 0.142. A `key` remount was tried and did not
+   * re-measure.) The trigger therefore renders an invisible copy of the longest
+   * state name to hold its box open, which makes the width the same in every
+   * state and the single measurement correct.
+   *
+   * Deleting the reserver would restore the bug and break nothing else.
+   */
+  it('reserves the widest state name in the trigger, so the chevron cannot be clipped', async () => {
+    mockApi = makeMockApi({ list: jest.fn(async () => [instanceFor('a1', 'tycho')]) });
+
+    await renderRouter(routes, { initialUrl: '/' });
+    await screen.findByTestId('instance-filter');
+
+    // Present even though "Active" is the selected state — that is the point.
+    const reserver = screen.getByText('Archived');
+    expect((StyleSheet.flatten(reserver.props.style) as { opacity?: number }).opacity).toBe(0);
   });
 
   it('choosing the state already showing is a no-op, not a toggle', async () => {
-    const sheet = answerSheetWith('Active');
     mockApi = makeMockApi({
       list: jest.fn(async () => [instanceFor('a1', 'tycho'), instanceFor('a2', 'kepler', true)]),
     });
 
     await renderRouter(routes, { initialUrl: '/' });
     expect(await screen.findByText('tycho')).toBeTruthy();
-    await act(async () => {
-      fireEvent.press(screen.getByTestId('instance-filter'));
-    });
 
-    // A toggle would have flipped to Archived here. A picker holds.
+    await chooseFilter('active');
+
+    // A toggle would have flipped to Archived here. A menu holds.
     expect(screen.getByText('tycho')).toBeTruthy();
     expect(screen.queryByText('kepler')).toBeNull();
-    sheet.mockRestore();
   });
 
   it('shows an instance in the default Active view when `archived` is absent from the wire payload', async () => {
@@ -409,18 +485,13 @@ describe('Instances list screen', () => {
   });
 
   it('long-press in the Archived view offers Unarchive', async () => {
-    // This test drives BOTH sheets in sequence — the filter picker to reach the
-    // Archived view, then the row's own sheet — which is exactly why the mock
-    // answers by label rather than by index.
-    const sheet = answerSheetWith('Archived', 'Unarchive');
+    const sheet = answerSheetWith('Unarchive');
     const list = jest.fn(async () => [instanceFor('a2', 'kepler', true)]);
     mockApi = makeMockApi({ list });
 
     await renderRouter(routes, { initialUrl: '/' });
-    // Same `act` wrap as the filter test above, and for the same reason.
-    await act(async () => {
-      fireEvent.press(await screen.findByTestId('instance-filter'));
-    });
+    await screen.findByTestId('instance-filter-archived');
+    await chooseFilter('archived');
     await fireEvent(await screen.findByRole('button', { name: /^kepler\./ }), 'longPress');
 
     expect(sheet).toHaveBeenCalledWith(
