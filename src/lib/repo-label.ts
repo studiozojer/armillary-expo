@@ -76,6 +76,7 @@ const ACTION_ERROR: Record<ActionErrorKind, Label> = {
   'nothing-to-commit': { text: 'nothing to commit', tone: 'warn' },
   detached: { text: 'refused — detached', tone: 'warn' },
   'commit-failed': { text: 'commit declined', tone: 'warn' },
+  'merge-conflict': { text: 'merge conflict', tone: 'warn' },
 };
 
 /**

@@ -115,7 +115,8 @@ export type ActionErrorKind =
   | 'timeout'
   | 'nothing-to-commit' // refused: a commit was attempted with nothing staged/dirty on the host
   | 'detached' // refused: HEAD is not on a branch, so there is nothing for a commit to land on
-  | 'commit-failed'; // the host declined the commit for a reason not covered above
+  | 'commit-failed' // the host declined the commit for a reason not covered above
+  | 'merge-conflict'; // a merge was attempted during pull and git refused (conflict)
 
 export type ActionError = { kind: ActionErrorKind; message: string };
 

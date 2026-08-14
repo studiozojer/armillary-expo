@@ -87,13 +87,16 @@ describe('rowLabel — the ladder', () => {
 });
 
 describe('rowLabel — action_error is exhaustive and a refusal reads quieter than a failure', () => {
-  it('dirty and not-fast-forwardable and refused-by-remote are refusals: warn, not error', () => {
+  it('dirty and not-fast-forwardable and refused-by-remote and merge-conflict are refusals: warn, not error', () => {
     expect(rowLabel({ ...base, action_error: { kind: 'dirty', message: 'x' } }).tone).toBe('warn');
     expect(
       rowLabel({ ...base, action_error: { kind: 'not-fast-forwardable', message: 'x' } }).tone,
     ).toBe('warn');
     expect(
       rowLabel({ ...base, action_error: { kind: 'refused-by-remote', message: 'x' } }).tone,
+    ).toBe('warn');
+    expect(
+      rowLabel({ ...base, action_error: { kind: 'merge-conflict', message: 'x' } }).tone,
     ).toBe('warn');
   });
 
@@ -121,6 +124,9 @@ describe('rowLabel — action_error is exhaustive and a refusal reads quieter th
     );
     expect(rowLabel({ ...base, action_error: { kind: 'timeout', message: 'x' } }).text).toBe(
       'timed out',
+    );
+    expect(rowLabel({ ...base, action_error: { kind: 'merge-conflict', message: 'x' } }).text).toBe(
+      'merge conflict',
     );
   });
 });
