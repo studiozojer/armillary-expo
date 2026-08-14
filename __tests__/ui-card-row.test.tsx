@@ -184,10 +184,10 @@ describe('<CardRow>', () => {
     // with a hand-supplied `trailing` — it says nothing about `InstanceCard`,
     // the actual caller on the Instances list, and nothing here would catch a
     // chevron reintroduced inside ITS trailing slot (e.g. a future edit that
-    // drops the model caption and falls back to `trailing={undefined}`).
+    // drops the caption and falls back to `trailing={undefined}`).
     // Pins the count at exactly zero, reusing the same `findAllByType` walk
     // `symbolNames()` above is built on.
-    it('InstanceCard never falls back to the chevron — its trailing slot always names a model', async () => {
+    it('InstanceCard never falls back to the chevron — its trailing slot always holds the age', async () => {
       const instance: Instance = {
         id: 'inst-1',
         operator: 'tycho',
@@ -206,11 +206,67 @@ describe('<CardRow>', () => {
       expect(chevrons).toHaveLength(0);
     });
 
+    /**
+     * Which value sits in which slot, pinned by the one thing that
+     * distinguishes them observably: the note line is `whyteXs` (13pt) and the
+     * trailing caption is `caption` (12pt). Both are Whyte, so the face cannot
+     * tell them apart and a presence-only assertion would pass either way
+     * round — this is the test that actually fails if the two are swapped back.
+     */
+    it('puts the model on the note line and the age in the trailing slot', async () => {
+      const theme = themeFor('light');
+      const instance: Instance = {
+        id: 'inst-1',
+        operator: 'tycho',
+        stream: 'inst-1',
+        startedAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
+        lastSeq: 3,
+        model: 'claude-sonnet-5',
+        mayWriteComposition: false,
+        archived: false,
+      };
+      await render(<InstanceCard instance={instance} now={Date.now()} />);
+
+      const sizeOf = (text: string) =>
+        (StyleSheet.flatten(screen.getByText(text).props.style) as { fontSize?: number }).fontSize;
+
+      expect(sizeOf('claude-sonnet-5')).toBe(theme.type.whyteXs.fontSize);
+      expect(sizeOf('3h ago')).toBe(theme.type.caption.fontSize);
+    });
+
+    /**
+     * The sharp edge of moving the age into the trailing slot: `relativeTime`
+     * returns `undefined` for a timestamp it cannot parse, and `CardRow` reads
+     * an undefined `trailing` as "caller supplied nothing" and draws the
+     * chevron. So the row must always hand it an element, even an empty one —
+     * otherwise a malformed `startedAt` from the wire silently grows a chevron
+     * that no other row has.
+     */
+    it('still shows no chevron when startedAt cannot be parsed', async () => {
+      const instance: Instance = {
+        id: 'inst-1',
+        operator: 'tycho',
+        stream: 'inst-1',
+        startedAt: 't',
+        lastSeq: 3,
+        model: 'claude-sonnet-5',
+        mayWriteComposition: false,
+        archived: false,
+      };
+      await render(<InstanceCard instance={instance} now={Date.now()} />);
+
+      const chevrons = findAllByType(screen.toJSON() as JsonNode | null, 'ViewManagerAdapter_SymbolModule')
+        .map((symbol) => symbol.props.name)
+        .filter((name) => name === platformName(ICONS.chevron));
+      expect(chevrons).toHaveLength(0);
+    });
+
     // `CardRow`'s `register` axis picks the note's face: `instrument` sets the
-    // mono `fraktionXs`, `reading` sets `whyteXs`. The instance row reads as
-    // prose — "3h ago" is a sentence fragment, not instrument data — so it
-    // takes Whyte. Pinned because `register` is one word, easy to flip back by
-    // accident, and invisible in any test that only asserts on the string.
+    // mono `fraktionXs`, `reading` sets `whyteXs`. Whyte, per David 2026-08-13
+    // — and the instruction was about the SUBTEXT slot, so it still holds now
+    // that the slot carries the model rather than the age. Pinned because
+    // `register` is one word, easy to flip back by accident, and invisible in
+    // any test that only asserts on the string.
     it("InstanceCard's note line is set in Whyte, not the mono instrument face", async () => {
       const instance: Instance = {
         id: 'inst-1',
@@ -224,7 +280,7 @@ describe('<CardRow>', () => {
       };
       await render(<InstanceCard instance={instance} now={Date.now()} />);
 
-      const style = StyleSheet.flatten(screen.getByText('3h ago').props.style) as {
+      const style = StyleSheet.flatten(screen.getByText('claude-sonnet-5').props.style) as {
         fontFamily?: string;
       };
       expect(style.fontFamily).toBe(families.whyte.book);

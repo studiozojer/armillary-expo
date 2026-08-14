@@ -527,10 +527,11 @@ describe('Instances list screen', () => {
   });
 
   // `live.ts` casts the wire JSON without validating it, so an engine that
-  // omits or malforms `startedAt` reaches the row. The row must lose its
-  // second line, not print `Invalid Date` where a time belongs.
-  it('drops the note line entirely when startedAt cannot be parsed', async () => {
-    const instance = { ...instanceFor('inst-1', 'tycho'), startedAt: 't' };
+  // omits or malforms `startedAt` reaches the row. The age simply goes missing;
+  // nothing prints `Invalid Date` where a time belongs, and the model — which
+  // is unaffected — still shows.
+  it('shows no age at all when startedAt cannot be parsed, and keeps the model', async () => {
+    const instance = { ...instanceFor('inst-1', 'tycho'), startedAt: 't', model: 'claude-opus-5' };
     mockApi = makeMockApi({ list: jest.fn(async () => [instance]) });
 
     await renderRouter(routes, { initialUrl: '/' });
@@ -538,6 +539,7 @@ describe('Instances list screen', () => {
 
     expect(screen.queryByText('Invalid Date')).toBeNull();
     expect(screen.queryByText(/ago/)).toBeNull();
+    expect(screen.getByText('claude-opus-5')).toBeTruthy();
   });
 
   // `SessionAPI.list()` is a raw passthrough of the engine's `/instances`, so
