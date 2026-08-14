@@ -124,13 +124,25 @@ describe('stateCard — rules 4-6: structural position, true regardless of gates
   });
 });
 
-describe('stateCard — rule 7: diverged offers neither verb', () => {
-  it('blocks with both counts in the reason', () => {
-    const s: RepoState = { ...base, position: { kind: 'tracking', upstream: 'origin/main', ahead: 1, behind: 2 } };
+describe('stateCard — rule 7: diverged offers Pull, gated on sync', () => {
+  const diverged: RepoState = { ...base, position: { kind: 'tracking', upstream: 'origin/main', ahead: 1, behind: 2 } };
+
+  it('offers Pull when sync is granted', () => {
+    const model = stateCard(diverged, OPEN);
+    expect(model).toMatchObject({ action: 'ready', tone: 'none', verb: 'pull', label: 'Pull 2 commits' });
+  });
+
+  it('blocks on the gate when sync is not granted', () => {
+    const model = stateCard(diverged, CLOSED);
+    expect(model).toMatchObject({ action: 'blocked', verb: null });
+    expect(model.reason).toMatch(/sync/i);
+  });
+
+  it('shows only the behind count in the label, not both', () => {
+    const s: RepoState = { ...base, position: { kind: 'tracking', upstream: 'origin/main', ahead: 3, behind: 1 } };
     const model = stateCard(s, OPEN);
-    expect(model).toMatchObject({ action: 'blocked', tone: 'warn', verb: null });
-    expect(model.reason).toContain('1 ahead');
-    expect(model.reason).toContain('2 behind');
+    expect(model.label).toBe('Pull 1 commit');
+    expect(model.verb).toBe('pull');
   });
 });
 
@@ -176,10 +188,15 @@ describe('stateCard — the commit rung: the dead end becomes an offer when the 
     expect(m.label).toBe('Commit 1 file');
   });
 
-  it('diverged stays blocked even when dirty and commit is granted', () => {
+  it('diverged offers Pull before the commit rung', () => {
+    // rule 7 (diverged) runs before rule 8 (behind + dirty), so a diverged
+    // dirty tree still offers Pull, not Commit — the pull resolves the
+    // divergence first.
     const s = repoWith({ position: { kind: 'tracking', upstream: 'origin/main', ahead: 2, behind: 3 }, dirty_files: 4 });
     const m = stateCard(s, ALL_GRANTED);
-    expect(m.action).toBe('blocked'); // v1: diverged is diverged; commit reachable via the Changes tab
+    expect(m.action).toBe('ready');
+    expect(m.verb).toBe('pull');
+    expect(m.label).toBe('Pull 3 commits');
   });
 
   it('the plain-dirty rung falls through to today\'s behavior (fetch, ready) when commit is not granted', () => {
@@ -303,6 +320,19 @@ describe('stateCard — pluralization: one-ahead/one-behind is the common case',
   it('still pluralizes for more than one', () => {
     const s: RepoState = { ...base, position: { kind: 'tracking', upstream: 'origin/main', ahead: 0, behind: 2 } };
     expect(stateCard(s, OPEN).label).toBe('Pull 2 commits');
+  });
+});
+
+describe('stateCard — merge-conflict renders honestly', () => {
+  it('shows Merge conflict with warn tone and on-host remedy', () => {
+    const s: RepoState = {
+      ...base,
+      position: { kind: 'tracking', upstream: 'origin/main', ahead: 2, behind: 3 },
+      action_error: { kind: 'merge-conflict', message: 'Automatic merge failed' },
+    };
+    const model = stateCard(s, OPEN);
+    expect(model).toMatchObject({ action: 'blocked', tone: 'warn', label: 'Merge conflict' });
+    expect(model.reason).toContain('on the host');
   });
 });
 
@@ -456,7 +486,6 @@ describe('stateCard — icon follows the verb the label names (design D1–D3)',
     expect(stateCard({ ...base, position: { kind: 'detached' } }, OPEN).icon).toBe('sync');
     expect(stateCard({ ...base, position: { kind: 'no-upstream' } }, OPEN).icon).toBe('sync');
     expect(stateCard({ ...base, position: { kind: 'upstream-gone', upstream: 'origin/x' } }, OPEN).icon).toBe('sync');
-    expect(stateCard({ ...base, position: { kind: 'tracking', upstream: 'origin/main', ahead: 1, behind: 1 } }, OPEN).icon).toBe('sync'); // diverged
     expect(stateCard({ ...base, read_error: 'fatal: not a git repository' }, OPEN).icon).toBe('sync');
     expect(stateCard({ ...base, action_error: { kind: 'transport', message: 'x' } }, OPEN).icon).toBe('sync');
   });

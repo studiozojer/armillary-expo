@@ -155,6 +155,11 @@ const ACTION_ERROR_CARD: Record<ActionErrorKind, { label: string; tone: 'warn' |
     tone: 'warn',
     reason: 'The commit was declined on the host.',
   },
+  'merge-conflict': {
+    label: 'Merge conflict',
+    tone: 'warn',
+    reason: 'The pull cannot complete — there is a merge conflict. Resolve it on the host, then try again.',
+  },
 };
 
 const IN_FLIGHT_LABEL: Record<'fetch' | 'pull' | 'push', string> = {
@@ -416,15 +421,12 @@ export function stateCard(
       const { ahead, behind } = s.position;
 
       if (ahead > 0 && behind > 0) {
-        return {
-          action: 'blocked',
-          tone: 'warn',
-          label: `Diverged ↑${ahead} ↓${behind}`,
-          sublabel,
-          reason: `Diverged: ${ahead} ahead, ${behind} behind. A fast-forward pull would refuse, and a push would be non-fast-forward, so neither is offered.`,
-          verb: null,
-          icon: 'sync',
-        };
+        const blocked = verbBlocked(gates, 'sync');
+        if (blocked) {
+          const { tone, reason } = blocked;
+          return { action: 'blocked', tone, label: `↑${ahead} ↓${behind}`, sublabel, reason, verb: null, icon: 'sync' };
+        }
+        return { action: 'ready', tone: 'none', label: `Pull ${commitCount(behind)}`, sublabel, verb: 'pull', icon: 'pullVerb' };
       }
 
       if (behind > 0 && s.dirty_files > 0) {
