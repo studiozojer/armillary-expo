@@ -52,7 +52,7 @@ export function InstanceCard({
     <CardRow
       leading={<Roundel name={operator} />}
       label={operator}
-      note={instance.model ?? 'engine default'}
+      note={instance.title ?? instance.model ?? 'engine default'}
       // `reading`, not `instrument`: Whyte on the subtext line (David,
       // 2026-08-13). The instruction was about this SLOT, so it still holds now
       // that the slot carries the model rather than the age.
