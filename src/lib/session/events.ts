@@ -58,13 +58,17 @@ export type Instance = {
    * than fail to parse. Read it as `instance.turnInProgress ?? false`.
    */
   turnInProgress?: boolean;
+  /** The instance's current title, from the most recent instance_renamed
+   *  event. Absent when the engine predates the daemon feature; null when the
+   *  daemon has never run. Read as `instance.title ?? null`. */
+  title?: string | null;
 };
 
 export const DURABLE_TYPES = [
   'instance_created', 'boot', 'composition', 'user_message', 'assistant_message',
   'interrupt', 'context_evict', 'dispatch', 'return',
   'tool_use', 'tool_result',
-  'instance_archived', 'instance_unarchived',
+  'instance_archived', 'instance_unarchived', 'instance_renamed',
 ] as const;
 export type DurableType = (typeof DURABLE_TYPES)[number];
 

@@ -36,14 +36,16 @@ import { useTheme } from '@/theme';
 
 type MessageRow = Extract<SessionRow, { kind: 'message' }>;
 
-export function HeaderTitle({ operator, model }: { operator: string | null; model: string | null }) {
+export function HeaderTitle({ operator, model, title }: { operator: string | null; model: string | null; title?: string | null }) {
   const theme = useTheme();
   return (
     <View style={{ alignItems: 'center' }}>
       <Text style={{ ...theme.type.label, color: theme.color.txPrimary }}>
         {operator ? `@${operator}` : 'dispatcher'}
       </Text>
-      {model ? (
+      {title ? (
+        <Text numberOfLines={1} style={{ ...theme.type.caption, color: theme.color.txTertiary }}>{title}</Text>
+      ) : model ? (
         <Text numberOfLines={1} style={{ ...theme.type.caption, color: theme.color.txTertiary }}>{model}</Text>
       ) : null}
     </View>
@@ -327,7 +329,7 @@ function SessionView({
           // dispatcher-routed instances elsewhere (project.ts's
           // `instance_created` system row).
           ...(instance
-            ? { headerTitle: () => <HeaderTitle operator={instance.operator} model={instance.model} /> }
+            ? { headerTitle: () => <HeaderTitle operator={instance.operator} model={instance.model} title={instance.title} /> }
             : null),
           // The panel's open affordance. Unconditional, unlike the title: a
           // panel that only appears once attach() resolves would be missing

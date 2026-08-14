@@ -170,6 +170,7 @@ export class MockSessionAPI implements SessionAPI {
       mayWriteComposition: false,
       archived: false,
       turnInProgress: false,
+      title: null,
     };
     this.instances.set(id, instance);
 

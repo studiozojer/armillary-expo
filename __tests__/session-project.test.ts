@@ -126,6 +126,8 @@ function plausibleDataFor(type: DurableType): object {
       return {};
     case 'instance_unarchived':
       return {};
+    case 'instance_renamed':
+      return { title: 'Test session', previous_title: null };
   }
 }
 
@@ -142,9 +144,11 @@ function isSystemRow(r: SessionRow): r is Extract<SessionRow, { kind: 'system' }
   return r.kind === 'system';
 }
 
-// Design 2026-08-11 D6: these two markers govern the Instances list, not the
+// Design 2026-08-11 D6: these markers govern the Instances list, not the
 // transcript — projectSession deliberately emits no row for them.
-const NO_ROW_TYPES = new Set<DurableType>(['instance_archived', 'instance_unarchived']);
+// instance_renamed added 2026-08-14: same posture — title lives on Instance,
+// not in the transcript.
+const NO_ROW_TYPES = new Set<DurableType>(['instance_archived', 'instance_unarchived', 'instance_renamed']);
 
 describe('projectSession', () => {
   it('is total over every durable type', () => {
