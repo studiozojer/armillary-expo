@@ -282,6 +282,22 @@ describe('useSession', () => {
     expect(current.instance?.operator).toBeNull();
   });
 
+  it('folds a live instance_renamed event into the attached instance, so the header title updates', async () => {
+    // The title daemon appends `instance_renamed` to the open subscription
+    // before the operator's model call each turn, but `instance.title` was
+    // frozen at attach() — so a freshly-named instance kept showing the model
+    // fallback in the header forever. Same shape as the `archived` fold that
+    // guards the panel's verb; `instance_renamed` must land on the record too.
+    const { result, emit } = await mountSessionOnFakeApi({
+      instance: { model: 'claude-sonnet-5', title: null },
+    });
+    // The event carries the daemon's title; `previous_title` is the sibling key.
+    await emit({ type: 'instance_renamed', seq: 7, data: { title: 'The title daemon', previous_title: null } });
+
+    expect(result.current.instance?.title).toBe('The title daemon');
+    expect(result.current.instance?.model).toBe('claude-sonnet-5');
+  });
+
   it('subscribes from the cached cursor, not 0', async () => {
     await AsyncStorage.setItem(
       'armillary.scrollback.s1',

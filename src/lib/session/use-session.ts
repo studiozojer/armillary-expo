@@ -269,6 +269,19 @@ export function useSession(
           const archived = e.type === 'instance_archived';
           setInstance((prev) => (prev ? { ...prev, archived } : prev));
         }
+        // The title daemon's output is the same shape of problem, one turn
+        // later: `instance_renamed` lands as a durable event on the open
+        // subscription (the daemon appends it before the operator's model call
+        // each turn), but `instance.title` was frozen at attach() — so a
+        // freshly-named instance kept showing the model fallback in the header
+        // forever. Same fix as `archived` above: fold the event into the record
+        // so the header re-renders with the live title.
+        if (e.type === 'instance_renamed') {
+          const data = e.data as { title?: unknown };
+          if (typeof data.title === 'string') {
+            setInstance((prev) => (prev ? { ...prev, title: data.title } : prev));
+          }
+        }
         insertDurable(e);
       },
       onStatus: (s) => {
