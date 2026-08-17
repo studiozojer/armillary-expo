@@ -33,6 +33,12 @@ export const KNOWN_HOSTS: Host[] = [
     inboxUrl: 'http://100.125.8.21:7777',
   },
   {
+    id: 'delos',
+    label: 'delos',
+    daemonUrl: 'http://100.127.190.114:7778',
+    inboxUrl: 'http://100.127.190.114:7777',
+  },
+  {
     id: 'localhost',
     label: 'localhost (simulator)',
     daemonUrl: 'http://127.0.0.1:7778',
