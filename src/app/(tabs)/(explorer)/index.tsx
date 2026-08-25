@@ -4,6 +4,7 @@ import { useCallback } from 'react';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 
 import { ChromeZone } from '@/components/chrome-zone';
+import { HostHeader } from '@/components/host-header';
 import { TreeList } from '@/components/tree-list';
 import { Box, CircleButton, Screen, Text as UIText } from '@/components/ui';
 import { daemonClientFor } from '@/lib/daemon/client';
@@ -169,8 +170,9 @@ export default function Explorer() {
         refreshing={refreshing}
         onRefresh={refresh}
         header={
-          <Box style={{ paddingTop: theme.space.md, paddingBottom: theme.space.md }}>
-            <UIText variant="display">{host.label}</UIText>
+          // The same header Instances wears (`host-header.tsx`); this tab's
+          // second line is the composition, which only it fetches.
+          <HostHeader label={host.label}>
             {/* Where the old three-section view survives: composition summary
                 and protocol load-timings, one tap away rather than gone. */}
             <Link href="/composition" asChild>
@@ -185,7 +187,7 @@ export default function Explorer() {
                 </UIText>
               </Pressable>
             </Link>
-          </Box>
+          </HostHeader>
         }
       />
     </Screen>
