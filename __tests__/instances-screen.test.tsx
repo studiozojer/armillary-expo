@@ -318,6 +318,57 @@ describe('Instances list screen', () => {
     expect(screen.getByRole('button', { name: 'Settings' })).toBeTruthy();
   });
 
+  it('names the machine serving the list, on both states', async () => {
+    mockApi = makeMockApi({ list: jest.fn(async () => [instanceFor('inst-1', 'tycho')]) });
+    await renderRouter(routes, { initialUrl: '/' });
+    expect(await screen.findByText('tycho')).toBeTruthy();
+    expect(screen.getByText('benatky')).toBeTruthy();
+    await act(async () => cleanup());
+
+    mockApi = makeMockApi({
+      list: jest.fn(async () => {
+        throw new Error('unreachable');
+      }),
+    });
+    await renderRouter(routes, { initialUrl: '/' });
+    expect(await screen.findByText("Can't reach the engine")).toBeTruthy();
+    expect(screen.getByText('benatky')).toBeTruthy();
+  });
+
+  it('names the STORED host, not the build default', async () => {
+    await AsyncStorage.setItem('armillary.selectedHostId', 'stjerneborg');
+    mockApi = makeMockApi({ list: jest.fn(async () => []) });
+
+    await renderRouter(routes, { initialUrl: '/' });
+
+    expect(await screen.findByText('stjerneborg')).toBeTruthy();
+    expect(screen.queryByText('benatky')).toBeNull();
+  });
+
+  /**
+   * Before the stored host hydrates, `useHost()` answers with the build's
+   * first known host — the same interval the list fetch is already gated on
+   * (`ready`). A header drawn from that provisional value would flash the
+   * wrong machine's name on every cold launch of a phone pinned elsewhere,
+   * so the gate applies to the name as well as the fetch. Pinned by holding
+   * hydration open: the chrome is there, the name is not.
+   */
+  it('names no machine before the stored host has hydrated', async () => {
+    // `Once`, deliberately: the mock module's `getItem` is already a
+    // `jest.fn`, so `spyOn` hands it back unwrapped and a plain
+    // `mockImplementation` would hold hydration open for every test after
+    // this one (it did — eleven of them). Hydration reads the key exactly
+    // once per mount, so one held call is the whole gate.
+    jest.mocked(AsyncStorage.getItem).mockImplementationOnce(() => new Promise(() => {}));
+    mockApi = makeMockApi({ list: jest.fn(async () => []) });
+
+    await renderRouter(routes, { initialUrl: '/' });
+
+    expect(await screen.findByRole('button', { name: 'Settings' })).toBeTruthy();
+    expect(screen.queryByText('benatky')).toBeNull();
+    expect(screen.queryByText('localhost (simulator)')).toBeNull();
+  });
+
   it('the overflow is announced disabled', async () => {
     const list = jest.fn(async () => [instanceFor('inst-1', 'tycho')]);
     mockApi = makeMockApi({ list });

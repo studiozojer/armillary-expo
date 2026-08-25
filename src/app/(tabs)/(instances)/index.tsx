@@ -4,6 +4,7 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 import { ActionSheetIOS, ActivityIndicator, Alert, FlatList, Platform, Pressable, Text } from 'react-native';
 
 import { ChromeZone } from '@/components/chrome-zone';
+import { HostHeader } from '@/components/host-header';
 import { InstanceCard } from '@/components/instance-card';
 // Resolves to `instance-filter.ios.tsx` / `.android.tsx` — the extension is
 // deliberately absent. The split exists because `@expo/ui/swift-ui` is an
@@ -190,6 +191,12 @@ export default function Instances() {
         trailing={<CircleButton testID="more-stub" icon="more" accessibilityLabel="More" disabled />}
       />
       <Box px="lg" style={{ paddingBottom: theme.space.md }}>
+        {/* Gated on `ready` like the fetch above it: until the stored host
+            hydrates, `host` is the build's first known machine, and a name
+            drawn from that would flash the wrong host on every cold launch of
+            a phone pinned elsewhere. Explorer never had this problem only
+            because its header lives in the data state, behind the same gate. */}
+        {ready ? <HostHeader label={host.label} /> : null}
         <CreatePill disabled={state.status === 'error'} />
       </Box>
     </>
