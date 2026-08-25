@@ -55,6 +55,22 @@ jest.mock('react-native-drawer-layout', () => {
   };
 });
 
+// expo-notifications reaches its native module on import, same shape as the
+// stores below — without this, every suite that renders Settings (which now
+// mounts the push-doorbell section) or the root layout (which installs the
+// foreground handler at module scope) dies on the missing binding.
+//
+// Defaults are the QUIETEST honest state: permission undetermined, so screens
+// render the enable prompt and fire no token fetch on mount. Tests that need
+// the granted path override these fns per-test (`jest.requireMock`), the same
+// pattern the secure-store mock's seedable map exists for.
+jest.mock('expo-notifications', () => ({
+  setNotificationHandler: jest.fn(),
+  getPermissionsAsync: jest.fn(async () => ({ status: 'undetermined' })),
+  requestPermissionsAsync: jest.fn(async () => ({ status: 'denied' })),
+  getExpoPushTokenAsync: jest.fn(async () => ({ data: 'ExponentPushToken[jest]' })),
+}));
+
 // expo-secure-store reaches for the Keychain through a native binding that
 // does not exist under jest. Same treatment as AsyncStorage above, and for the
 // same reason: without it every suite that renders a screen fails, because the

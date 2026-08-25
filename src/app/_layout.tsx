@@ -7,6 +7,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { PanelHost } from '@/components/panel-host';
 import { AuthProvider } from '@/lib/auth/auth-context';
+import { installForegroundHandler } from '@/lib/notifications';
 import { PanelProvider } from '@/lib/panel-context';
 import { HostProvider } from '@/lib/host-context';
 import { PreferencesProvider } from '@/lib/preferences';
@@ -16,6 +17,11 @@ import { splashReady } from '@/theme/splash';
 import { ThemeModeProvider } from '@/theme/theme-context';
 
 SplashScreen.preventAutoHideAsync();
+
+// Module scope beside the splash hold, and for the same reason: both must be
+// in place before the first frame, not after some screen happens to mount.
+// Without a handler iOS drops a push that arrives while the app is foregrounded.
+installForegroundHandler();
 
 /**
  * The navigation chrome, themed from the same tokens as the content.

@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "Armillary",
-    "slug": "armillary-expo",
+    "slug": "armillary",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -39,11 +39,17 @@
         }
       ],
       "./plugins/with-signing",
-      "expo-secure-store"
+      "expo-secure-store",
+      "expo-notifications"
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "eas": {
+        "projectId": "fecc45f8-8122-4c52-a189-e53c3070826b"
+      }
     }
   }
 }

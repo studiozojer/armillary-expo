@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
 
 import { DeviceEnrollment } from '@/components/device-enrollment';
+import { PushDoorbell } from '@/components/push-doorbell';
 import { Box, Button, Icon, Inline, Screen, SectionHeader, Stack as UIStack, Text } from '@/components/ui';
 import { getAgentConsent, setAgentConsent, type AgentConsent, type AgentConsentKey } from '@/lib/agent-permissions';
 import { useAuth } from '@/lib/auth/auth-context';
@@ -71,6 +72,14 @@ export default function Settings() {
         </Box>
         <DeviceEnrollment host={host} />
         <EnrollmentFacts facts={facts} />
+
+        {/* Device-scoped like enrollment above, but host-agnostic: the Expo
+            push token names this phone, not a machine, so it sits outside the
+            host list and survives switching hosts. */}
+        <Box style={{ paddingTop: theme.space.lg }}>
+          <SectionHeader>Notifications</SectionHeader>
+        </Box>
+        <PushDoorbell />
 
         <Box style={{ paddingTop: theme.space.lg }}>
           <SectionHeader>Agent permissions</SectionHeader>
