@@ -277,9 +277,9 @@ export function useSession(
         // forever. Same fix as `archived` above: fold the event into the record
         // so the header re-renders with the live title.
         if (e.type === 'instance_renamed') {
-          const data = e.data as { title?: unknown };
-          if (typeof data.title === 'string') {
-            setInstance((prev) => (prev ? { ...prev, title: data.title } : prev));
+          const { title } = e.data as { title?: unknown };
+          if (typeof title === 'string') {
+            setInstance((prev) => (prev ? { ...prev, title } : prev));
           }
         }
         insertDurable(e);
