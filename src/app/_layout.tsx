@@ -10,6 +10,7 @@ import { AuthProvider } from '@/lib/auth/auth-context';
 import { installForegroundHandler } from '@/lib/notifications';
 import { PanelProvider } from '@/lib/panel-context';
 import { HostProvider } from '@/lib/host-context';
+import { PushDeepLinkHandler } from '@/lib/push-deep-link';
 import { PreferencesProvider } from '@/lib/preferences';
 import { navThemeFor, useTheme } from '@/theme';
 import { fontMap } from '@/theme/fonts.gen';
@@ -108,6 +109,10 @@ export default function RootLayout() {
                   CONTENT scoped to the screen that registers it while its
                   machinery is necessarily global — see `lib/panel-context`. */}
               <PanelProvider>
+                {/* Inside HostProvider because a tapped push names the machine
+                    its file lives on and must switch to it before navigating;
+                    renders nothing. */}
+                <PushDeepLinkHandler />
                 <PanelHost>
               <Stack>
                 <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
