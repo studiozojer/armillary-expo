@@ -1,5 +1,5 @@
 import { useFonts } from 'expo-font';
-import { ObserveRoot } from 'expo-observe';
+import { Observe, ObserveRoot } from 'expo-observe';
 import { ThemeProvider } from 'expo-router/react-navigation';
 import { Stack } from 'expo-router/stack';
 import * as SplashScreen from 'expo-splash-screen';
@@ -25,6 +25,15 @@ SplashScreen.preventAutoHideAsync();
 // in place before the first frame, not after some screen happens to mount.
 // Without a handler iOS drops a push that arrives while the app is foregrounded.
 installForegroundHandler();
+
+// Module scope for the same reason as the handler above: the integration has to
+// be registered before the router emits its first state change, and that happens
+// before any component mounts. Without this call `ObserveRoot.wrap()` still
+// records app-level TTR and one global TTI, but no per-route `cold_ttr`,
+// `warm_ttr`, or route-scoped `tti` is emitted and `eas observe:routes` stays
+// empty — the metrics silently degrade rather than failing, so the absence does
+// not announce itself.
+Observe.configure({ integrations: { 'expo-router': true } });
 
 /**
  * The navigation chrome, themed from the same tokens as the content.
