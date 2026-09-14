@@ -1,10 +1,12 @@
 import { useFonts } from 'expo-font';
+import { ObserveRoot } from 'expo-observe';
 import { ThemeProvider } from 'expo-router/react-navigation';
 import { Stack } from 'expo-router/stack';
 import * as SplashScreen from 'expo-splash-screen';
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
+import { ObserveStartup } from '@/components/observe-startup';
 import { PanelHost } from '@/components/panel-host';
 import { AuthProvider } from '@/lib/auth/auth-context';
 import { installForegroundHandler } from '@/lib/notifications';
@@ -58,7 +60,8 @@ function NavigationChrome({ children }: { children: ReactNode }) {
  * of both kinds of screen that leave the tabs behind — the shared modal, and
  * the pushed destination.
  */
-export default function RootLayout() {
+function RootLayout() {
+  const [splashHidden, setSplashHidden] = useState(false);
   const [fontsLoaded, fontError] = useFonts(fontMap);
 
   // useFonts never reports loaded=true on failure — it sets fontError and
@@ -77,7 +80,10 @@ export default function RootLayout() {
   useEffect(() => {
     if (!ready) return;
     if (fontError) console.warn('Studio fonts failed to load; rendering in system fonts.', fontError);
-    void SplashScreen.hideAsync();
+    void SplashScreen.hideAsync().then(
+      () => setSplashHidden(true),
+      (error: unknown) => console.warn('Could not dismiss the splash screen.', error),
+    );
   }, [ready, fontError]);
 
   // Render nothing until the faces are registered (or have failed to load —
@@ -102,6 +108,7 @@ export default function RootLayout() {
               machine authenticates against nothing on another. This reads
               the selected host and re-hydrates when it changes. */}
           <AuthProvider>
+            <ObserveStartup splashHidden={splashHidden} />
             <PreferencesProvider>
               {/* The panel wraps the Stack rather than living inside a screen,
                   because covering the header is the point and only something
@@ -148,3 +155,5 @@ export default function RootLayout() {
     </GestureHandlerRootView>
   );
 }
+
+export default ObserveRoot.wrap(RootLayout);

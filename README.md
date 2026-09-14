@@ -54,3 +54,13 @@ Join our community of developers creating universal apps.
 
 - [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
 - [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+
+## EAS Observe
+
+`expo-observe` collects native startup metrics for the existing EAS project. `ObserveRoot` wraps the root layout; time to interactive is marked after fonts have loaded (or fallen back), the splash has dismissed, and the selected host and enrollment state have been restored. This measures usable app navigation and enrollment controls, not completion of remote screen requests. Route metrics and custom events are not enabled.
+
+Release builds send metrics using Observe's defaults; debug builds do not send them. The web implementation does not dispatch telemetry. No additional API key is needed.
+
+This dependency adds native code: install dependencies and create a fresh native build before running the updated JavaScript. EAS Build regenerates the ignored native projects; a local iOS build must regenerate native code and install pods. An OTA update or Metro reload cannot add Observe to an older binary.
+
+After installing and opening a release build, view startup metrics under the project's **Observe** tab in the EAS dashboard. Receiving the first metrics requires running that new binary; typechecking and bundling alone do not verify ingestion. See the [Observe setup guide](https://docs.expo.dev/eas/observe/get-started/).
