@@ -194,3 +194,30 @@ export type ModelCatalog = {
   default: string | null;
   models: ModelEntry[];
 };
+
+/**
+ * One arrival in a machine's tray — a pointer written by whoever rang a bell
+ * about an artifact, never the artifact itself. `path` resolves through
+ * `/file` on the machine that wrote it (`host`), which is why the tray screen
+ * switches host before opening one. Anything else the ringer wrote (the
+ * augur's `event_count`, say) rides along untyped.
+ */
+export type TrayEntry = {
+  /** The entry's file, relative to that machine's root. */
+  id: string;
+  sender: string;
+  kind: string;
+  /** RFC 3339, as the ringer wrote it. */
+  created_at: string;
+  summary: string;
+  path: string;
+  host?: string;
+  date?: string;
+  [extra: string]: unknown;
+};
+
+export type Tray = {
+  entries: TrayEntry[];
+  /** Files in the tray directory the engine could not read as entries. */
+  skipped: number;
+};

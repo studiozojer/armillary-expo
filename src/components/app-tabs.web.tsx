@@ -29,6 +29,9 @@ export default function AppTabs() {
           <TabTrigger name="(explorer)" href="/(tabs)/(explorer)" asChild>
             <TabButton>Explorer</TabButton>
           </TabTrigger>
+          <TabTrigger name="(tray)" href="/(tabs)/(tray)" asChild>
+            <TabButton>Tray</TabButton>
+          </TabTrigger>
         </TabBar>
       </TabList>
     </Tabs>
