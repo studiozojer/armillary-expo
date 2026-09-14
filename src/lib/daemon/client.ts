@@ -10,6 +10,7 @@ import {
   type ModelCatalog,
   type RepoState,
   type ReposResponse,
+  type Tray,
   type TreeResponse,
   type VoicenoteIndex,
   type WhoamiResponse,
@@ -92,6 +93,11 @@ export class DaemonClient {
 
   getFile(path: string, signal?: AbortSignal): Promise<FileResponse> {
     return this.get<FileResponse>(`/file?path=${encodeURIComponent(path)}`, signal);
+  }
+
+  /** The machine-local feed of arrivals — pointers, not artifacts. */
+  getTray(signal?: AbortSignal): Promise<Tray> {
+    return this.get<Tray>('/tray', signal);
   }
 
   getVoicenotes(signal?: AbortSignal): Promise<VoicenoteIndex> {

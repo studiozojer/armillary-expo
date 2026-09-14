@@ -4,7 +4,7 @@ import { families } from '@/theme/fonts.gen';
 import { useTheme } from '@/theme';
 
 /**
- * Two tabs, each a route group with its own Stack.
+ * Three tabs, each a route group with its own Stack.
  *
  * The trigger names must be the group directories — a trigger is not a
  * navigator, it selects one. Screens pushed from a tab live inside that tab's
@@ -41,6 +41,11 @@ export default function AppTabs() {
       <NativeTabs.Trigger name="(explorer)">
         <NativeTabs.Trigger.Icon sf="globe.desk.fill" md="public" />
         <NativeTabs.Trigger.Label>Explorer</NativeTabs.Trigger.Label>
+      </NativeTabs.Trigger>
+
+      <NativeTabs.Trigger name="(tray)">
+        <NativeTabs.Trigger.Icon sf={{ default: 'tray', selected: 'tray.fill' }} md="inbox" />
+        <NativeTabs.Trigger.Label>Tray</NativeTabs.Trigger.Label>
       </NativeTabs.Trigger>
     </NativeTabs>
   );

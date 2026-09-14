@@ -35,6 +35,13 @@ function clientWithScriptedFetch(calls: { url: string; init?: RequestInit }[], b
 }
 
 describe('DaemonClient', () => {
+  it('reads the tray from /tray', async () => {
+    const tray = { entries: [], skipped: 0 };
+    const fetcher = mockFetch(200, tray);
+    await expect(clientWith(fetcher).getTray()).resolves.toEqual(tray);
+    expect(fetcher).toHaveBeenCalledWith('http://host:7778/tray', { signal: undefined });
+  });
+
   it('encodes the path so spaces and slashes survive the query string', async () => {
     const fetcher = mockFetch(200, { path: 'a b/c', entries: [] });
     await clientWith(fetcher).getTree('a b/c');
