@@ -235,7 +235,7 @@ export function ModuleList({
               </Text>
             ) : null}
           </Box>
-        ) : null
+        ) : undefined
       }
     />
   );

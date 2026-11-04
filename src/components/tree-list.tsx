@@ -105,7 +105,7 @@ export function TreeList({
               {footerText}
             </Text>
           </Box>
-        ) : null
+        ) : undefined
       }
       ListEmptyComponent={
         <Box px="lg" style={{ paddingTop: theme.space.lg }}>

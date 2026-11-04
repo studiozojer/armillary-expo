@@ -40,7 +40,7 @@ module.exports = {
   // Some form of it is not optional: without it every test that renders a
   // component fails, because `useTheme` reaches `theme-context`, which imports
   // AsyncStorage.
-  setupFiles: ['<rootDir>/jest.setup.js'],
+  setupFiles: ['react-native-gesture-handler/jestSetup', '<rootDir>/jest.setup.js'],
   modulePathIgnorePatterns: ['<rootDir>/.worktrees/'],
   transformIgnorePatterns: [
     presetAllowlist.replace(/\)\)$/, `|${extraTransformedPackages.join('|')}))`),

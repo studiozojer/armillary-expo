@@ -1,10 +1,10 @@
-import { View, type FlexStyle, type StyleProp, type ViewStyle } from 'react-native';
+import { View, type StyleProp, type ViewStyle } from 'react-native';
 
 import { useTheme, type Space } from '@/theme';
 
 type Common = {
   gap?: Space;
-  align?: FlexStyle['alignItems'];
+  align?: ViewStyle['alignItems'];
   flex?: number;
   testID?: string;
   style?: StyleProp<ViewStyle>;
@@ -40,7 +40,7 @@ export function Inline({
   testID,
   style,
   children,
-}: Common & { justify?: FlexStyle['justifyContent'] }) {
+}: Common & { justify?: ViewStyle['justifyContent'] }) {
   const theme = useTheme();
   return (
     <View

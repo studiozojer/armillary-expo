@@ -1,7 +1,10 @@
-import { render } from '@testing-library/react-native';
+import { render as baseRender } from '@testing-library/react-native';
 import { Text } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { MessageTable } from '../src/components/message-table';
+
+const render: typeof baseRender = (ui, options) => baseRender(ui, { wrapper: GestureHandlerRootView, ...options });
 
 const cell = (t: string) => [<Text key={t}>{t}</Text>];
 
