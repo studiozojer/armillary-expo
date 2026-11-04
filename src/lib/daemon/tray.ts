@@ -84,7 +84,7 @@ export async function fetchAllTrays(
 export function resolveTrayOpen(args: {
   entry: Arrival;
   currentHostId: string;
-}): { href: string; switchToHostId?: string } {
+}): { href: `/browse/${string}`; switchToHostId?: string } {
   const { entry, currentHostId } = args;
   const target = hostByName(entry.host)?.id ?? entry.hostId;
   return {

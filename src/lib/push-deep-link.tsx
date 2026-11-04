@@ -72,7 +72,7 @@ export function resolveDeepLink(args: {
   notificationId: string;
   handledId: string | null;
   currentHostId: string;
-}): { href: string; switchToHostId?: string; notificationId: string } | null {
+}): { href: `/browse/${string}`; switchToHostId?: string; notificationId: string } | null {
   const { data, navReady, notificationId, handledId, currentHostId } = args;
   if (!navReady) return null;
   if (handledId === notificationId) return null;
