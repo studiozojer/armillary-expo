@@ -92,7 +92,7 @@ export default function TrayScreen() {
                   Not answering: {unreachable}
                 </Text>
               </Box>
-            ) : null
+            ) : undefined
           }
         />
       )}

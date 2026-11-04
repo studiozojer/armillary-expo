@@ -132,7 +132,7 @@ describe('Create from the sheet, then back', () => {
 
     await renderRouter(routes, { initialUrl: '/' });
 
-    fireEvent.press(await screen.findByTestId('create-pill'));
+    await fireEvent.press(await screen.findByTestId('create-pill'));
     await screen.findByText('Dispatcher');
 
     await fireEvent.press(screen.getByText('Create'));
@@ -151,7 +151,7 @@ describe('Create from the sheet, then back', () => {
     // `screen.getPathnameWithParams is not a function`, which reads like a
     // version mismatch and is not one. Asserting on what is actually on screen
     // is the better test regardless — it is the thing a person would see.
-    testRouter.back();
+    await testRouter.back();
 
     // The list, by its own affordance.
     expect(await screen.findByTestId('create-pill')).toBeTruthy();

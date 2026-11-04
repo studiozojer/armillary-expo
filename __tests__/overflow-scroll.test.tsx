@@ -1,7 +1,10 @@
-import { act, render, type RenderResult } from '@testing-library/react-native';
+import { act, render as baseRender, type RenderResult } from '@testing-library/react-native';
 import { Dimensions, Text } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { OverflowScroll } from '../src/components/overflow-scroll';
+
+const render: typeof baseRender = (ui, options) => baseRender(ui, { wrapper: GestureHandlerRootView, ...options });
 
 // NOTE (see markdown-view.test.tsx / message-markdown.test.tsx): RNTL v14
 // made `render` async and dropped `UNSAFE_getByType` entirely — queries now
